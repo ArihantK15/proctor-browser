@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly — Live Mission Control</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #13131b;
+            color: #e4e1ed;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .risk-red-glow {
+            box-shadow: 0 0 15px -2px rgba(239, 68, 68, 0.4);
+            border-color: #ef4444 !important;
+        }
+        .risk-amber-glow {
+            box-shadow: 0 0 15px -2px rgba(245, 158, 11, 0.3);
+            border-color: #f59e0b !important;
+        }
+        .risk-emerald-glow {
+            box-shadow: 0 0 15px -2px rgba(16, 185, 129, 0.2);
+            border-color: #10b981 !important;
+        }
+        .glass-blur {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        @keyframes pulse-soft {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .pulse-dot {
+            animation: pulse-soft 2s infinite ease-in-out;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #13131b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 10px;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "tertiary-fixed": "#ffdeaa",
+                      "secondary-fixed": "#83fc89",
+                      "primary-container": "#8083ff",
+                      "on-primary-container": "#0d0096",
+                      "on-background": "#e4e1ed",
+                      "inverse-surface": "#e4e1ed",
+                      "surface-container": "#1f1f27",
+                      "tertiary-container": "#bd8708",
+                      "on-tertiary": "#422c00",
+                      "on-primary": "#1000a9",
+                      "surface-container-high": "#292932",
+                      "surface-container-lowest": "#0d0d15",
+                      "inverse-primary": "#494bd6",
+                      "error-container": "#93000a",
+                      "inverse-on-surface": "#303038",
+                      "surface": "#13131b",
+                      "surface-tint": "#c0c1ff",
+                      "primary-fixed": "#e1e0ff",
+                      "error": "#ffb4ab",
+                      "on-tertiary-container": "#392600",
+                      "surface-dim": "#13131b",
+                      "outline-variant": "#464554",
+                      "on-surface": "#e4e1ed",
+                      "on-secondary": "#00390d",
+                      "surface-container-low": "#1b1b23",
+                      "on-primary-fixed-variant": "#2f2ebe",
+                      "primary-fixed-dim": "#c0c1ff",
+                      "secondary-fixed-dim": "#67df70",
+                      "on-secondary-fixed": "#002105",
+                      "primary": "#c0c1ff",
+                      "surface-bright": "#393841",
+                      "tertiary": "#fabc45",
+                      "secondary": "#67df70",
+                      "on-error": "#690005",
+                      "tertiary-fixed-dim": "#fabc45",
+                      "surface-variant": "#34343d",
+                      "on-surface-variant": "#c7c4d7",
+                      "on-secondary-container": "#00320a",
+                      "secondary-container": "#27a640",
+                      "background": "#13131b",
+                      "surface-container-highest": "#34343d",
+                      "on-secondary-fixed-variant": "#005317",
+                      "on-tertiary-fixed": "#271900",
+                      "on-primary-fixed": "#07006c",
+                      "on-tertiary-fixed-variant": "#5f4100",
+                      "on-error-container": "#ffdad6",
+                      "outline": "#908fa0"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "xs": "8px",
+                      "lg": "24px",
+                      "margin-mobile": "16px",
+                      "margin-desktop": "32px",
+                      "xl": "32px",
+                      "md": "16px",
+                      "base": "4px",
+                      "sm": "12px",
+                      "gutter": "20px"
+              },
+              "fontFamily": {
+                      "data-mono": ["JetBrains Mono"],
+                      "headline-md": ["Inter"],
+                      "body-base": ["Inter"],
+                      "body-sm": ["Inter"]
+              },
+              "fontSize": {
+                      "data-mono": ["13px", {"lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                      "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                      "body-base": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+              }
+            },
+          },
+        }
+      </script>
+</head>
+<body class="flex min-h-screen">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-screen w-[260px] bg-surface border-r border-[#30363d] flex flex-col py-lg z-50">
+<div class="px-lg mb-xl">
+<h1 class="font-headline-md text-headline-md font-bold text-primary">Proctorly</h1>
+<p class="text-on-surface-variant text-body-sm opacity-70">Mission Control</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-base">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="assignment">assignment</span>
+<span class="font-body-base">Exams</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="quiz">quiz</span>
+<span class="font-body-base">Questions</span>
+</a>
+<!-- Active Nav Item -->
+<a class="flex items-center gap-3 px-4 py-3 border-l-4 border-primary bg-primary-container/10 text-primary font-bold" href="#">
+<span class="material-symbols-outlined" data-icon="visibility">visibility</span>
+<span class="font-body-base">Live Monitor</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-body-base">Results</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span class="font-body-base">Students</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="extension">extension</span>
+<span class="font-body-base">Integrations</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body-base">Settings</span>
+</a>
+</nav>
+<div class="px-lg mt-auto pt-lg">
+<button class="w-full py-3 px-4 bg-primary text-on-primary font-bold rounded-lg mb-6 hover:opacity-90 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[20px]" data-icon="add">add</span>
+                Create New Exam
+            </button>
+<div class="p-sm bg-surface-container rounded-xl border border-[#30363d] flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px] text-on-tertiary" data-icon="diamond">diamond</span>
+</div>
+<span class="text-body-sm font-semibold">Growth Plan</span>
+</div>
+<span class="text-[10px] uppercase font-bold tracking-widest text-primary">Active</span>
+</div>
+</div>
+</aside>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 left-[260px] h-16 bg-surface/80 glass-blur border-b border-[#30363d] shadow-sm z-40 px-margin-desktop flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 px-4 py-1.5 bg-surface-container-high rounded-full border border-[#30363d] cursor-pointer hover:bg-surface-variant transition-all">
+<span class="w-2 h-2 rounded-full bg-secondary pulse-dot"></span>
+<span class="text-body-sm font-medium">Active exam: <span class="font-bold">Physics Midterm</span> · May 12, 10:00</span>
+<span class="material-symbols-outlined text-[18px]" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<div class="flex items-center gap-sm">
+<div class="relative group">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all rounded-full hover:bg-surface-container">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</button>
+</div>
+<div class="relative group">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all rounded-full hover:bg-surface-container relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-1 right-1 w-4 h-4 bg-error text-on-error text-[10px] font-bold rounded-full flex items-center justify-center">6</span>
+</button>
+</div>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all rounded-full hover:bg-surface-container">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<div class="h-8 w-[1px] bg-[#30363d] mx-2"></div>
+<div class="flex items-center gap-3 pl-2">
+<div class="text-right">
+<p class="text-body-sm font-bold leading-none">Dr. Sarah C.</p>
+<p class="text-[10px] text-on-surface-variant">System Admin</p>
+</div>
+<div class="w-10 h-10 rounded-lg overflow-hidden border border-[#30363d]">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of a female professor with a confident expression, wearing a tailored navy blazer. The background is a clean, modern educational setting with warm lighting and soft-focus bookshelves. High-end professional portrait style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC_gPxecUUyfBtp7BvPC--IVpASo_zE4fEV4T1WrQOs5B_Q6VOVwgkZon1AQu6Kw3NqXXfhbC4KH8KKIDhUeMJea_dgrEpdnXLr-jo_yKWsNBUTWoU6tihN858DL55AqJBgSwEWRlXL1MjshVLYzJlpqMVP0KmV5h9onp8ewFwmvAobxbHcMoCdSVurDVrA2nrgVkKfteBAMCcpGmQTMDCYK7m4vBFdOgMH5OV6WBQCjGMiX9BixnlTQoTqkfYUhvNns8ggKsqAqcPR"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="ml-[260px] mt-16 p-margin-desktop flex-1">
+<!-- Stat Row -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-lg mb-lg">
+<div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-primary/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Active Students</p>
+<div class="flex items-end gap-3">
+<h2 class="text-headline-md font-bold">42</h2>
+<div class="flex items-center gap-1 mb-1.5 text-secondary">
+<span class="w-2 h-2 rounded-full bg-secondary pulse-dot"></span>
+<span class="text-[12px] font-bold">LIVE</span>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
+<div class="w-full h-full flex items-end gap-1">
+<div class="w-full h-[20%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[40%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[35%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[60%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[80%] bg-secondary/30 rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-secondary/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Avg Risk Score</p>
+<div class="flex items-end gap-3">
+<h2 class="text-headline-md font-bold text-secondary">18/100</h2>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
+<div class="w-full h-full flex items-end gap-1">
+<div class="w-full h-[10%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[15%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[12%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[14%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[10%] bg-secondary/30 rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-tertiary/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Flagged Actions</p>
+<div class="flex items-end gap-3">
+<h2 class="text-headline-md font-bold text-tertiary">6</h2>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
+<div class="w-full h-full flex items-end gap-1">
+<div class="w-full h-[5%] bg-tertiary/30 rounded-t-sm"></div>
+<div class="w-full h-[10%] bg-tertiary/30 rounded-t-sm"></div>
+<div class="w-full h-[30%] bg-tertiary/30 rounded-t-sm"></div>
+<div class="w-full h-[40%] bg-tertiary/30 rounded-t-sm"></div>
+<div class="w-full h-[20%] bg-tertiary/30 rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-outline/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Completed</p>
+<div class="flex items-end gap-3">
+<h2 class="text-headline-md font-bold text-outline">128</h2>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
+<div class="w-full h-full flex items-end gap-1">
+<div class="w-full h-[70%] bg-outline/20 rounded-t-sm"></div>
+<div class="w-full h-[85%] bg-outline/20 rounded-t-sm"></div>
+<div class="w-full h-[95%] bg-outline/20 rounded-t-sm"></div>
+<div class="w-full h-[100%] bg-outline/20 rounded-t-sm"></div>
+<div class="w-full h-[90%] bg-outline/20 rounded-t-sm"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="flex flex-col lg:flex-row gap-lg h-[calc(100vh-320px)]">
+<!-- Left Side: Live Grid -->
+<div class="flex-1 flex flex-col min-w-0">
+<!-- Filter Bar -->
+<div class="flex items-center justify-between mb-md">
+<div class="flex bg-surface-container border border-[#30363d] p-1 rounded-lg">
+<button class="px-6 py-1.5 text-body-sm font-bold bg-surface-container-highest text-on-surface rounded-md">All</button>
+<button class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Live</button>
+<button class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Flagged</button>
+<button class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Completed</button>
+</div>
+<button class="flex items-center gap-2 px-4 py-2 bg-surface-container border border-[#30363d] rounded-lg text-body-sm font-medium hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-[18px]" data-icon="sort">sort</span>
+                        Sort by risk
+                    </button>
+</div>
+<!-- Cards Grid -->
+<div class="flex-1 overflow-y-auto pr-2 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-md">
+<!-- Student Card 1 -->
+<div class="group relative bg-surface-container-low border border-[#30363d] rounded-xl overflow-hidden hover:border-primary transition-all flex flex-col risk-red-glow">
+<div class="aspect-video relative overflow-hidden bg-black">
+<img class="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-500" data-alt="A slightly pixelated, wide-angle webcam view of a young male student (Aarav S.) in a dark room. The student is looking down toward a glowing phone screen out of sight, but the screen's light is reflected on his face. The room is dimly lit with a blue technical overlay. Dark-mode proctoring software aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDNXyyt0-ragfEjvSQKEQ1Oj4OuCCvBBnbPFjNa1ez8t4WsIxbtSZVLVuQSmtcgMqVea433PcRBw0_-UwmXqH9VNKZ7jOAsajv70I_AANUqkUyLmrLfHpyf6MBzxFg_voRMb3c1BSuRZeduDXDpciY1rVcBsvXCWbGXikKjmwFf8sq136ZjbEhrXNudpw0nWh6wH14exiHYKakWn0bNF1L6U1dgE8obnPS4ukK1wsrOAmNXxfSpr9aQTcsWW-rdLZY-X906IEA70Hk7"/>
+<div class="absolute top-3 left-3 flex gap-1.5">
+<span class="bg-error/90 text-on-error text-[10px] font-black px-2 py-0.5 rounded uppercase">High Risk</span>
+</div>
+<div class="absolute top-3 right-3 flex gap-1">
+<span class="w-8 h-8 rounded-full bg-black/50 glass-blur flex items-center justify-center text-error">
+<span class="material-symbols-outlined text-[16px]" data-icon="phone_iphone">phone_iphone</span>
+</span>
+<span class="w-8 h-8 rounded-full bg-black/50 glass-blur flex items-center justify-center text-error">
+<span class="material-symbols-outlined text-[16px]" data-icon="volume_up">volume_up</span>
+</span>
+</div>
+<!-- Hover Overlay -->
+<div class="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+<button class="px-4 py-2 bg-primary text-on-primary rounded-full font-bold text-body-sm shadow-xl flex items-center gap-2 transform translate-y-4 group-hover:translate-y-0 transition-transform">
+<span class="material-symbols-outlined text-[18px]" data-icon="videocam">videocam</span> Peek
+                                </button>
+<button class="px-4 py-2 bg-surface text-on-surface rounded-full font-bold text-body-sm shadow-xl flex items-center gap-2 transform translate-y-4 group-hover:translate-y-0 transition-transform">
+<span class="material-symbols-outlined text-[18px]" data-icon="chat">chat</span> Message
+                                </button>
+</div>
+</div>
+<div class="p-md">
+<div class="flex justify-between items-start mb-2">
+<div>
+<h3 class="font-bold text-body-base">Aarav S.</h3>
+<p class="font-data-mono text-outline text-[11px]">R012</p>
+</div>
+<div class="text-right">
+<div class="text-[20px] font-black text-error leading-none">82</div>
+<p class="text-[10px] text-outline uppercase tracking-wider font-bold">Risk Level</p>
+</div>
+</div>
+<div class="flex items-center justify-between text-body-sm pt-2 border-t border-[#30363d]/50">
+<span class="text-on-surface-variant">Progress: <span class="font-data-mono text-on-surface">14/20</span></span>
+<div class="w-24 h-1.5 bg-surface rounded-full overflow-hidden">
+<div class="h-full bg-error" style="width: 70%"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Student Card 2 -->
+<div class="group relative bg-surface-container-low border border-[#30363d] rounded-xl overflow-hidden transition-all flex flex-col risk-emerald-glow">
+<div class="aspect-video relative overflow-hidden bg-black">
+<img class="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-500" data-alt="A clean, sharp webcam view of a young female student (Meera K.) focused intently on her computer screen. She is in a well-lit, quiet library-like environment with bookshelves behind her. The image is crisp with realistic colors, representing a low-risk proctoring scenario. Cinematic high-definition quality." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC7WSzZcVvud3duEx1cZtabIrgIgB-lMs2rnwN1nE9ipG7lznnqmBrHKBswVho2I4YkR6P--WeJkJNJbaXnsd_rIGb4Zn49VINMI9UHsiRxz9ZRTJtdqPb6Uqci8_Kex2KtwqfD-Cu_gx4QvQcw_RdHAZCdOdIWXjNsC-lyaZ5aMO6q2dHXJgAY-gcWz6oNBFV3W0oKwuwPamRG6b4WZmnRT9jXR0-N-6rHZnMW4qh9hWRV0ElhkGfbR3Huy2bEvoVaMHW3OigQ_BTI"/>
+<div class="absolute top-3 left-3 flex gap-1.5">
+<span class="bg-secondary/90 text-on-secondary text-[10px] font-black px-2 py-0.5 rounded uppercase">Low Risk</span>
+</div>
+<div class="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+<button class="px-4 py-2 bg-primary text-on-primary rounded-full font-bold text-body-sm shadow-xl flex items-center gap-2 transform translate-y-4 group-hover:translate-y-0 transition-transform">
+<span class="material-symbols-outlined text-[18px]" data-icon="videocam">videocam</span> Peek
+                                </button>
+<button class="px-4 py-2 bg-surface text-on-surface rounded-full font-bold text-body-sm shadow-xl flex items-center gap-2 transform translate-y-4 group-hover:translate-y-0 transition-transform">
+<span class="material-symbols-outlined text-[18px]" data-icon="chat">chat</span> Message
+                                </button>
+</div>
+</div>
+<div class="p-md">
+<div class="flex justify-between items-start mb-2">
+<div>
+<h3 class="font-bold text-body-base">Meera K.</h3>
+<p class="font-data-mono text-outline text-[11px]">R045</p>
+</div>
+<div class="text-right">
+<div class="text-[20px] font-black text-secondary leading-none">12</div>
+<p class="text-[10px] text-outline uppercase tracking-wider font-bold">Risk Level</p>
+</div>
+</div>
+<div class="flex items-center justify-between text-body-sm pt-2 border-t border-[#30363d]/50">
+<span class="text-on-surface-variant">Progress: <span class="font-data-mono text-on-surface">18/20</span></span>
+<div class="w-24 h-1.5 bg-surface rounded-full overflow-hidden">
+<div class="h-full bg-secondary" style="width: 90%"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Student Card 3 -->
+<div class="group relative bg-surface-container-low border border-[#30363d] rounded-xl overflow-hidden transition-all flex flex-col risk-amber-glow">
+<div class="aspect-video relative overflow-hidden bg-black">
+<img class="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-500" data-alt="A webcam capture of a male student (John D.) looking far to the right, away from his monitor, with a suspicious expression. The lighting is slightly uneven, casting shadows on one side of his face. The background is a messy dorm room. Technical overlay highlights his eye movement with a yellow indicator box. Professional proctoring software view." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAFCn462khAAArQbxuKRoFq7bBawEOtHmp58coRv3Yyu1YhIGdaJ7durfNq6FIZIf48Sp9nx36P8N-oSRwa_cr__UVOXl2tpwPfbQFBUBHIbSUoiYABZAl94vWHtauWNxxqn7hQUaRujjaIik11lKfjPbF0O7zCVtPRpnp5IqqdzzLM2QMEwzHY8xPeT-xu4uG6DwJjbK4ymZtDujbbnSGh4vhvmj22jJIbiTWJlDboCPArtJJhzXM8AWR58znrqR_MpW4f7IZQbXdY"/>
+<div class="absolute top-3 left-3 flex gap-1.5">
+<span class="bg-tertiary/90 text-on-tertiary text-[10px] font-black px-2 py-0.5 rounded uppercase">Medium Risk</span>
+</div>
+<div class="absolute top-3 right-3 flex gap-1">
+<span class="w-8 h-8 rounded-full bg-black/50 glass-blur flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[16px]" data-icon="visibility_off">visibility_off</span>
+</span>
+</div>
+<div class="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
+<button class="px-4 py-2 bg-primary text-on-primary rounded-full font-bold text-body-sm shadow-xl flex items-center gap-2 transform translate-y-4 group-hover:translate-y-0 transition-transform">
+<span class="material-symbols-outlined text-[18px]" data-icon="videocam">videocam</span> Peek
+                                </button>
+<button class="px-4 py-2 bg-surface text-on-surface rounded-full font-bold text-body-sm shadow-xl flex items-center gap-2 transform translate-y-4 group-hover:translate-y-0 transition-transform">
+<span class="material-symbols-outlined text-[18px]" data-icon="chat">chat</span> Message
+                                </button>
+</div>
+</div>
+<div class="p-md">
+<div class="flex justify-between items-start mb-2">
+<div>
+<h3 class="font-bold text-body-base">John D.</h3>
+<p class="font-data-mono text-outline text-[11px]">R099</p>
+</div>
+<div class="text-right">
+<div class="text-[20px] font-black text-tertiary leading-none">45</div>
+<p class="text-[10px] text-outline uppercase tracking-wider font-bold">Risk Level</p>
+</div>
+</div>
+<div class="flex items-center justify-between text-body-sm pt-2 border-t border-[#30363d]/50">
+<span class="text-on-surface-variant">Progress: <span class="font-data-mono text-on-surface">10/20</span></span>
+<div class="w-24 h-1.5 bg-surface rounded-full overflow-hidden">
+<div class="h-full bg-tertiary" style="width: 50%"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Feed: Live Violations -->
+<div class="w-full lg:w-[320px] bg-surface-container border border-[#30363d] rounded-xl flex flex-col overflow-hidden">
+<div class="p-md border-b border-[#30363d] flex items-center justify-between">
+<h3 class="font-bold text-body-base flex items-center gap-2">
+<span class="material-symbols-outlined text-error" data-icon="warning">warning</span>
+                        Live Violations
+                    </h3>
+<span class="bg-surface-container-high px-2 py-0.5 rounded text-[10px] font-bold text-outline">LATEST</span>
+</div>
+<div class="flex-1 overflow-y-auto p-2 space-y-2">
+<!-- Violation Item 1 -->
+<div class="p-3 bg-surface-container-high/50 border border-error/30 rounded-lg cursor-pointer hover:bg-surface-container-high transition-all" onclick="toggleDrawer()">
+<div class="flex justify-between items-start mb-1">
+<span class="font-data-mono text-outline text-[11px]">11:42</span>
+<span class="w-2 h-2 rounded-full bg-error shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
+</div>
+<p class="text-body-sm font-bold text-on-surface mb-0.5">Phone detected</p>
+<p class="text-[12px] text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="person">person</span>
+                            Aarav S. (R012)
+                        </p>
+</div>
+<!-- Violation Item 2 -->
+<div class="p-3 bg-surface-container-high/20 border border-[#30363d] rounded-lg cursor-pointer hover:bg-surface-container-high transition-all">
+<div class="flex justify-between items-start mb-1">
+<span class="font-data-mono text-outline text-[11px]">11:41</span>
+<span class="w-2 h-2 rounded-full bg-tertiary shadow-[0_0_8px_rgba(245,158,11,0.6)]"></span>
+</div>
+<p class="text-body-sm font-bold text-on-surface mb-0.5">Looked away 8s</p>
+<p class="text-[12px] text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="person">person</span>
+                            Meera K. (R045)
+                        </p>
+</div>
+<!-- Violation Item 3 -->
+<div class="p-3 bg-surface-container-high/20 border border-[#30363d] rounded-lg cursor-pointer hover:bg-surface-container-high transition-all opacity-70">
+<div class="flex justify-between items-start mb-1">
+<span class="font-data-mono text-outline text-[11px]">11:38</span>
+<span class="w-2 h-2 rounded-full bg-error/50"></span>
+</div>
+<p class="text-body-sm font-bold text-on-surface mb-0.5">Multiple faces</p>
+<p class="text-[12px] text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="person">person</span>
+                            Unknown Entity
+                        </p>
+</div>
+</div>
+<div class="p-md bg-surface border-t border-[#30363d]">
+<button class="w-full py-2 border border-outline/30 rounded-lg text-body-sm font-bold hover:bg-surface-container-high transition-colors">
+                        View Historical Log
+                    </button>
+</div>
+</div>
+</div>
+</main>
+<!-- Evidence Drawer Overlay -->
+<div class="fixed inset-y-0 right-0 w-[450px] bg-surface border-l border-[#30363d] shadow-[-20px_0_40px_rgba(0,0,0,0.5)] transform translate-x-full transition-transform duration-300 z-50 flex flex-col invisible" id="evidenceDrawer">
+<div class="p-lg border-b border-[#30363d] flex items-center justify-between">
+<div>
+<h2 class="font-headline-md text-body-base font-bold">Evidence Report</h2>
+<p class="text-outline text-body-sm">Case ID: #EV-99021-AS</p>
+</div>
+<button class="p-2 hover:bg-surface-container rounded-full" onclick="toggleDrawer()">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto p-lg space-y-lg">
+<section>
+<h4 class="text-label-caps text-on-surface-variant mb-md uppercase tracking-widest font-bold text-[11px]">Flagged Snapshot</h4>
+<div class="rounded-xl overflow-hidden border-2 border-error">
+<img class="w-full h-auto" data-alt="A high-resolution forensic screenshot of a student's webcam feed. A bright red bounding box is drawn around a smartphone being held just below the student's chin. Text labels like 'Object: Smartphone (98% Confidence)' are overlaid in a technical font. The student's face is illuminated by the phone's glow in a dark room. Detailed security analysis aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCtiKUMx4ObZUhW76sBFSVhHBN-OJ6mWnWVESsTejcgl-rlB2HWnZ1Lpu5sgk8l2zya53Z_nj2S0S9LXm-DBO27PMbSVZnLAySSfLitk66f1Mt9hyPucCBgryEew5OoeuioahWjEPSqVv3PFHJBrgPxiE9dkACszPaQtl6vgyI2Z6Crtm-H0EEG1gwJQEe-jZuMKgnszNaV_tDvrpMKMFxqz05JtuUl7uC8JafkVRMn_N7uHgzd4K9HPUzMibKkUKapdCk7sPaj1FGy"/>
+</div>
+<div class="mt-sm p-sm bg-error-container/20 rounded-lg flex items-center gap-3">
+<span class="material-symbols-outlined text-error" data-icon="error">error</span>
+<p class="text-body-sm font-medium text-error">Critical Severity: Manual Intervention Required</p>
+</div>
+</section>
+<section>
+<h4 class="text-label-caps text-on-surface-variant mb-md uppercase tracking-widest font-bold text-[11px]">Risk Breakdown</h4>
+<div class="space-y-sm">
+<div class="flex items-center justify-between p-sm bg-surface-container-high rounded-lg border border-[#30363d]">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-outline" data-icon="earbuds">earbuds</span>
+<span class="text-body-sm">Wireless Earphone Detected</span>
+</div>
+<span class="font-data-mono text-error">+0.72</span>
+</div>
+<div class="flex items-center justify-between p-sm bg-surface-container-high rounded-lg border border-[#30363d]">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-outline" data-icon="person_search">person_search</span>
+<span class="text-body-sm">Eye Gaze Deviation (12s)</span>
+</div>
+<span class="font-data-mono text-tertiary">+0.15</span>
+</div>
+<div class="flex items-center justify-between p-sm bg-surface-container-high rounded-lg border border-[#30363d]">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-outline" data-icon="keyboard">keyboard</span>
+<span class="text-body-sm">Irregular Keystroke Pattern</span>
+</div>
+<span class="font-data-mono text-secondary">+0.05</span>
+</div>
+</div>
+</section>
+<section class="bg-surface-container p-md rounded-xl border border-[#30363d]">
+<h4 class="text-label-caps text-on-surface-variant mb-sm uppercase tracking-widest font-bold text-[11px]">Proctor Action</h4>
+<textarea class="w-full bg-background border border-[#30363d] rounded-lg p-sm text-body-sm focus:border-primary outline-none h-24 mb-md" placeholder="Add incident notes..."></textarea>
+<div class="flex gap-2">
+<button class="flex-1 py-2 bg-error text-on-error font-bold rounded-lg text-body-sm">Terminate Exam</button>
+<button class="flex-1 py-2 bg-primary text-on-primary font-bold rounded-lg text-body-sm">Issue Warning</button>
+</div>
+</section>
+</div>
+</div>
+<script>
+        function toggleDrawer() {
+            const drawer = document.getElementById('evidenceDrawer');
+            if (drawer.classList.contains('translate-x-full')) {
+                drawer.classList.remove('translate-x-full', 'invisible');
+                drawer.classList.add('translate-x-0', 'visible');
+            } else {
+                drawer.classList.add('translate-x-full', 'invisible');
+                drawer.classList.remove('translate-x-0', 'visible');
+            }
+        }
+
+        // Add a subtle particle background effect on stat cards hover
+        document.querySelectorAll('.stat-card').forEach(card => {
+            card.addEventListener('mouseenter', () => {
+                // Future expansion for Canvas-based micro-interactions
+            });
+        });
+    </script>
+</body></html>

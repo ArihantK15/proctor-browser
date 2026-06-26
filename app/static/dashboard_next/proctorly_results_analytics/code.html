@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly | Exam Results &amp; Analytics</title>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #13131b;
+            color: #e4e1ed;
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .glass-card {
+            background: rgba(31, 31, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid #464554;
+        }
+        .custom-slider::-webkit-slider-runnable-track {
+            background: #464554;
+            height: 4px;
+            border-radius: 2px;
+        }
+        .custom-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #c0c1ff;
+            margin-top: -6px;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(192, 193, 255, 0.4);
+        }
+    </style>
+</head>
+<body class="overflow-x-hidden">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-[260px] bg-surface-container border-r border-outline-variant flex flex-col py-lg z-50">
+<div class="px-lg mb-xl flex items-center gap-sm">
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">Proctorly</h1>
+<p class="text-[10px] font-label-caps uppercase tracking-widest text-on-surface-variant">Mission Control</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-md">dashboard</span> Overview
+            </a>
+<a class="flex items-center px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-md">assignment</span> Exams
+            </a>
+<a class="flex items-center px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-md">quiz</span> Questions
+            </a>
+<a class="flex items-center px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-md">visibility</span> Live Monitor
+            </a>
+<a class="flex items-center px-lg py-sm border-l-4 border-primary bg-primary-container/10 text-primary font-bold transition-colors" href="#">
+<span class="material-symbols-outlined mr-md">analytics</span> Results
+            </a>
+<a class="flex items-center px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-md">group</span> Students
+            </a>
+<a class="flex items-center px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-md">extension</span> Integrations
+            </a>
+<a class="flex items-center px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-md">settings</span> Settings
+            </a>
+</nav>
+<div class="px-lg mt-auto">
+<button class="w-full bg-primary text-on-primary font-bold py-sm rounded-lg flex items-center justify-center gap-xs active:scale-95 transition-transform">
+<span class="material-symbols-outlined text-[20px]">add</span> Create Exam
+            </button>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="ml-[260px] min-h-screen">
+<!-- TopAppBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-260px)] h-16 bg-surface/80 backdrop-blur-md border-b border-outline-variant flex justify-between items-center px-margin-desktop z-40">
+<div class="flex items-center gap-lg">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="bg-surface-container-low border border-outline-variant rounded-full pl-xl pr-lg py-xs text-body-sm focus:outline-none focus:border-primary w-64 transition-all" placeholder="Search students or results..." type="text"/>
+</div>
+<div class="h-6 w-px bg-outline-variant"></div>
+<div class="flex items-center gap-xs text-primary font-bold">
+<span class="material-symbols-outlined">science</span>
+<select id="exam-select" class="font-body-base text-primary bg-transparent focus:outline-none cursor-pointer [&>option]:bg-surface-container [&>option]:text-on-surface"></select>
+</div>
+</div>
+<div class="flex items-center gap-lg">
+<div class="flex items-center gap-md">
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</div>
+<div class="h-8 w-px bg-outline-variant"></div>
+<div class="flex items-center gap-sm">
+<div class="text-right">
+<p class="font-body-sm font-bold">Admin User</p>
+<p class="text-[10px] text-on-surface-variant font-label-caps uppercase">Senior Proctor</p>
+</div>
+<div class="w-10 h-10 rounded-full bg-surface-container-highest border border-outline-variant flex items-center justify-center overflow-hidden">
+<span class="material-symbols-outlined">person</span>
+</div>
+</div>
+</div>
+</header>
+<!-- Content Canvas -->
+<div class="pt-24 px-margin-desktop pb-margin-desktop space-y-lg">
+<!-- Page Header Actions -->
+<div class="flex justify-between items-end">
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface">Analytics Overview</h2>
+<p id="results-subtitle" class="text-on-surface-variant font-body-sm">Performance and integrity across all exams.</p>
+</div>
+<div class="flex items-center gap-md">
+<div class="bg-surface-container p-sm rounded-xl border border-outline-variant flex items-center gap-md min-w-[300px]">
+<div class="flex-1">
+<div class="flex justify-between mb-xs">
+<label class="text-[10px] font-label-caps text-on-surface-variant uppercase">Pass Threshold</label>
+<span class="text-primary font-bold font-data-mono" id="threshold-val">60%</span>
+</div>
+<input id="pass-threshold" class="w-full custom-slider appearance-none bg-transparent" max="100" min="0" type="range" value="60"/>
+</div>
+</div>
+<button class="flex items-center gap-xs px-md py-sm bg-surface-container border border-outline-variant rounded-lg hover:bg-surface-container-high transition-colors font-body-sm font-semibold">
+<span class="material-symbols-outlined text-[20px]">download</span> Export Results
+                        <span class="material-symbols-outlined text-[16px]">expand_more</span>
+</button>
+</div>
+</div>
+<!-- Analytics Row -->
+<div class="grid grid-cols-12 gap-gutter">
+<!-- Main Chart -->
+<div class="col-span-12 lg:col-span-8 glass-card rounded-xl p-lg flex flex-col">
+<div class="flex justify-between items-start mb-lg">
+<h3 class="font-body-base font-bold text-on-surface">Score Distribution</h3>
+<div class="flex gap-sm">
+<span class="flex items-center gap-xs text-[10px] font-label-caps text-on-surface-variant uppercase"><span class="w-2 h-2 rounded-full bg-primary"></span> Pass</span>
+<span class="flex items-center gap-xs text-[10px] font-label-caps text-on-surface-variant uppercase"><span class="w-2 h-2 rounded-full bg-error"></span> Fail</span>
+</div>
+</div>
+<!-- Histogram Mock -->
+<div id="score-histogram" class="flex-1 flex items-end justify-between gap-base h-48 px-md">
+<div class="w-full bg-error/20 rounded-t-sm h-[10%] relative group">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 bg-surface-container-highest px-xs py-[2px] rounded text-[10px] opacity-0 group-hover:opacity-100 transition-opacity">4</div>
+</div>
+<div class="w-full bg-error/20 rounded-t-sm h-[15%] relative group"></div>
+<div class="w-full bg-error/20 rounded-t-sm h-[25%] relative group"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[40%] relative group"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[65%] relative group"></div>
+<div class="w-full bg-primary rounded-t-sm h-[85%] relative group">
+<div class="absolute -top-6 left-1/2 -translate-x-1/2 bg-surface-container-highest px-xs py-[2px] rounded text-[10px] opacity-100">42</div>
+</div>
+<div class="w-full bg-primary/80 rounded-t-sm h-[70%] relative group"></div>
+<div class="w-full bg-primary/60 rounded-t-sm h-[50%] relative group"></div>
+<div class="w-full bg-primary/40 rounded-t-sm h-[30%] relative group"></div>
+<div class="w-full bg-primary/20 rounded-t-sm h-[15%] relative group"></div>
+</div>
+<div class="flex justify-between mt-md px-md text-[10px] font-label-caps text-on-surface-variant uppercase">
+<span>0%</span>
+<span>25%</span>
+<span>50%</span>
+<span>75%</span>
+<span>100%</span>
+</div>
+</div>
+<!-- Stats Grid -->
+<div class="col-span-12 lg:col-span-4 grid grid-cols-2 gap-gutter">
+<div class="glass-card rounded-xl p-lg flex flex-col justify-between">
+<p class="text-[10px] font-label-caps text-on-surface-variant uppercase">Pass Rate</p>
+<div>
+<p id="stat-passrate" class="text-display-lg font-display-lg text-secondary">—</p>
+<p class="text-[10px] text-on-surface-variant">+3% vs Avg</p>
+</div>
+</div>
+<div class="glass-card rounded-xl p-lg flex flex-col justify-between">
+<p class="text-[10px] font-label-caps text-on-surface-variant uppercase">Avg Risk</p>
+<div>
+<p class="text-display-lg font-display-lg text-primary"><span id="stat-avgrisk">—</span><span class="text-headline-md font-normal opacity-40">/100</span></p>
+<p class="text-[10px] text-on-surface-variant">Optimal range</p>
+</div>
+</div>
+<div class="glass-card rounded-xl p-lg flex flex-col justify-between">
+<p class="text-[10px] font-label-caps text-on-surface-variant uppercase">Completion</p>
+<div>
+<p id="stat-completion" class="text-display-lg font-display-lg text-on-surface">—</p>
+<p class="text-[10px] text-on-surface-variant">118/120 Subm.</p>
+</div>
+</div>
+<div class="glass-card rounded-xl p-lg flex flex-col justify-between">
+<p class="text-[10px] font-label-caps text-on-surface-variant uppercase">Proctor Flags</p>
+<div>
+<p id="stat-flags" class="text-display-lg font-display-lg text-tertiary">—</p>
+<p class="text-[10px] text-on-surface-variant text-tertiary">Requires review</p>
+</div>
+</div>
+</div>
+</div>
+<!-- Cluster Review & Violation Triage -->
+<div class="glass-card rounded-xl p-lg border-l-4 border-tertiary flex items-center justify-between">
+<div class="flex items-center gap-lg">
+<div class="w-12 h-12 rounded-full bg-tertiary/20 flex items-center justify-center text-tertiary">
+<span class="material-symbols-outlined text-[32px]">warning</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md text-on-surface">Cluster Review Required</h3>
+<p class="text-on-surface-variant font-body-sm">Detected 3 common patterns of potential browser-tab switching across 12 students.</p>
+</div>
+</div>
+<button class="px-lg py-sm bg-tertiary text-on-tertiary font-bold rounded-lg flex items-center gap-xs active:scale-95 transition-transform">
+                    Triage Violations <span class="material-symbols-outlined">arrow_forward</span>
+</button>
+</div>
+<!-- Students Table Section -->
+<div class="glass-card rounded-xl overflow-hidden">
+<div class="p-lg border-b border-outline-variant flex justify-between items-center">
+<h3 class="font-body-base font-bold text-on-surface">Student Roster &amp; Detailed Scores</h3>
+<div class="flex items-center gap-md">
+<div class="flex border border-outline-variant rounded-lg overflow-hidden">
+<button data-action="filterResults" data-filter="all" class="px-md py-xs bg-surface-container-high text-on-surface font-bold text-body-sm">All</button>
+<button data-action="filterResults" data-filter="flagged" class="px-md py-xs hover:bg-surface-container transition-colors text-on-surface-variant text-body-sm">Flagged</button>
+<button data-action="filterResults" data-filter="failed" class="px-md py-xs hover:bg-surface-container transition-colors text-on-surface-variant text-body-sm">Failed</button>
+</div>
+</div>
+</div>
+<table class="w-full text-left border-collapse">
+<thead class="bg-surface-container-low border-b border-outline-variant">
+<tr>
+<th class="px-lg py-md text-[10px] font-label-caps text-on-surface-variant uppercase">Student Details</th>
+<th class="px-lg py-md text-[10px] font-label-caps text-on-surface-variant uppercase">Score</th>
+<th class="px-lg py-md text-[10px] font-label-caps text-on-surface-variant uppercase text-center">Status</th>
+<th class="px-lg py-md text-[10px] font-label-caps text-on-surface-variant uppercase text-center">Risk Score</th>
+<th class="px-lg py-md text-[10px] font-label-caps text-on-surface-variant uppercase text-center">Violations</th>
+<th class="px-lg py-md text-[10px] font-label-caps text-on-surface-variant uppercase text-right">Actions</th>
+</tr>
+</thead>
+<tbody id="results-tbody" class="divide-y divide-outline-variant">
+<!-- Student Row 1 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-lg py-md">
+<div class="flex items-center gap-md">
+<div class="w-9 h-9 rounded-full bg-primary-container/20 flex items-center justify-center font-bold text-primary">EJ</div>
+<div>
+<p class="font-body-sm font-bold text-on-surface">Elena Jenkins</p>
+<p class="font-data-mono text-[11px] text-on-surface-variant">#PHY-2024-089</p>
+</div>
+</div>
+</td>
+<td class="px-lg py-md">
+<div class="flex flex-col">
+<span class="font-data-mono text-body-base font-bold text-on-surface">38/40</span>
+<span class="text-[11px] text-secondary font-bold">95%</span>
+</div>
+</td>
+<td class="px-lg py-md text-center">
+<span class="px-sm py-1 rounded-full bg-secondary-container/20 text-secondary text-[11px] font-bold border border-secondary/30">PASS</span>
+</td>
+<td class="px-lg py-md">
+<div class="flex flex-col items-center gap-1">
+<span class="font-data-mono text-secondary font-bold">04</span>
+<div class="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="bg-secondary h-full" style="width: 4%"></div>
+</div>
+</div>
+</td>
+<td class="px-lg py-md text-center">
+<span class="text-on-surface-variant text-body-sm">—</span>
+</td>
+<td class="px-lg py-md text-right">
+<button class="text-primary font-bold text-body-sm hover:underline active:scale-95 transition-transform">View Scorecard</button>
+</td>
+</tr>
+<!-- Student Row 2 -->
+<tr class="hover:bg-surface-container-low transition-colors group bg-error/5">
+<td class="px-lg py-md">
+<div class="flex items-center gap-md">
+<div class="w-9 h-9 rounded-full bg-error-container/20 flex items-center justify-center font-bold text-error">MT</div>
+<div>
+<p class="font-body-sm font-bold text-on-surface">Marcus Thorne</p>
+<p class="font-data-mono text-[11px] text-on-surface-variant">#PHY-2024-112</p>
+</div>
+</div>
+</td>
+<td class="px-lg py-md">
+<div class="flex flex-col">
+<span class="font-data-mono text-body-base font-bold text-on-surface">12/40</span>
+<span class="text-[11px] text-error font-bold">30%</span>
+</div>
+</td>
+<td class="px-lg py-md text-center">
+<span class="px-sm py-1 rounded-full bg-error-container/20 text-error text-[11px] font-bold border border-error/30">FAIL</span>
+</td>
+<td class="px-lg py-md">
+<div class="flex flex-col items-center gap-1">
+<span class="font-data-mono text-error font-bold">78</span>
+<div class="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="bg-error h-full" style="width: 78%"></div>
+</div>
+</div>
+</td>
+<td class="px-lg py-md text-center">
+<div class="flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-error text-[18px]">warning</span>
+<span class="font-data-mono text-error font-bold">03</span>
+</div>
+</td>
+<td class="px-lg py-md text-right">
+<button class="text-primary font-bold text-body-sm hover:underline active:scale-95 transition-transform">View Scorecard</button>
+</td>
+</tr>
+<!-- Student Row 3 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-lg py-md">
+<div class="flex items-center gap-md">
+<div class="w-9 h-9 rounded-full bg-surface-container-highest flex items-center justify-center font-bold text-on-surface-variant">SS</div>
+<div>
+<p class="font-body-sm font-bold text-on-surface">Sarah Song</p>
+<p class="font-data-mono text-[11px] text-on-surface-variant">#PHY-2024-045</p>
+</div>
+</div>
+</td>
+<td class="px-lg py-md">
+<div class="flex flex-col">
+<span class="font-data-mono text-body-base font-bold text-on-surface">32/40</span>
+<span class="text-[11px] text-secondary font-bold">80%</span>
+</div>
+</td>
+<td class="px-lg py-md text-center">
+<span class="px-sm py-1 rounded-full bg-secondary-container/20 text-secondary text-[11px] font-bold border border-secondary/30">PASS</span>
+</td>
+<td class="px-lg py-md">
+<div class="flex flex-col items-center gap-1">
+<span class="font-data-mono text-tertiary font-bold">32</span>
+<div class="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="bg-tertiary h-full" style="width: 32%"></div>
+</div>
+</div>
+</td>
+<td class="px-lg py-md text-center">
+<div class="flex items-center justify-center gap-1">
+<span class="material-symbols-outlined text-tertiary text-[18px]">info</span>
+<span class="font-data-mono text-tertiary font-bold">01</span>
+</div>
+</td>
+<td class="px-lg py-md text-right">
+<button class="text-primary font-bold text-body-sm hover:underline active:scale-95 transition-transform">View Scorecard</button>
+</td>
+</tr>
+<!-- Student Row 4 -->
+<tr class="hover:bg-surface-container-low transition-colors group">
+<td class="px-lg py-md">
+<div class="flex items-center gap-md">
+<div class="w-9 h-9 rounded-full bg-primary-container/20 flex items-center justify-center font-bold text-primary">KL</div>
+<div>
+<p class="font-body-sm font-bold text-on-surface">Kevin Lee</p>
+<p class="font-data-mono text-[11px] text-on-surface-variant">#PHY-2024-210</p>
+</div>
+</div>
+</td>
+<td class="px-lg py-md">
+<div class="flex flex-col">
+<span class="font-data-mono text-body-base font-bold text-on-surface">35/40</span>
+<span class="text-[11px] text-secondary font-bold">87%</span>
+</div>
+</td>
+<td class="px-lg py-md text-center">
+<span class="px-sm py-1 rounded-full bg-secondary-container/20 text-secondary text-[11px] font-bold border border-secondary/30">PASS</span>
+</td>
+<td class="px-lg py-md">
+<div class="flex flex-col items-center gap-1">
+<span class="font-data-mono text-secondary font-bold">12</span>
+<div class="w-16 h-1 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="bg-secondary h-full" style="width: 12%"></div>
+</div>
+</div>
+</td>
+<td class="px-lg py-md text-center">
+<span class="text-on-surface-variant text-body-sm">—</span>
+</td>
+<td class="px-lg py-md text-right">
+<button class="text-primary font-bold text-body-sm hover:underline active:scale-95 transition-transform">View Scorecard</button>
+</td>
+</tr>
+</tbody>
+</table>
+<!-- Pagination Mock -->
+<div class="p-lg bg-surface-container-low flex justify-between items-center">
+<p class="text-body-sm text-on-surface-variant">Showing <span class="font-bold text-on-surface">1 - 10</span> of 120 students</p>
+<div class="flex items-center gap-xs">
+<button class="w-8 h-8 rounded border border-outline-variant flex items-center justify-center text-on-surface-variant hover:bg-surface-container disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<button class="w-8 h-8 rounded bg-primary text-on-primary font-bold">1</button>
+<button class="w-8 h-8 rounded border border-outline-variant hover:bg-surface-container">2</button>
+<button class="w-8 h-8 rounded border border-outline-variant hover:bg-surface-container">3</button>
+<span class="px-xs text-on-surface-variant">...</span>
+<button class="w-8 h-8 rounded border border-outline-variant hover:bg-surface-container">12</button>
+<button class="w-8 h-8 rounded border border-outline-variant flex items-center justify-center text-on-surface-variant hover:bg-surface-container">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Floating Action Button (Contextual for Home/Dash, but kept subtle for results if needed for urgent report) -->
+<!-- Suppressed according to mandate for Details/Results view -->
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/results.js" defer></script>
+</body></html>

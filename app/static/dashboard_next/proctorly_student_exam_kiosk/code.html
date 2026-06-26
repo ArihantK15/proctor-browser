@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly | Physics Midterm</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-container": "#bd8708",
+                        "on-tertiary": "#422c00",
+                        "surface-container-high": "#292932",
+                        "primary-container": "#8083ff",
+                        "surface-container-highest": "#34343d",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#1f1f27",
+                        "on-secondary-fixed": "#002105",
+                        "inverse-surface": "#e4e1ed",
+                        "on-surface-variant": "#c7c4d7",
+                        "on-tertiary-container": "#392600",
+                        "error": "#ffb4ab",
+                        "background": "#13131b",
+                        "on-primary": "#1000a9",
+                        "on-secondary-fixed-variant": "#005317",
+                        "tertiary-fixed-dim": "#fabc45",
+                        "outline": "#908fa0",
+                        "secondary-fixed-dim": "#67df70",
+                        "surface-variant": "#34343d",
+                        "tertiary": "#fabc45",
+                        "surface-bright": "#393841",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "on-secondary": "#00390d",
+                        "on-primary-container": "#0d0096",
+                        "on-tertiary-fixed-variant": "#5f4100",
+                        "on-secondary-container": "#00320a",
+                        "surface-container-low": "#1b1b23",
+                        "secondary": "#67df70",
+                        "on-surface": "#e4e1ed",
+                        "surface": "#13131b",
+                        "on-background": "#e4e1ed",
+                        "inverse-primary": "#494bd6",
+                        "on-error": "#690005",
+                        "on-tertiary-fixed": "#271900",
+                        "surface-tint": "#c0c1ff",
+                        "surface-dim": "#13131b",
+                        "secondary-fixed": "#83fc89",
+                        "on-primary-fixed": "#07006c",
+                        "primary": "#c0c1ff",
+                        "outline-variant": "#464554",
+                        "secondary-container": "#27a640",
+                        "inverse-on-surface": "#303038",
+                        "tertiary-fixed": "#ffdeaa",
+                        "primary-fixed": "#e1e0ff",
+                        "surface-container-lowest": "#0d0d15",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "error-container": "#93000a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "xs": "8px",
+                        "lg": "24px",
+                        "sm": "12px",
+                        "margin-desktop": "32px",
+                        "xl": "32px",
+                        "margin-mobile": "16px",
+                        "md": "16px",
+                        "gutter": "20px",
+                        "base": "4px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "data-mono": ["JetBrains Mono"],
+                        "headline-md-mobile": ["Inter"],
+                        "body-base": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                        "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "data-mono": ["13px", {"lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                        "headline-md-mobile": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "body-base": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #13131b;
+            color: #e4e1ed;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .code-editor {
+            font-family: 'JetBrains Mono', monospace;
+            background: #0d0d15;
+            caret-color: #c0c1ff;
+        }
+        .proctor-overlay {
+            background: linear-gradient(0deg, rgba(19,19,27,0.8) 0%, rgba(19,19,27,0) 100%);
+        }
+        .scanline {
+            width: 100%;
+            height: 2px;
+            background: rgba(103, 223, 112, 0.2);
+            position: absolute;
+            top: 0;
+            animation: scanning 3s linear infinite;
+        }
+        @keyframes scanning {
+            0% { top: 0; }
+            100% { top: 100%; }
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col">
+<!-- Secure Top Bar -->
+<header class="h-16 px-6 flex items-center justify-between border-b border-outline-variant bg-surface/80 backdrop-blur-md z-50">
+<div class="flex items-center gap-4">
+<img alt="Proctorly Logo" class="h-8 w-8 object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDD6XYQtZ7OnSG_k3s2kk3bs9huvgI9uyt3b0CmIPbnNwSL_5hx1NmswTBHGqaJ4M23yEsRsxN15fVBOUs6uo4BFRMNJS0VzNIrxLWELw9shREeiGbGIZDRVdsGsxusaJ-ZbpJ3hjquEHORT5s6A20F2OqZ3YZGP6XpHOitGOzkef5dciE7L5MDL7X7w5YHUMWm_1liW9H6TZ7rw9ERSx9sQNQ0AqCYnvuJP0_kYCrkhVWEgNlwvPAqv2e2W3XX_ElNzLXGKnKqZuzm"/>
+<div class="h-6 w-px bg-outline-variant"></div>
+<h1 class="font-headline-md text-body-base font-bold text-on-surface">Physics Midterm</h1>
+</div>
+<div class="flex items-center gap-8">
+<!-- Progress -->
+<div class="flex flex-col items-center">
+<span class="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">Progress</span>
+<span class="font-data-mono text-primary text-body-base">Q14 / 20</span>
+</div>
+<!-- Countdown Timer -->
+<div class="flex items-center gap-3 bg-surface-container-highest px-4 py-2 rounded-lg border border-outline-variant">
+<span class="material-symbols-outlined text-primary text-[20px]">timer</span>
+<span class="font-data-mono text-body-base font-bold text-primary">01:42:09</span>
+</div>
+<!-- Live Monitoring -->
+<div class="flex items-center gap-3 bg-surface-container-low px-2 py-1 rounded-lg border border-outline-variant group cursor-pointer hover:bg-surface-container-high transition-colors">
+<div class="relative w-10 h-10 rounded-md overflow-hidden bg-black border border-outline-variant">
+<img class="w-full h-full object-cover grayscale opacity-80" data-alt="A dark, high-contrast close-up shot of a student concentrating during an exam. The lighting is dramatic, with cool blue and violet tones hitting the side of their face. A subtle digital grid and faint green status text overlay the image, giving it a technical proctoring software look. Professional cinematic photography style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCr4enI2OJx3NrEl0YWN8lEPUcPDCLC4OlzKuOGduocan1hctJvLaoeTTXEs4pUlimEBU_v4HJ0-F6KN1RAd0Z-NtXp9rs_BsDlmoPCjLH_2nn_AuqNjVQdRCebJHMmaIIXHFg1Vn4Oz9jAdUzeZJvGHfYjGQwQ2WM1ok2SEIqJsurxkeFMQ69UiG_e08mTVrCpINbbOgSncFqxaFiyoLeKLJ63Z3wYj0sz_OKb2hYOR7yodiaMI-0W4fUahJ2VXEgduowHo2hSBoT1"/>
+<div class="scanline"></div>
+<div class="absolute bottom-0 inset-x-0 h-1/2 proctor-overlay flex items-end justify-center pb-1">
+<span class="text-[8px] font-bold text-secondary uppercase tracking-tighter">Live</span>
+</div>
+</div>
+<div class="hidden lg:block">
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></div>
+<span class="text-[10px] font-bold uppercase text-on-surface-variant">Live Monitored</span>
+</div>
+<p class="text-[10px] text-outline">Feed Encrypted</p>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="flex items-center gap-2 px-4 py-2 rounded-lg border border-outline-variant text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-all">
+<span class="material-symbols-outlined text-[20px]">chat_bubble</span>
+<span class="font-label-caps text-body-sm">Need Help?</span>
+</button>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 overflow-hidden flex gap-0">
+<!-- Left: Question & Editor Shell -->
+<div class="flex-1 flex flex-col min-w-0">
+<!-- Question Prompt -->
+<div class="p-8 border-b border-outline-variant bg-surface-container-lowest">
+<div class="max-w-4xl">
+<div class="flex items-center gap-2 mb-4">
+<span class="px-2 py-1 bg-primary-container/20 text-primary rounded text-[11px] font-bold uppercase">Question 14</span>
+<span class="px-2 py-1 bg-surface-container-high text-on-surface-variant rounded text-[11px] font-bold uppercase">8 Points</span>
+</div>
+<h2 class="font-headline-md text-on-surface mb-4">Computational Kinematics</h2>
+<p class="font-body-base text-on-surface-variant leading-relaxed">
+                        Write a Python function <code class="font-data-mono text-primary px-1">calculate_trajectory(v0, angle, t)</code> that computes the position <code class="font-data-mono text-primary">(x, y)</code> of a projectile at time <code class="font-data-mono text-primary">t</code>.
+                        Assume gravity <code class="font-data-mono text-primary">g = 9.81 m/s²</code>. The function should return a tuple rounded to two decimal places.
+                    </p>
+</div>
+</div>
+<!-- Code Editor Area -->
+<div class="flex-1 flex flex-col bg-surface-container-lowest">
+<!-- Editor Toolbar -->
+<div class="h-12 border-b border-outline-variant flex items-center justify-between px-6 bg-surface-container">
+<div class="flex items-center gap-4">
+<select class="bg-surface-container-highest border-outline-variant text-on-surface text-body-sm rounded-md font-medium focus:ring-primary focus:border-primary">
+<option>Python 3.10</option>
+<option>JavaScript (Node.js)</option>
+<option>C++ 20</option>
+</select>
+<div class="flex items-center gap-2 text-outline">
+<span class="material-symbols-outlined text-[18px]">info</span>
+<span class="text-body-sm italic">Standard libraries only</span>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<button class="px-4 py-1.5 rounded-md border border-outline-variant text-on-surface hover:bg-surface-container-highest font-medium text-body-sm transition-all active:scale-95">
+                            Run Tests
+                        </button>
+<button class="px-4 py-1.5 rounded-md bg-secondary text-on-secondary font-bold text-body-sm hover:opacity-90 transition-all active:scale-95">
+                            Save Code
+                        </button>
+</div>
+</div>
+<!-- Code Input -->
+<div class="flex-1 relative overflow-hidden flex">
+<!-- Line Numbers -->
+<div class="w-12 bg-surface-container-low border-r border-outline-variant flex flex-col items-center pt-4 font-data-mono text-outline text-[12px] select-none">
+<span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span>
+</div>
+<!-- Editable Content -->
+<textarea class="flex-1 code-editor p-4 text-on-surface text-body-base outline-none border-none focus:ring-0 resize-none leading-relaxed" placeholder="def calculate_trajectory(v0, angle, t):
+    # Your code here
+    import math
+    g = 9.81
+    pass" spellcheck="false"></textarea>
+</div>
+<!-- Console Output -->
+<div class="h-40 border-t border-outline-variant bg-surface-container flex flex-col">
+<div class="px-4 py-2 border-b border-outline-variant flex items-center gap-2">
+<span class="material-symbols-outlined text-outline text-[16px]">terminal</span>
+<span class="font-label-caps text-body-sm text-outline">Output Terminal</span>
+</div>
+<div class="flex-1 p-4 font-data-mono text-[13px] overflow-y-auto">
+<div class="text-secondary mb-1">√ Test Case 1: Initial velocity 50m/s, 45 degrees, t=2s PASSED</div>
+<div class="text-error mb-1">× Test Case 2: Vertical launch edge case FAILED</div>
+<div class="text-on-surface-variant">&gt; Expected (0.0, 100.0), Got (0.0, 98.4)</div>
+<div class="text-outline mt-2 animate-pulse">_</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right: Status & Navigation (Side Drawer style but pinned) -->
+<div class="w-80 border-l border-outline-variant flex flex-col bg-surface-container-low">
+<div class="p-6 flex-1">
+<h3 class="font-label-caps text-on-surface-variant mb-6">Question Navigator</h3>
+<div class="grid grid-cols-5 gap-3 mb-8">
+<!-- Question Dots (Iterative display) -->
+<!-- Answered -->
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-secondary/10 border border-secondary text-secondary font-bold text-body-sm cursor-pointer hover:bg-secondary/20 transition-all">1</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-secondary/10 border border-secondary text-secondary font-bold text-body-sm cursor-pointer">2</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-secondary/10 border border-secondary text-secondary font-bold text-body-sm cursor-pointer">3</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-secondary/10 border border-secondary text-secondary font-bold text-body-sm cursor-pointer">4</div>
+<!-- Flagged -->
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-tertiary-container/20 border border-tertiary text-tertiary font-bold text-body-sm relative cursor-pointer">
+                        5
+                        <span class="absolute -top-1 -right-1 w-2.5 h-2.5 bg-tertiary rounded-full"></span>
+</div>
+<!-- Answered -->
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-secondary/10 border border-secondary text-secondary font-bold text-body-sm cursor-pointer">6</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-secondary/10 border border-secondary text-secondary font-bold text-body-sm cursor-pointer">7</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-secondary/10 border border-secondary text-secondary font-bold text-body-sm cursor-pointer">8</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-secondary/10 border border-secondary text-secondary font-bold text-body-sm cursor-pointer">9</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-secondary/10 border border-secondary text-secondary font-bold text-body-sm cursor-pointer">10</div>
+<!-- Current -->
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-primary text-on-primary font-bold text-body-sm ring-4 ring-primary/20 shadow-lg shadow-primary/20">14</div>
+<!-- Unanswered -->
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-surface-container-highest border border-outline-variant text-outline font-medium text-body-sm cursor-pointer hover:border-primary transition-all">15</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-surface-container-highest border border-outline-variant text-outline font-medium text-body-sm cursor-pointer">16</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-surface-container-highest border border-outline-variant text-outline font-medium text-body-sm cursor-pointer">17</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-surface-container-highest border border-outline-variant text-outline font-medium text-body-sm cursor-pointer">18</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-surface-container-highest border border-outline-variant text-outline font-medium text-body-sm cursor-pointer">19</div>
+<div class="h-10 w-10 flex items-center justify-center rounded-lg bg-surface-container-highest border border-outline-variant text-outline font-medium text-body-sm cursor-pointer">20</div>
+</div>
+<div class="space-y-4">
+<div class="p-4 rounded-xl border border-outline-variant bg-surface-container flex items-center gap-3">
+<div class="w-2 h-2 rounded-full bg-secondary"></div>
+<span class="text-body-sm text-on-surface-variant">13 Answered</span>
+</div>
+<div class="p-4 rounded-xl border border-outline-variant bg-surface-container flex items-center gap-3">
+<div class="w-2 h-2 rounded-full bg-tertiary"></div>
+<span class="text-body-sm text-on-surface-variant">1 Flagged for review</span>
+</div>
+<div class="p-4 rounded-xl border border-outline-variant bg-surface-container flex items-center gap-3">
+<div class="w-2 h-2 rounded-full bg-outline"></div>
+<span class="text-body-sm text-on-surface-variant">6 Remaining</span>
+</div>
+</div>
+</div>
+<!-- Footer Actions -->
+<div class="p-6 border-t border-outline-variant space-y-3 bg-surface">
+<div class="flex gap-2">
+<button class="flex-1 py-3 px-4 rounded-xl border border-outline-variant text-on-surface font-bold hover:bg-surface-container transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[20px]">chevron_left</span>
+                        Back
+                    </button>
+<button class="flex-1 py-3 px-4 rounded-xl border border-outline-variant text-on-surface font-bold hover:bg-surface-container transition-all flex items-center justify-center gap-2">
+                        Next
+                        <span class="material-symbols-outlined text-[20px]">chevron_right</span>
+</button>
+</div>
+<button class="w-full py-4 px-4 rounded-xl bg-primary text-on-primary font-bold shadow-xl shadow-primary/20 hover:opacity-90 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined">verified</span>
+                    SUBMIT EXAM
+                </button>
+</div>
+</div>
+</main>
+<!-- Integrity Status Toast -->
+<div class="fixed bottom-6 left-6 z-[100] flex items-center gap-3 bg-background/90 backdrop-blur border border-outline-variant p-3 rounded-full shadow-2xl">
+<div class="flex -space-x-2">
+<div class="w-8 h-8 rounded-full border-2 border-background bg-secondary flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] text-on-secondary" style="font-variation-settings: 'FILL' 1;">videocam</span>
+</div>
+<div class="w-8 h-8 rounded-full border-2 border-background bg-secondary flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] text-on-secondary" style="font-variation-settings: 'FILL' 1;">mic</span>
+</div>
+<div class="w-8 h-8 rounded-full border-2 border-background bg-secondary flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] text-on-secondary" style="font-variation-settings: 'FILL' 1;">screen_share</span>
+</div>
+</div>
+<span class="font-label-caps text-[10px] text-secondary tracking-widest uppercase">System Fully Secure</span>
+</div>
+<!-- Micro-interaction Scripts -->
+<script>
+        // Fake Timer logic
+        let totalSeconds = 6129; // 01:42:09
+        const timerElement = document.querySelector('.font-data-mono.text-primary.text-body-base');
+
+        setInterval(() => {
+            if(totalSeconds > 0) {
+                totalSeconds--;
+                const h = Math.floor(totalSeconds / 3600);
+                const m = Math.floor((totalSeconds % 3600) / 60);
+                const s = totalSeconds % 60;
+                // Find and update specifically the timer container
+                const timerSpan = document.querySelector('.font-data-mono.text-body-base.font-bold.text-primary');
+                if(timerSpan) {
+                    timerSpan.textContent = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+                }
+            }
+        }, 1000);
+
+        // Simple Editor focus effect
+        const editor = document.querySelector('textarea');
+        editor.addEventListener('focus', () => {
+            editor.parentElement.classList.add('ring-1', 'ring-primary/30');
+        });
+        editor.addEventListener('blur', () => {
+            editor.parentElement.classList.remove('ring-1', 'ring-primary/30');
+        });
+
+        // Chat Button click
+        document.querySelector('button:has(span:contains("chat_bubble"))')?.addEventListener('click', () => {
+            alert('A proctor has been notified. They will respond shortly in the secure chat channel.');
+        });
+    </script>
+</body></html>

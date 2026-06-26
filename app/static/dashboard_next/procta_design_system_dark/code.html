@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly Design System - Mission Control</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-primary": "#1000a9",
+                      "outline": "#908fa0",
+                      "tertiary-fixed-dim": "#fabc45",
+                      "on-secondary-fixed-variant": "#005317",
+                      "surface-variant": "#31353c",
+                      "secondary-fixed-dim": "#67df70",
+                      "on-secondary-container": "#00320a",
+                      "on-tertiary-fixed-variant": "#5f4100",
+                      "on-primary-container": "#0d0096",
+                      "surface-bright": "#353940",
+                      "tertiary": "#fabc45",
+                      "primary-fixed-dim": "#c0c1ff",
+                      "on-secondary": "#00390d",
+                      "primary-container": "#8083ff",
+                      "surface-container-high": "#262a31",
+                      "tertiary-container": "#bd8708",
+                      "on-tertiary": "#422c00",
+                      "on-secondary-fixed": "#002105",
+                      "surface-container": "#1c2026",
+                      "on-error-container": "#ffdad6",
+                      "surface-container-highest": "#31353c",
+                      "on-surface-variant": "#c7c4d7",
+                      "inverse-surface": "#dfe2eb",
+                      "background": "#10141a",
+                      "error": "#ffb4ab",
+                      "on-tertiary-container": "#392600",
+                      "surface-tint": "#c0c1ff",
+                      "surface-dim": "#10141a",
+                      "on-primary-fixed": "#07006c",
+                      "secondary-fixed": "#83fc89",
+                      "on-tertiary-fixed": "#271900",
+                      "on-error": "#690005",
+                      "outline-variant": "#464554",
+                      "primary": "#c0c1ff",
+                      "secondary-container": "#27a640",
+                      "inverse-on-surface": "#2d3137",
+                      "surface-container-lowest": "#0a0e14",
+                      "error-container": "#93000a",
+                      "on-primary-fixed-variant": "#2f2ebe",
+                      "primary-fixed": "#e1e0ff",
+                      "tertiary-fixed": "#ffdeaa",
+                      "surface-container-low": "#181c22",
+                      "inverse-primary": "#494bd6",
+                      "surface": "#10141a",
+                      "on-background": "#dfe2eb",
+                      "secondary": "#67df70",
+                      "on-surface": "#dfe2eb"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.125rem",
+                      "lg": "0.25rem",
+                      "xl": "0.5rem",
+                      "full": "0.75rem"
+              },
+              "spacing": {
+                      "sm": "8px",
+                      "lg": "24px",
+                      "xs": "4px",
+                      "md": "16px",
+                      "gutter": "20px",
+                      "margin-mobile": "16px",
+                      "base": "4px",
+                      "margin-desktop": "32px",
+                      "xl": "32px"
+              },
+              "fontFamily": {
+                      "display": [
+                              "Inter"
+                      ],
+                      "h1": [
+                              "Inter"
+                      ],
+                      "data-mono": [
+                              "JetBrains Mono"
+                      ],
+                      "body": [
+                              "Inter"
+                      ],
+                      "small": [
+                              "Inter"
+                      ],
+                      "h2": [
+                              "Inter"
+                      ],
+                      "h3": [
+                              "Inter"
+                      ],
+                      "caption": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "display": [
+                              "28px",
+                              {
+                                      "lineHeight": "36px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "h1": [
+                              "22px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "data-mono": [
+                              "13px",
+                              {
+                                      "lineHeight": "18px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "small": [
+                              "13px",
+                              {
+                                      "lineHeight": "18px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "h2": [
+                              "18px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "h3": [
+                              "15px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "caption": [
+                              "11px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "500"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        body {
+            background-color: #0D1117; /* Base level 0 */
+            color: #dfe2eb; /* on-surface */
+        }
+        .surface-card {
+            background-color: #161B22; /* Surface level 1 */
+            border: 1px solid #2A2F3A;
+        }
+        .inset-box {
+            background-color: #0B0E14; /* Inset */
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="font-body text-body min-h-screen flex flex-col antialiased">
+<!-- Top Navigation (Generated from JSON) -->
+<header class="fixed top-0 right-0 w-[calc(100%-260px)] z-50 bg-surface/80 backdrop-blur-md dark:bg-surface/80 border-b border-outline-variant flex justify-between items-center h-16 px-margin-desktop flat no shadows">
+<div class="flex items-center gap-md">
+<span class="font-headline-md text-headline-md font-bold text-primary dark:text-primary">Proctorly</span>
+<div class="relative hidden lg:block">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="pl-[32px] pr-sm py-xs bg-surface-container-lowest border border-outline-variant rounded-DEFAULT text-on-surface focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all font-body text-body w-[240px]" placeholder="Search..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-md">
+<button class="p-xs text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-xs text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-container-high border border-outline-variant overflow-hidden">
+<img alt="Administrator Profile" class="w-full h-full object-cover" data-alt="A small, professional portrait photograph of an administrator. The lighting is neutral and clear, suitable for a professional corporate environment. The aesthetic is clean and modern, fitting a high-tech dashboard." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDc8vXCw4HhuCq57XSFNzLU-w293ounriE2BI6A8Wb9wplo_W-xJ-LZl2KueRmrDmnMBl2flGefGBjONeHeSur5ZV7I2ce-x-CRN5EkzItzbw6WZ9zIc3Q8rgkvcpJODDWtWem7kHWj-bOTB9oWMjGaCtZva8D7IPJiR1UnYfKp9NnCSJt64teXcIvpETrTs2U54I2SRMVwUBY_Ina6ihd3nIVWYnXtbvYtB6yAr2VOx3uPz_Qm_ukfewyXUJ01kcu2Zv2TO6Lr7F6o"/>
+</div>
+</div>
+</header>
+<!-- Side Navigation (Generated from JSON) -->
+<aside class="fixed left-0 top-0 h-full w-[260px] bg-surface-container dark:bg-surface-container border-r border-outline-variant flex flex-col py-lg flat no shadows z-40">
+<div class="px-md mb-lg">
+<h1 class="font-headline-md text-headline-md font-bold text-primary dark:text-primary">Proctorly</h1>
+<p class="font-caption text-caption text-on-surface-variant">Mission Control</p>
+</div>
+<nav class="flex-1 flex flex-col gap-xs px-sm">
+<a class="flex items-center gap-sm px-sm py-xs rounded-DEFAULT border-l-4 border-primary bg-primary-container/10 text-primary font-bold transition-all duration-150" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span>Overview</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-xs rounded-DEFAULT border-l-4 border-transparent text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">assignment</span>
+<span>Exams</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-xs rounded-DEFAULT border-l-4 border-transparent text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">quiz</span>
+<span>Questions</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-xs rounded-DEFAULT border-l-4 border-transparent text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">visibility</span>
+<span>Live Monitor</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-xs rounded-DEFAULT border-l-4 border-transparent text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span>Results</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-xs rounded-DEFAULT border-l-4 border-transparent text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">group</span>
+<span>Students</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-xs rounded-DEFAULT border-l-4 border-transparent text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">extension</span>
+<span>Integrations</span>
+</a>
+</nav>
+<div class="px-md mt-auto space-y-sm">
+<a class="flex items-center gap-sm px-sm py-xs rounded-DEFAULT border-l-4 border-transparent text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span>Settings</span>
+</a>
+<button class="w-full py-sm bg-primary text-on-primary font-h3 text-h3 rounded-DEFAULT hover:bg-primary/90 transition-colors">
+                Create Exam
+            </button>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-[260px] mt-16 p-margin-desktop min-h-screen bg-background">
+<div class="max-w-7xl mx-auto space-y-xl">
+<header class="mb-lg">
+<h1 class="font-display text-display text-on-surface">Design System Reference</h1>
+<p class="font-body text-body text-on-surface-variant mt-xs">Mission Control UI Library</p>
+</header>
+<!-- 1. Brand & Colors -->
+<section class="space-y-md">
+<h2 class="font-h2 text-h2 text-on-surface border-b border-outline-variant pb-xs">1. Brand &amp; Colors</h2>
+<div class="grid grid-cols-2 md:grid-cols-6 gap-sm">
+<div class="flex flex-col gap-xs">
+<div class="h-16 rounded-DEFAULT bg-[#0D1117] border border-outline-variant flex items-end p-xs">
+<span class="font-data-mono text-data-mono text-on-surface-variant text-[10px]">#0D1117</span>
+</div>
+<span class="font-small text-small text-on-surface">Background (Base)</span>
+</div>
+<div class="flex flex-col gap-xs">
+<div class="h-16 rounded-DEFAULT bg-[#161B22] border border-outline-variant flex items-end p-xs">
+<span class="font-data-mono text-data-mono text-on-surface-variant text-[10px]">#161B22</span>
+</div>
+<span class="font-small text-small text-on-surface">Surface (Level 1)</span>
+</div>
+<div class="flex flex-col gap-xs">
+<div class="h-16 rounded-DEFAULT bg-[#0B0E14] border border-outline-variant flex items-end p-xs">
+<span class="font-data-mono text-data-mono text-on-surface-variant text-[10px]">#0B0E14</span>
+</div>
+<span class="font-small text-small text-on-surface">Inset</span>
+</div>
+<div class="flex flex-col gap-xs">
+<div class="h-16 rounded-DEFAULT bg-[#2A2F3A] border border-outline-variant flex items-end p-xs">
+<span class="font-data-mono text-data-mono text-on-surface-variant text-[10px]">#2A2F3A</span>
+</div>
+<span class="font-small text-small text-on-surface">Border</span>
+</div>
+<div class="flex flex-col gap-xs">
+<div class="h-16 rounded-DEFAULT bg-primary flex items-end p-xs">
+<span class="font-data-mono text-data-mono text-on-primary text-[10px]">Indigo Primary</span>
+</div>
+<span class="font-small text-small text-on-surface">Primary Action</span>
+</div>
+</div>
+</section>
+</div>
+</main>
+</body></html>

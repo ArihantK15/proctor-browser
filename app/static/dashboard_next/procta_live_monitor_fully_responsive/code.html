@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly — Live Mission Control</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #13131b;
+            color: #e4e1ed;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .risk-red-glow {
+            box-shadow: 0 0 15px -2px rgba(239, 68, 68, 0.4);
+            border-color: #ef4444 !important;
+        }
+        .risk-amber-glow {
+            box-shadow: 0 0 10px -2px rgba(245, 158, 11, 0.2);
+            border-color: #f59e0b !important;
+        }
+        .glass-blur {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        @keyframes pulse-soft {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .pulse-dot {
+            animation: pulse-soft 2s infinite ease-in-out;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #13131b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 10px;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "tertiary-fixed": "#ffdeaa",
+                      "secondary-fixed": "#83fc89",
+                      "primary-container": "#8083ff",
+                      "on-primary-container": "#0d0096",
+                      "on-background": "#e4e1ed",
+                      "inverse-surface": "#e4e1ed",
+                      "surface-container": "#1f1f27",
+                      "tertiary-container": "#bd8708",
+                      "on-tertiary": "#422c00",
+                      "on-primary": "#1000a9",
+                      "surface-container-high": "#292932",
+                      "surface-container-lowest": "#0d0d15",
+                      "inverse-primary": "#494bd6",
+                      "error-container": "#93000a",
+                      "inverse-on-surface": "#303038",
+                      "surface": "#13131b",
+                      "surface-tint": "#c0c1ff",
+                      "primary-fixed": "#e1e0ff",
+                      "error": "#ffb4ab",
+                      "on-tertiary-container": "#392600",
+                      "surface-dim": "#13131b",
+                      "outline-variant": "#464554",
+                      "on-surface": "#e4e1ed",
+                      "on-secondary": "#00390d",
+                      "surface-container-low": "#1b1b23",
+                      "on-primary-fixed-variant": "#2f2ebe",
+                      "primary-fixed-dim": "#c0c1ff",
+                      "secondary-fixed-dim": "#67df70",
+                      "on-secondary-fixed": "#002105",
+                      "primary": "#c0c1ff",
+                      "surface-bright": "#393841",
+                      "tertiary": "#fabc45",
+                      "secondary": "#67df70",
+                      "on-error": "#690005",
+                      "tertiary-fixed-dim": "#fabc45",
+                      "surface-variant": "#34343d",
+                      "on-surface-variant": "#c7c4d7",
+                      "on-secondary-container": "#00320a",
+                      "secondary-container": "#27a640",
+                      "background": "#13131b",
+                      "surface-container-highest": "#34343d",
+                      "on-secondary-fixed-variant": "#005317",
+                      "on-tertiary-fixed": "#271900",
+                      "on-primary-fixed": "#07006c",
+                      "on-tertiary-fixed-variant": "#5f4100",
+                      "on-error-container": "#ffdad6",
+                      "outline": "#908fa0"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "xs": "8px",
+                      "lg": "24px",
+                      "margin-mobile": "16px",
+                      "margin-desktop": "32px",
+                      "xl": "32px",
+                      "md": "16px",
+                      "base": "4px",
+                      "sm": "12px",
+                      "gutter": "20px"
+              },
+              "fontFamily": {
+                      "data-mono": ["JetBrains Mono"],
+                      "headline-md": ["Inter"],
+                      "body-base": ["Inter"],
+                      "body-sm": ["Inter"]
+              },
+              "fontSize": {
+                      "data-mono": ["13px", {"lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "500"}],
+                      "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                      "body-base": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
+              }
+            },
+          },
+        }
+      </script>
+</head>
+<body class="flex flex-col md:flex-row min-h-screen bg-background text-on-background">
+<!-- Mobile Header / Hamburger -->
+<header class="md:hidden flex items-center justify-between px-margin-mobile h-16 bg-surface border-b border-[#30363d] z-[60] sticky top-0">
+<div class="flex items-center gap-2">
+<button class="p-2 -ml-2 text-on-surface-variant" onclick="toggleMobileSidebar()">
+<span class="material-symbols-outlined" data-icon="menu">menu</span>
+</button>
+<h1 class="font-headline-md text-xl font-bold text-primary">Proctorly</h1>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg overflow-hidden border border-[#30363d]">
+<img class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC_gPxecUUyfBtp7BvPC--IVpASo_zE4fEV4T1WrQOs5B_Q6VOVwgkZon1AQu6Kw3NqXXfhbC4KH8KKIDhUeMJea_dgrEpdnXLr-jo_yKWsNBUTWoU6tihN858DL55AqJBgSwEWRlXL1MjshVLYzJlpqMVP0KmV5h9onp8ewFwmvAobxbHcMoCdSVurDVrA2nrgVkKfteBAMCcpGmQTMDCYK7m4vBFdOgMH5OV6WBQCjGMiX9BixnlTQoTqkfYUhvNns8ggKsqAqcPR"/>
+</div>
+</div>
+</header>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-screen bg-surface border-r border-[#30363d] flex flex-col py-lg z-[70] transition-all duration-300 transform -translate-x-full md:translate-x-0 md:sticky md:top-0 w-[260px] md:w-[80px] xl:w-[260px]" id="sidebar">
+<div class="px-lg mb-xl md:px-0 md:flex md:flex-col md:items-center xl:items-start xl:px-lg">
+<h1 class="font-headline-md text-headline-md font-bold text-primary md:hidden xl:block">Proctorly</h1>
+<span class="material-symbols-outlined text-primary hidden md:block xl:hidden text-3xl" data-icon="shield">shield</span>
+<p class="text-on-surface-variant text-body-sm opacity-70 md:hidden xl:block">Mission Control</p>
+</div>
+<nav class="flex-1 space-y-1 overflow-y-auto no-scrollbar">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 md:justify-center xl:justify-start" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-base md:hidden xl:block">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 md:justify-center xl:justify-start" href="#">
+<span class="material-symbols-outlined" data-icon="assignment">assignment</span>
+<span class="font-body-base md:hidden xl:block">Exams</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 border-l-4 border-primary bg-primary-container/10 text-primary font-bold md:justify-center xl:justify-start" href="#">
+<span class="material-symbols-outlined" data-icon="visibility">visibility</span>
+<span class="font-body-base md:hidden xl:block">Live Monitor</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 md:justify-center xl:justify-start" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-body-base md:hidden xl:block">Results</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 md:justify-center xl:justify-start" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span class="font-body-base md:hidden xl:block">Students</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200 md:justify-center xl:justify-start" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body-base md:hidden xl:block">Settings</span>
+</a>
+</nav>
+<div class="px-lg mt-auto pt-lg md:px-2 xl:px-lg">
+<button class="w-full py-3 px-4 bg-primary text-on-primary font-bold rounded-lg mb-6 hover:opacity-90 transition-all flex items-center justify-center gap-2 md:p-2">
+<span class="material-symbols-outlined text-[20px]" data-icon="add">add</span>
+<span class="md:hidden xl:block text-body-sm">Create Exam</span>
+</button>
+<div class="p-sm bg-surface-container rounded-xl border border-[#30363d] flex items-center justify-between md:hidden xl:flex">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px] text-on-tertiary" data-icon="diamond">diamond</span>
+</div>
+<span class="text-body-sm font-semibold">Growth</span>
+</div>
+<span class="text-[10px] uppercase font-bold tracking-widest text-primary">Active</span>
+</div>
+</div>
+</aside>
+<!-- Main Wrapper -->
+<div class="flex-1 flex flex-col min-w-0">
+<!-- TopNavBar (Desktop) -->
+<header class="hidden md:flex h-16 bg-surface/80 glass-blur border-b border-[#30363d] sticky top-0 z-40 px-margin-desktop items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 px-4 py-1.5 bg-surface-container-high rounded-full border border-[#30363d] cursor-pointer hover:bg-surface-variant transition-all">
+<span class="w-2 h-2 rounded-full bg-secondary pulse-dot"></span>
+<span class="text-body-sm font-medium">Active: <span class="font-bold">Physics Midterm</span></span>
+<span class="material-symbols-outlined text-[18px]" data-icon="expand_more">expand_more</span>
+</div>
+</div>
+<div class="flex items-center gap-sm">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all rounded-full hover:bg-surface-container">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all rounded-full hover:bg-surface-container relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-1 right-1 w-4 h-4 bg-error text-on-error text-[10px] font-bold rounded-full flex items-center justify-center">6</span>
+</button>
+<div class="h-8 w-[1px] bg-[#30363d] mx-2"></div>
+<div class="flex items-center gap-3 pl-2">
+<div class="text-right hidden xl:block">
+<p class="text-body-sm font-bold leading-none">Dr. Sarah C.</p>
+<p class="text-[10px] text-on-surface-variant">System Admin</p>
+</div>
+<div class="w-10 h-10 rounded-lg overflow-hidden border border-[#30363d]">
+<img class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC_gPxecUUyfBtp7BvPC--IVpASo_zE4fEV4T1WrQOs5B_Q6VOVwgkZon1AQu6Kw3NqXXfhbC4KH8KKIDhUeMJea_dgrEpdnXLr-jo_yKWsNBUTWoU6tihN858DL55AqJBgSwEWRlXL1MjshVLYzJlpqMVP0KmV5h9onp8ewFwmvAobxbHcMoCdSVurDVrA2nrgVkKfteBAMCcpGmQTMDCYK7m4vBFdOgMH5OV6WBQCjGMiX9BixnlTQoTqkfYUhvNns8ggKsqAqcPR"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="p-4 md:p-margin-desktop flex-1">
+<!-- Stat Row -->
+<div class="flex overflow-x-auto md:grid md:grid-cols-2 xl:grid-cols-4 gap-4 mb-lg pb-2 no-scrollbar">
+<!-- Stat Card 1 -->
+<div class="min-w-[200px] md:min-w-0 bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden flex-shrink-0 group hover:border-primary/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Active Students</p>
+<div class="flex items-end gap-3">
+<h2 class="text-2xl font-bold">42</h2>
+<div class="flex items-center gap-1 mb-1 text-secondary">
+<span class="w-2 h-2 rounded-full bg-secondary pulse-dot"></span>
+<span class="text-[10px] font-bold">LIVE</span>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-8 px-md opacity-20">
+<div class="w-full h-full flex items-end gap-1">
+<div class="w-full h-[20%] bg-secondary/30"></div>
+<div class="w-full h-[40%] bg-secondary/30"></div>
+<div class="w-full h-[35%] bg-secondary/30"></div>
+<div class="w-full h-[60%] bg-secondary/30"></div>
+</div>
+</div>
+</div>
+<!-- Stat Card 2 -->
+<div class="min-w-[200px] md:min-w-0 bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden flex-shrink-0 hover:border-secondary/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Avg Risk Score</p>
+<h2 class="text-2xl font-bold text-secondary">18/100</h2>
+</div>
+<!-- Stat Card 3 -->
+<div class="min-w-[200px] md:min-w-0 bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden flex-shrink-0 hover:border-tertiary/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Flagged Actions</p>
+<h2 class="text-2xl font-bold text-tertiary">6</h2>
+</div>
+<!-- Stat Card 4 -->
+<div class="min-w-[200px] md:min-w-0 bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden flex-shrink-0 hover:border-outline/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Completed</p>
+<h2 class="text-2xl font-bold text-outline">128</h2>
+</div>
+</div>
+<div class="flex flex-col xl:flex-row gap-lg">
+<!-- Left Side: Live Grid -->
+<div class="flex-1 flex flex-col min-w-0">
+<!-- Tabs / Filters -->
+<div class="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-md gap-4">
+<div class="flex w-full sm:w-auto bg-surface-container border border-[#30363d] p-1 rounded-lg overflow-x-auto no-scrollbar">
+<button class="flex-1 sm:flex-none px-4 py-1.5 text-body-sm font-bold bg-surface-container-highest text-on-surface rounded-md">All</button>
+<button class="flex-1 sm:flex-none px-4 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Live</button>
+<button class="flex-1 sm:flex-none px-4 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Flagged</button>
+<button class="flex-1 sm:flex-none px-4 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface" id="violationsMobileTabBtn">Violations</button>
+</div>
+<button class="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2 bg-surface-container border border-[#30363d] rounded-lg text-body-sm font-medium hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-[18px]" data-icon="sort">sort</span>
+                        Sort by risk
+                    </button>
+</div>
+<!-- Main Content Area (Sessions or Mobile Violations) -->
+<div id="sessionsView">
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-md content-start pb-lg">
+<!-- Student 1 -->
+<div class="group bg-surface-container-low border border-[#30363d] rounded-xl p-3 hover:border-error transition-all cursor-pointer risk-red-glow flex flex-col gap-2" onclick="toggleDrawer()">
+<div class="flex items-start gap-3">
+<div class="w-12 h-12 rounded-lg bg-black/40 overflow-hidden border border-error/50 flex-shrink-0">
+<img class="w-full h-full object-cover opacity-60" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDNXyyt0-ragfEjvSQKEQ1Oj4OuCCvBBnbPFjNa1ez8t4WsIxbtSZVLVuQSmtcgMqVea433PcRBw0_-UwmXqH9VNKZ7jOAsajv70I_AANUqkUyLmrLfHpyf6MBzxFg_voRMb3c1BSuRZeduDXDpciY1rVcBsvXCWbGXikKjmwFf8sq136ZjbEhrXNudpw0nWh6wH14exiHYKakWn0bNF1L6U1dgE8obnPS4ukK1wsrOAmNXxfSpr9aQTcsWW-rdLZY-X906IEA70Hk7"/>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-bold text-body-sm truncate">Aarav S.</h3>
+<p class="font-data-mono text-outline text-[11px]">R012</p>
+<div class="flex items-center gap-1 mt-1 text-error">
+<span class="text-[10px] font-black bg-error/10 px-1.5 py-0.5 rounded border border-error/20">82% RISK</span>
+</div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-[10px] text-on-surface-variant font-medium">
+<span>Progress 14/20</span>
+<span class="text-error font-data-mono">11:42</span>
+</div>
+<div class="w-full h-1 bg-surface rounded-full overflow-hidden">
+<div class="h-full bg-error" style="width: 70%"></div>
+</div>
+</div>
+<div class="flex items-center justify-between mt-auto pt-2 border-t border-[#30363d]/50">
+<div class="flex gap-1">
+<span class="material-symbols-outlined text-[14px] text-error" data-icon="phone_iphone">phone_iphone</span>
+<span class="material-symbols-outlined text-[14px] text-error" data-icon="volume_up">volume_up</span>
+</div>
+<button class="text-[10px] font-bold px-2.5 py-1 bg-primary text-on-primary rounded-lg flex items-center gap-1 hover:opacity-90">
+<span class="material-symbols-outlined text-[12px]" data-icon="videocam">videocam</span> Peek
+                                </button>
+</div>
+</div>
+<!-- Student 2 -->
+<div class="group bg-surface-container-low border border-[#30363d] rounded-xl p-3 hover:border-tertiary transition-all cursor-pointer risk-amber-glow flex flex-col gap-2" onclick="toggleDrawer()">
+<div class="flex items-start gap-3">
+<div class="w-12 h-12 rounded-lg bg-black/40 overflow-hidden border border-tertiary/50 flex-shrink-0">
+<img class="w-full h-full object-cover opacity-60" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAFCn462khAAArQbxuKRoFq7bBawEOtHmp58coRv3Yyu1YhIGdaJ7durfNq6FIZIf48Sp9nx36P8N-oSRwa_cr__UVOXl2tpwPfbQFBUBHIbSUoiYABZAl94vWHtauWNxxqn7hQUaRujjaIik11lKfjPbF0O7zCVtPRpnp5IqqdzzLM2QMEwzHY8xPeT-xu4uG6DwJjbK4ymZtDujbbnSGh4vhvmj22jJIbiTWJlDboCPArtJJhzXM8AWR58znrqR_MpW4f7IZQbXdY"/>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-bold text-body-sm truncate">John D.</h3>
+<p class="font-data-mono text-outline text-[11px]">R099</p>
+<div class="flex items-center gap-1 mt-1 text-tertiary">
+<span class="text-[10px] font-black bg-tertiary/10 px-1.5 py-0.5 rounded border border-tertiary/20">45% RISK</span>
+</div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-[10px] text-on-surface-variant font-medium">
+<span>Progress 10/20</span>
+<span class="text-on-surface-variant font-data-mono">11:41</span>
+</div>
+<div class="w-full h-1 bg-surface rounded-full overflow-hidden">
+<div class="h-full bg-tertiary" style="width: 50%"></div>
+</div>
+</div>
+<div class="flex items-center justify-between mt-auto pt-2 border-t border-[#30363d]/50">
+<div class="flex gap-1">
+<span class="material-symbols-outlined text-[14px] text-tertiary" data-icon="visibility_off">visibility_off</span>
+</div>
+<button class="text-[10px] font-bold px-2.5 py-1 bg-primary text-on-primary rounded-lg flex items-center gap-1 hover:opacity-90">
+<span class="material-symbols-outlined text-[12px]" data-icon="videocam">videocam</span> Peek
+                                </button>
+</div>
+</div>
+<!-- More students generated dynamically... -->
+<div class="contents" id="dynamicGrid"></div>
+<!-- Overflow Indicator -->
+<div class="bg-surface-container border-2 border-dashed border-[#30363d] rounded-xl flex items-center justify-center flex-col p-6 opacity-60 hover:opacity-100 transition-opacity cursor-pointer">
+<span class="text-2xl font-bold text-primary">+26</span>
+<span class="text-[12px] font-medium">more students</span>
+</div>
+</div>
+</div>
+<!-- Mobile Only Violations (toggled via tab) -->
+<div class="hidden space-y-3 mb-24" id="violationsMobileView">
+<div class="p-4 bg-surface-container border border-[#30363d] rounded-xl">
+<h3 class="font-bold mb-4 flex items-center gap-2"><span class="material-symbols-outlined text-error" data-icon="warning">warning</span> Recent Violations</h3>
+<div class="space-y-2" id="mobileViolationsList"></div>
+</div>
+</div>
+</div>
+<!-- Right Feed: Live Violations (Desktop/Tablet) -->
+<div class="hidden md:flex w-full xl:w-[320px] bg-surface-container border border-[#30363d] rounded-xl flex-col overflow-hidden flex-shrink-0 h-[600px] xl:sticky xl:top-[88px]">
+<div class="p-md border-b border-[#30363d] flex items-center justify-between">
+<h3 class="font-bold text-body-base flex items-center gap-2">
+<span class="material-symbols-outlined text-error" data-icon="warning">warning</span>
+                        Live Violations
+                    </h3>
+<span class="bg-surface-container-high px-2 py-0.5 rounded text-[10px] font-bold text-outline">LATEST</span>
+</div>
+<div class="flex-1 overflow-y-auto p-2 space-y-2" id="desktopViolationsList">
+<!-- Violation items injected here -->
+</div>
+<div class="p-md bg-surface border-t border-[#30363d]">
+<button class="w-full py-2 border border-outline/30 rounded-lg text-body-sm font-bold hover:bg-surface-container-high transition-colors">
+                        View Historical Log
+                    </button>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Mobile Bottom Bar -->
+<nav class="md:hidden fixed bottom-0 left-0 right-0 bg-surface border-t border-[#30363d] h-16 flex items-center justify-around px-2 z-[60] glass-blur">
+<button class="flex flex-col items-center gap-1 text-on-surface-variant hover:text-primary">
+<span class="material-symbols-outlined text-[24px]" data-icon="dashboard">dashboard</span>
+<span class="text-[10px] font-medium">Overview</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-primary">
+<span class="material-symbols-outlined text-[24px]" data-icon="visibility">visibility</span>
+<span class="text-[10px] font-bold">Live</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-on-surface-variant hover:text-primary">
+<span class="material-symbols-outlined text-[24px]" data-icon="analytics">analytics</span>
+<span class="text-[10px] font-medium">Results</span>
+</button>
+<button class="flex flex-col items-center gap-1 text-on-surface-variant hover:text-primary">
+<span class="material-symbols-outlined text-[24px]" data-icon="group">group</span>
+<span class="text-[10px] font-medium">Students</span>
+</button>
+</nav>
+<!-- Evidence Drawer / Mobile Sheet Overlay -->
+<div class="fixed inset-0 md:inset-y-0 md:right-0 md:left-auto md:w-[500px] bg-surface md:border-l border-[#30363d] shadow-[-20px_0_40px_rgba(0,0,0,0.5)] transform translate-x-full transition-transform duration-300 z-[100] flex flex-col invisible" id="evidenceDrawer">
+<div class="p-lg border-b border-[#30363d] flex items-center justify-between">
+<div>
+<h2 class="font-headline-md text-body-base font-bold flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-error pulse-dot"></span>
+                Evidence Analysis
+            </h2>
+<p class="text-outline text-body-sm">Aarav S. · Case ID: #EV-99021-AS</p>
+</div>
+<button class="p-2 hover:bg-surface-container rounded-full" onclick="toggleDrawer()">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto p-lg space-y-8 pb-32 md:pb-8">
+<!-- Content identical to original -->
+<section>
+<div class="flex items-center justify-between mb-4">
+<h4 class="text-[11px] uppercase tracking-widest font-bold text-on-surface-variant">Live Peek Feed</h4>
+<span class="flex items-center gap-1 text-[10px] font-bold text-secondary">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> SECURE
+                </span>
+</div>
+<div class="aspect-video bg-black rounded-xl overflow-hidden relative border border-primary/30">
+<img class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDNXyyt0-ragfEjvSQKEQ1Oj4OuCCvBBnbPFjNa1ez8t4WsIxbtSZVLVuQSmtcgMqVea433PcRBw0_-UwmXqH9VNKZ7jOAsajv70I_AANUqkUyLmrLfHpyf6MBzxFg_voRMb3c1BSuRZeduDXDpciY1rVcBsvXCWbGXikKjmwFf8sq136ZjbEhrXNudpw0nWh6wH14exiHYKakWn0bNF1L6U1dgE8obnPS4ukK1wsrOAmNXxfSpr9aQTcsWW-rdLZY-X906IEA70Hk7"/>
+<div class="absolute bottom-4 right-4 flex gap-2">
+<button class="p-2 bg-black/60 glass-blur rounded-full"><span class="material-symbols-outlined text-on-surface text-[20px]" data-icon="screenshot_region">screenshot_region</span></button>
+<button class="p-2 bg-black/60 glass-blur rounded-full"><span class="material-symbols-outlined text-on-surface text-[20px]" data-icon="mic_off">mic_off</span></button>
+</div>
+</div>
+</section>
+<section>
+<h4 class="text-[11px] uppercase tracking-widest font-bold text-on-surface-variant mb-4">Incident Timeline</h4>
+<div class="space-y-4 border-l-2 border-[#30363d] ml-2 pl-6">
+<div class="relative">
+<span class="absolute -left-[31px] top-1 w-2.5 h-2.5 rounded-full bg-error ring-4 ring-surface"></span>
+<div class="p-3 bg-surface-container-high rounded-xl border border-error/30">
+<div class="flex justify-between items-start mb-2">
+<span class="font-data-mono text-[11px] text-error">11:42:04</span>
+</div>
+<p class="text-body-sm font-bold mb-2">Unauthorized Object: Smartphone</p>
+<img class="w-full h-24 object-cover rounded-lg" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCtiKUMx4ObZUhW76sBFSVhHBN-OJ6mWnWVESsTejcgl-rlB2HWnZ1Lpu5sgk8l2zya53Z_nj2S0S9LXm-DBO27PMbSVZnLAySSfLitk66f1Mt9hyPucCBgryEew5OoeuioahWjEPSqVv3PFHJBrgPxiE9dkACszPaQtl6vgyI2Z6Crtm-H0EEG1gwJQEe-jZuMKgnszNaV_tDvrpMKMFxqz05JtuUl7uC8JafkVRMn_N7uHgzd4K9HPUzMibKkUKapdCk7sPaj1FGy"/>
+</div>
+</div>
+</div>
+</section>
+<section>
+<h4 class="text-[11px] uppercase tracking-widest font-bold text-on-surface-variant mb-4">Risk Profile</h4>
+<div class="grid grid-cols-2 gap-3">
+<div class="p-3 bg-surface-container rounded-lg border border-[#30363d] flex flex-col">
+<span class="text-[10px] text-on-surface-variant font-bold uppercase">Behavioral</span>
+<span class="text-2xl font-bold text-tertiary">42<span class="text-sm opacity-50">/100</span></span>
+</div>
+<div class="p-3 bg-surface-container rounded-lg border border-[#30363d] flex flex-col">
+<span class="text-[10px] text-on-surface-variant font-bold uppercase">Technical</span>
+<span class="text-2xl font-bold text-error">91<span class="text-sm opacity-50">/100</span></span>
+</div>
+</div>
+</section>
+</div>
+<div class="p-lg bg-surface-container border-t border-[#30363d] space-y-3 sticky bottom-0">
+<div class="flex gap-2">
+<button class="flex-1 py-3 bg-secondary text-on-secondary font-bold rounded-lg text-sm">Approve</button>
+<button class="flex-1 py-3 bg-error text-on-error font-bold rounded-lg text-sm">Terminate</button>
+</div>
+</div>
+</div>
+<script>
+    // Initialize Dynamic Content
+    const names = ["Meera K.", "Liam W.", "Sofia R.", "Kenji T.", "Elena M.", "Omar H.", "Zoe B.", "Lucas G.", "Yuna P.", "Ivan D."];
+    const gridEl = document.getElementById('dynamicGrid');
+    names.forEach((name, i) => {
+        const id = "R" + (45 + i).toString().padStart(3, '0');
+        const card = document.createElement('div');
+        card.className = "group bg-surface-container-low border border-[#30363d] rounded-xl p-3 hover:border-primary transition-all cursor-pointer flex flex-col gap-2";
+        card.onclick = () => toggleDrawer();
+        card.innerHTML = `
+            <div class="flex items-start gap-3">
+                <div class="w-12 h-12 rounded-lg bg-surface-container-high overflow-hidden border border-[#30363d] flex-shrink-0 flex items-center justify-center">
+                    <span class="material-symbols-outlined text-outline" data-icon="person">person</span>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <h3 class="font-bold text-body-sm truncate">${name}</h3>
+                    <p class="font-data-mono text-outline text-[11px]">${id}</p>
+                    <div class="flex items-center gap-1 mt-1 text-secondary">
+                        <span class="text-[10px] font-black bg-secondary/10 px-1.5 py-0.5 rounded border border-secondary/20">LOW RISK</span>
+                    </div>
+                </div>
+            </div>
+            <div class="space-y-1">
+                <div class="flex justify-between text-[10px] text-on-surface-variant font-medium">
+                    <span>Progress ${15+i}/20</span>
+                    <span class="text-outline font-data-mono">11:${30+i}</span>
+                </div>
+                <div class="w-full h-1 bg-surface rounded-full overflow-hidden">
+                    <div class="h-full bg-secondary" style="width: ${75+(i*2)}%"></div>
+                </div>
+            </div>
+            <div class="flex items-center justify-between mt-auto pt-2 border-t border-[#30363d]/50">
+                <div class="flex gap-1 opacity-20"><span class="material-symbols-outlined text-[14px]" data-icon="check_circle">check_circle</span></div>
+                <button class="text-[10px] font-bold px-2.5 py-1 bg-surface-container-high text-on-surface-variant rounded-lg flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[12px]" data-icon="videocam">videocam</span> Peek
+                </button>
+            </div>
+        `;
+        gridEl.appendChild(card);
+    });
+
+    // Populate Violations
+    const violations = [
+        { time: '11:42', type: 'Phone detected', user: 'Aarav S. (R012)', severity: 'error' },
+        { time: '11:41', type: 'Looked away 8s', user: 'John D. (R099)', severity: 'tertiary' }
+    ];
+
+    function renderViolations(containerId) {
+        const container = document.getElementById(containerId);
+        violations.forEach(v => {
+            const item = document.createElement('div');
+            item.className = `p-3 bg-surface-container-high/40 border border-${v.severity}/30 rounded-lg cursor-pointer hover:bg-surface-container-high transition-all`;
+            item.onclick = toggleDrawer;
+            item.innerHTML = `
+                <div class="flex justify-between items-start mb-1">
+                    <span class="font-data-mono text-outline text-[11px]">${v.time}</span>
+                    <span class="w-2 h-2 rounded-full bg-${v.severity} shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
+                </div>
+                <p class="text-body-sm font-bold text-on-surface mb-0.5">${v.type}</p>
+                <p class="text-[12px] text-on-surface-variant flex items-center gap-1">
+                    <span class="material-symbols-outlined text-[14px]" data-icon="person">person</span>
+                    ${v.user}
+                </p>
+            `;
+            container.appendChild(item);
+        });
+    }
+    renderViolations('desktopViolationsList');
+    renderViolations('mobileViolationsList');
+
+    // UI Logic
+    function toggleDrawer() {
+        const drawer = document.getElementById('evidenceDrawer');
+        if (drawer.classList.contains('translate-x-full')) {
+            drawer.classList.remove('translate-x-full', 'invisible');
+            drawer.classList.add('translate-x-0', 'visible');
+            document.body.style.overflow = 'hidden';
+        } else {
+            drawer.classList.add('translate-x-full', 'invisible');
+            drawer.classList.remove('translate-x-0', 'visible');
+            document.body.style.overflow = 'auto';
+        }
+    }
+
+    function toggleMobileSidebar() {
+        const sidebar = document.getElementById('sidebar');
+        sidebar.classList.toggle('-translate-x-full');
+    }
+
+    // Mobile Tabs
+    const violationsBtn = document.getElementById('violationsMobileTabBtn');
+    const sessionsView = document.getElementById('sessionsView');
+    const violationsView = document.getElementById('violationsMobileView');
+
+    violationsBtn.addEventListener('click', () => {
+        const isViolationsActive = !violationsView.classList.contains('hidden');
+        if (!isViolationsActive) {
+            sessionsView.classList.add('hidden');
+            violationsView.classList.remove('hidden');
+            violationsBtn.classList.add('bg-surface-container-highest', 'text-on-surface', 'font-bold');
+            violationsBtn.classList.remove('text-on-surface-variant');
+        } else {
+            sessionsView.classList.remove('hidden');
+            violationsView.classList.add('hidden');
+            violationsBtn.classList.remove('bg-surface-container-highest', 'text-on-surface', 'font-bold');
+            violationsBtn.classList.add('text-on-surface-variant');
+        }
+    });
+
+    // Close mobile sidebar on click outside
+    document.addEventListener('click', (e) => {
+        const sidebar = document.getElementById('sidebar');
+        const burger = document.querySelector('[data-icon="menu"]');
+        if (window.innerWidth < 768 && !sidebar.contains(e.target) && !burger.contains(e.target)) {
+            sidebar.classList.add('-translate-x-full');
+        }
+    });
+</script>
+</body></html>

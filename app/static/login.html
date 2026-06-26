@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — Procta</title>
+  <meta name="description" content="Sign in to Procta — students and teachers. Access your AI-proctored exams, results and dashboard.">
+  <meta name="robots" content="noindex">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <!-- Cloudflare Turnstile — both login endpoints verify a captcha_token.
+       Rendered explicitly by login.js once the site key arrives from
+       /api/v1/public-config (no inline script; page CSP is script-src 'self'
+       + challenges.cloudflare.com). -->
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+  <style>
+    :root{
+      --bg:#13131b; --card:#1f1f27; --card-2:#1b1b23; --border:#464554;
+      --text:#e4e1ed; --muted:#c7c4d7; --faint:#908fa0;
+      --accent:#c0c1ff; --accent-dark:#8083ff; --on-accent:#1000a9;
+      --emerald:#67df70; --red:#ffb4ab;
+      --font:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family:var(--font); color:var(--text);
+      background:
+        radial-gradient(1200px 600px at 50% -10%, rgba(128,131,255,.14), transparent 60%),
+        radial-gradient(900px 500px at 90% 110%, rgba(103,223,112,.06), transparent 55%),
+        var(--bg);
+      display:flex; align-items:center; justify-content:center; padding:24px;
+      -webkit-font-smoothing:antialiased;
+    }
+    .card{
+      width:100%; max-width:420px; background:var(--card);
+      border:1px solid var(--border); border-radius:18px;
+      padding:32px 30px; box-shadow:0 24px 60px -24px rgba(0,0,0,.7);
+    }
+    .brand{
+      font-weight:700; letter-spacing:-.02em; font-size:20px; color:var(--text);
+      display:flex; align-items:center; gap:9px; margin-bottom:22px;
+    }
+    .brand .dot{width:11px;height:11px;border-radius:50%;
+      background:linear-gradient(135deg,var(--accent),var(--accent-dark));
+      box-shadow:0 0 14px rgba(128,131,255,.7)}
+    h1{font-size:24px; font-weight:700; letter-spacing:-.02em; margin:0 0 4px}
+    .sub{color:var(--muted); font-size:13.5px; margin:0 0 22px}
+    /* Segmented Student/Teacher toggle */
+    .seg{display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px;
+      background:var(--card-2); border:1px solid var(--border);
+      border-radius:11px; margin-bottom:22px}
+    .seg-btn{appearance:none; border:0; background:transparent; color:var(--muted);
+      font-family:var(--font); font-weight:600; font-size:13.5px; padding:9px 0;
+      border-radius:8px; cursor:pointer; transition:.15s}
+    .seg-btn.active{background:var(--accent); color:var(--on-accent);
+      box-shadow:0 2px 8px -2px rgba(128,131,255,.6)}
+    .seg-btn:not(.active):hover{color:var(--text)}
+    label{display:block; font-size:11px; font-weight:600; letter-spacing:.06em;
+      text-transform:uppercase; color:var(--muted); margin:0 0 6px}
+    input{width:100%; background:var(--card-2); border:1px solid var(--border);
+      color:var(--text); border-radius:10px; padding:12px 14px; font-size:14.5px;
+      font-family:var(--font); outline:none; transition:.15s; margin-bottom:16px}
+    input:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(128,131,255,.18)}
+    input::placeholder{color:var(--faint)}
+    #otp{font-family:var(--mono); letter-spacing:.32em; text-align:center; font-size:18px}
+    .hint{font-size:12px; color:var(--muted); margin:-8px 0 14px}
+    .cf{min-height:0; margin:2px 0 16px}
+    .cf:empty{margin:0}
+    .btn{width:100%; appearance:none; border:0; cursor:pointer;
+      background:var(--accent); color:var(--on-accent);
+      font-family:var(--font); font-weight:700; font-size:15px; letter-spacing:.01em;
+      padding:13px 0; border-radius:11px; transition:.15s}
+    .btn:hover{filter:brightness(1.05)}
+    .btn:disabled{opacity:.55; cursor:default; filter:none}
+    .msg{font-size:13px; border-radius:9px; padding:10px 12px; margin-bottom:16px; line-height:1.45}
+    .msg.err{background:rgba(255,180,171,.1); border:1px solid rgba(255,180,171,.32); color:var(--red)}
+    .msg.ok{background:rgba(103,223,112,.1); border:1px solid rgba(103,223,112,.3); color:var(--emerald)}
+    [hidden]{display:none !important}
+    .links{display:flex; align-items:center; justify-content:space-between;
+      margin-top:20px; font-size:13px; flex-wrap:wrap; gap:8px}
+    .links a{color:var(--accent); text-decoration:none; font-weight:500}
+    .links a:hover{text-decoration:underline}
+    .links .muted{color:var(--muted)}
+    .footnote{margin-top:26px; text-align:center; font-size:11.5px; color:var(--faint)}
+    .spin{display:inline-block;width:15px;height:15px;border:2px solid rgba(16,0,169,.35);
+      border-top-color:var(--on-accent);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+    @keyframes sp{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="card" role="main">
+    <div class="brand"><span class="dot"></span>Procta</div>
+    <h1>Sign in</h1>
+    <p class="sub" id="sub">Access your upcoming exams and results.</p>
+
+    <div class="seg" role="tablist" aria-label="Account type">
+      <button class="seg-btn active" id="seg-student" type="button" role="tab" aria-selected="true">Student</button>
+      <button class="seg-btn" id="seg-teacher" type="button" role="tab" aria-selected="false">Teacher</button>
+    </div>
+
+    <form id="login-form" autocomplete="on" novalidate>
+      <label for="email">Email</label>
+      <input id="email" name="email" type="email" autocomplete="email"
+             placeholder="you@example.com" required>
+
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password"
+             autocomplete="current-password" placeholder="Your password" required>
+
+      <!-- Teacher email-2FA step: revealed when /auth/login returns EMAIL_2FA_REQUIRED -->
+      <div id="otp-wrap" hidden>
+        <label for="otp">Email verification code</label>
+        <input id="otp" name="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+               autocomplete="one-time-code" placeholder="••••••">
+        <p class="hint">We sent a 6-digit code to your email. Enter it to finish signing in.</p>
+      </div>
+
+      <div class="cf" id="cf-turnstile"></div>
+
+      <div class="msg err" id="err" hidden role="alert"></div>
+      <div class="msg ok" id="ok" hidden></div>
+
+      <button class="btn" id="submit" type="submit">Sign in</button>
+    </form>
+
+    <div class="links">
+      <a href="#" id="forgot">Forgot password?</a>
+      <span id="signup-link"></span>
+    </div>
+
+    <p class="footnote">Protected by Cloudflare Turnstile. The proctored exam itself runs in the Procta desktop app.</p>
+  </div>
+
+  <script src="/static/login.js"></script>
+</body>
+</html>

@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly Admin | Settings</title>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .active-glow {
+            box-shadow: inset 0 0 0 1px #c0c1ff;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #13131b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #34343d;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #464554;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface selection:bg-primary/30">
+<!-- SideNavBar Shell -->
+<aside class="fixed left-0 top-0 h-full w-[260px] bg-surface-container border-r border-outline-variant flex flex-col h-full py-lg z-50">
+<div class="px-lg mb-xl flex items-center gap-sm">
+<span class="material-symbols-outlined text-primary text-[28px]">shield_person</span>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">Proctorly</h1>
+<p class="text-[10px] uppercase tracking-widest text-outline">Mission Control</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<!-- Nav Items mapped from JSON -->
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-body-base text-body-base">Overview</span>
+</a>
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">assignment</span>
+<span class="font-body-base text-body-base">Exams</span>
+</a>
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">quiz</span>
+<span class="font-body-base text-body-base">Questions</span>
+</a>
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">visibility</span>
+<span class="font-body-base text-body-base">Live Monitor</span>
+</a>
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-body-base text-body-base">Results</span>
+</a>
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="font-body-base text-body-base">Students</span>
+</a>
+<a class="flex items-center gap-md px-lg py-sm text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined">extension</span>
+<span class="font-body-base text-body-base">Integrations</span>
+</a>
+<!-- Active State: Settings -->
+<a class="flex items-center gap-md px-lg py-sm border-l-4 border-primary bg-primary-container/10 text-primary font-bold transition-all duration-150" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-body-base text-body-base">Settings</span>
+</a>
+</nav>
+<div class="px-lg mt-auto">
+<button class="w-full py-md px-lg bg-primary text-on-primary font-bold rounded-lg flex items-center justify-center gap-sm hover:opacity-90 transition-all active:scale-95">
+<span class="material-symbols-outlined">add</span>
+                Create Exam
+            </button>
+</div>
+</aside>
+<!-- TopAppBar Shell -->
+<header class="fixed top-0 right-0 w-[calc(100%-260px)] h-16 bg-surface/80 backdrop-blur-md border-b border-outline-variant flex justify-between items-center px-margin-desktop z-40">
+<div class="flex items-center gap-md flex-1">
+<div class="relative w-full max-w-md">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-sm">search</span>
+<input class="w-full bg-surface-container-low border border-outline-variant rounded-full py-1.5 pl-10 pr-4 text-body-sm focus:ring-1 focus:ring-primary focus:border-primary transition-all" placeholder="Quick search settings..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-lg">
+<div class="flex items-center gap-sm">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors active:scale-95">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors active:scale-95">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</div>
+<div class="h-8 w-px bg-outline-variant"></div>
+<div class="flex items-center gap-sm group cursor-pointer">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest border border-outline-variant overflow-hidden">
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+</div>
+<div class="hidden lg:block text-right">
+<p class="font-body-sm text-body-sm font-bold text-on-surface">Admin User</p>
+<p class="text-[10px] text-on-surface-variant">Systems Overseer</p>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-[260px] pt-16 min-h-screen">
+<div class="p-margin-desktop max-w-[1400px] mx-auto">
+<!-- Page Header -->
+<div class="mb-xl">
+<h2 class="font-headline-md text-headline-md text-on-surface mb-base">System Settings</h2>
+<p class="text-on-surface-variant font-body-sm">Configure global proctoring parameters and account preferences.</p>
+</div>
+<!-- Settings Two-Pane Layout -->
+<div class="grid grid-cols-12 gap-xl">
+<!-- Left Category Rail -->
+<nav class="col-span-3 space-y-2">
+<button class="w-full flex items-center gap-md p-md rounded-lg bg-surface-container-high border border-primary/20 active-glow transition-all" id="tab-account" data-action="settingsTab" data-tab="account">
+<span class="material-symbols-outlined text-primary">account_circle</span>
+<span class="font-body-base font-semibold text-primary">Account</span>
+</button>
+<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-exam" data-action="settingsTab" data-tab="exam">
+<span class="material-symbols-outlined">settings_suggest</span>
+<span class="font-body-base">Exam Defaults</span>
+</button>
+<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-proctoring" data-action="settingsTab" data-tab="proctoring">
+<span class="material-symbols-outlined">security</span>
+<span class="font-body-base">Proctoring</span>
+</button>
+<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-integrations" data-action="settingsTab" data-tab="integrations">
+<span class="material-symbols-outlined">hub</span>
+<span class="font-body-base">Integrations</span>
+</button>
+<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-maintenance" data-action="settingsTab" data-tab="maintenance">
+<span class="material-symbols-outlined">build</span>
+<span class="font-body-base">Maintenance</span>
+</button>
+<div class="pt-xl pb-base px-md">
+<p class="text-[10px] font-bold uppercase tracking-wider text-error">Critical</p>
+</div>
+<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-error/10 text-error/80 transition-all" id="tab-danger" data-action="settingsTab" data-tab="danger">
+<span class="material-symbols-outlined">warning</span>
+<span class="font-body-base">Danger Zone</span>
+</button>
+</nav>
+<!-- Right Content Area -->
+<div class="col-span-9 space-y-xl">
+<!-- Account Section (Active by default) -->
+<div class="space-y-xl" id="section-account">
+<!-- Profile Card -->
+<div class="bg-surface-container border border-outline-variant rounded-xl p-xl">
+<h3 class="font-headline-md text-headline-md-mobile text-on-surface mb-lg">Profile Information</h3>
+<div class="grid grid-cols-2 gap-lg">
+<div class="space-y-base">
+<label class="font-label-caps text-label-caps text-on-surface-variant">Display Name</label>
+<input id="set-name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-md text-body-base focus:border-primary transition-all" type="text" value=""/>
+</div>
+<div class="space-y-base">
+<label class="font-label-caps text-label-caps text-on-surface-variant">Email Address</label>
+<input id="set-email" class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-md text-body-base focus:border-primary transition-all" type="email" value="" disabled/>
+</div>
+<div class="space-y-base col-span-2">
+<label class="font-label-caps text-label-caps text-on-surface-variant">Update Password</label>
+<div class="relative">
+<input class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-md text-body-base focus:border-primary transition-all" type="password" value="••••••••••••"/>
+<button data-action="changePassword" class="absolute right-md top-1/2 -translate-y-1/2 text-primary font-body-sm font-bold">Change</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Billing Card -->
+<div class="bg-surface-container border border-outline-variant rounded-xl overflow-hidden">
+<div class="p-xl flex justify-between items-start">
+<div>
+<div class="flex items-center gap-md mb-xs">
+<h3 class="font-headline-md text-headline-md-mobile text-on-surface">Subscription Plan</h3>
+<span class="px-md py-0.5 bg-primary-container text-on-primary-container text-[11px] font-bold rounded-full uppercase tracking-wider">Growth Plan</span>
+</div>
+<p class="text-on-surface-variant font-body-sm">Next billing date: Oct 24, 2024 (Auto-renewal enabled)</p>
+</div>
+<button class="px-lg py-md border border-outline-variant hover:bg-surface-container-high rounded-lg text-body-sm font-bold transition-all">
+                                    Manage Billing
+                                </button>
+</div>
+<div class="bg-surface-container-low px-xl py-md border-t border-outline-variant flex items-center justify-between">
+<span class="text-on-surface-variant text-body-sm">Need more seats? <a class="text-primary font-bold underline decoration-primary/30" href="#">Upgrade to Enterprise</a></span>
+<span class="font-data-mono text-data-mono text-primary">$299.00 / mo</span>
+</div>
+</div>
+<!-- Proctoring Defaults Section -->
+<div class="bg-surface-container border border-outline-variant rounded-xl p-xl">
+<div class="flex items-center gap-sm mb-lg">
+<span class="material-symbols-outlined text-secondary">verified_user</span>
+<h3 class="font-headline-md text-headline-md-mobile text-on-surface">Proctoring Defaults</h3>
+</div>
+<div class="space-y-xl">
+<div class="space-y-lg">
+<div class="flex justify-between items-end">
+<label class="font-label-caps text-label-caps text-on-surface-variant uppercase">Global Strictness Level</label>
+<span class="font-data-mono text-secondary text-sm">High Intensity</span>
+</div>
+<div class="relative h-2 bg-surface-container-highest rounded-full">
+<div class="absolute h-full w-[80%] bg-secondary rounded-full"></div>
+<div class="absolute h-4 w-4 bg-on-surface border-4 border-secondary rounded-full -top-1 left-[80%] -translate-x-1/2 cursor-pointer shadow-lg shadow-black/40"></div>
+</div>
+<div class="flex justify-between text-[10px] text-outline font-bold uppercase tracking-widest px-1">
+<span>Relaxed</span>
+<span>Standard</span>
+<span>Strict</span>
+<span>High</span>
+</div>
+</div>
+<div class="grid grid-cols-2 gap-lg pt-lg border-t border-outline-variant">
+<div class="p-lg bg-surface-container-low rounded-lg border border-outline-variant/50">
+<div class="flex items-center gap-sm mb-sm text-primary">
+<span class="material-symbols-outlined text-sm">storage</span>
+<h4 class="font-body-base font-bold">Data Retention</h4>
+</div>
+<p class="text-body-sm text-on-surface-variant mb-md">All video logs and metadata are stored for audit purposes.</p>
+<div class="flex items-center justify-between">
+<span class="font-data-mono text-headline-md text-on-surface">30 Days</span>
+<button class="text-primary text-xs font-bold hover:underline">Customize</button>
+</div>
+</div>
+<div class="p-lg bg-surface-container-low rounded-lg border border-outline-variant/50">
+<div class="flex items-center gap-sm mb-sm text-tertiary">
+<span class="material-symbols-outlined text-sm">notifications_active</span>
+<h4 class="font-body-base font-bold">Instant Alerts</h4>
+</div>
+<p class="text-body-sm text-on-surface-variant mb-md">Threshold for sending SMS/Email alerts to instructors.</p>
+<div class="flex items-center justify-between">
+<span class="font-data-mono text-headline-md text-on-surface">>85% Confidence</span>
+<button class="text-primary text-xs font-bold hover:underline">Configure</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Danger Zone: Privacy & Your Data -->
+<div class="bg-error-container/10 border border-error/20 rounded-xl p-xl">
+<div class="flex items-start justify-between">
+<div class="flex gap-lg">
+<div class="p-md bg-error/10 text-error rounded-lg h-fit">
+<span class="material-symbols-outlined">privacy_tip</span>
+</div>
+<div>
+<h3 class="font-headline-md text-headline-md-mobile text-on-surface mb-xs">Privacy & Your Data</h3>
+<p class="text-on-surface-variant font-body-sm max-w-lg mb-lg">Export your data for GDPR/CCPA compliance or permanently delete your account and all associated exam history.</p>
+<div class="flex gap-md">
+<button data-action="exportData" class="px-lg py-md bg-surface-container text-on-surface font-bold border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high transition-all">Export Data (.json)</button>
+<button data-action="deleteAllRecords" class="px-lg py-md border border-error/50 text-error font-bold rounded-lg text-body-sm hover:bg-error/10 transition-all">Delete All Records</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Placeholder sections for other tabs -->
+<div class="hidden h-96 flex flex-col items-center justify-center text-center p-xl border border-dashed border-outline-variant rounded-xl bg-surface-container-low/50" id="section-other">
+<span class="material-symbols-outlined text-4xl text-outline mb-md">construction</span>
+<h3 class="font-headline-md text-on-surface">Section Under Development</h3>
+<p class="text-on-surface-variant font-body-sm max-w-sm">This module is currently being calibrated for the 2.4.0 rollout. Check back shortly.</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/settings.js" defer></script>
+</body></html>

@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Procta Superadmin - Organizations</title>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        /* Base styles for scrollbars to match the dark technical aesthetic */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #13131b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #34343d;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #464554;
+        }
+
+        /* Utility for 1px subtle borders */
+        .border-subtle {
+            border: 1px solid #30363d;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background min-h-screen font-body-base antialiased flex flex-col md:flex-row selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar (Mobile Only) -->
+<header class="fixed top-0 w-full z-40 bg-surface/80 backdrop-blur-xl shadow-sm border-b border-outline-variant flex justify-between items-center h-16 px-gutter w-full md:hidden">
+<div class="flex items-center gap-sm">
+<span class="font-headline-md-mobile text-headline-md-mobile font-bold text-on-surface tracking-tight">Procta</span>
+<span class="px-2 py-1 bg-primary/10 text-primary rounded font-label-caps text-label-caps ml-2">SUPERADMIN</span>
+</div>
+<div class="flex items-center gap-md text-on-surface-variant">
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">search</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">menu</span>
+</div>
+</header>
+<!-- SideNavBar (Desktop Only) -->
+<aside class="bg-surface-container fixed left-0 top-0 h-full w-[260px] hidden md:flex flex-col border-r border-outline-variant py-lg z-30">
+<!-- Header -->
+<div class="px-lg pb-xl border-b border-outline-variant/50 mb-md flex flex-col">
+<div class="flex items-center gap-sm mb-xs">
+<span class="font-headline-md text-headline-md font-black text-primary tracking-widest uppercase">PROCTA</span>
+</div>
+<span class="font-label-caps text-label-caps text-primary/70 tracking-widest">SUPERADMIN</span>
+</div>
+<!-- Navigation Tabs -->
+<nav class="flex-1 flex flex-col gap-xs px-sm overflow-y-auto">
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95 group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">dashboard</span>
+<span class="font-body-sm text-body-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-primary font-bold border-l-4 border-primary bg-primary/10 transition-all duration-200 ease-in-out cursor-pointer active:scale-95 group" href="#">
+<span class="material-symbols-outlined text-[20px] text-primary">corporate_fare</span>
+<span class="font-body-sm text-body-sm">Organizations</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95 group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">group</span>
+<span class="font-body-sm text-body-sm">Members</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95 group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">terminal</span>
+<span class="font-body-sm text-body-sm">Logs</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95 group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">monitor_heart</span>
+<span class="font-body-sm text-body-sm">Service Health</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95 group" href="#">
+<span class="material-symbols-outlined text-[20px] group-hover:text-primary transition-colors">settings_applications</span>
+<span class="font-body-sm text-body-sm">System Settings</span>
+</a>
+</nav>
+<!-- CTA & Footer -->
+<div class="mt-auto px-lg pt-xl flex flex-col gap-md">
+<button class="w-full bg-inverse-primary text-white font-body-sm text-body-sm font-medium py-sm px-md rounded-lg hover:bg-primary-container hover:text-on-primary-container transition-colors shadow-[0px_4px_10px_rgba(73,75,214,0.3)]">
+                New Organization
+            </button>
+<div class="border-t border-outline-variant/50 pt-md mt-sm">
+<a class="flex items-center gap-md px-md py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-error transition-all duration-200 ease-in-out cursor-pointer" href="#">
+<span class="material-symbols-outlined text-[20px]">logout</span>
+<span class="font-body-sm text-body-sm">Log Out</span>
+</a>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="flex-1 md:ml-[260px] pt-16 md:pt-0 p-margin-mobile md:p-margin-desktop min-h-screen flex flex-col overflow-x-hidden">
+<!-- Page Header -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-md mb-xl">
+<div>
+<h1 class="font-display-lg text-display-lg text-on-surface mb-xs hidden md:block">All Organizations</h1>
+<h1 class="font-headline-md-mobile text-headline-md-mobile text-on-surface mb-xs md:hidden">All Organizations</h1>
+<p class="font-body-base text-body-base text-on-surface-variant max-w-2xl">
+                    System-wide oversight of active institutional tenants, billing status, and real-time usage metrics.
+                </p>
+</div>
+<!-- Global Actions / Desktop Top Nav Replacements -->
+<div class="hidden md:flex items-center gap-md">
+<div class="relative group cursor-pointer">
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">notifications</span>
+<span class="absolute top-0 right-0 w-2 h-2 bg-error rounded-full ring-2 ring-background"></span>
+</div>
+<div class="relative group cursor-pointer ml-xs">
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">settings</span>
+</div>
+<div class="relative group cursor-pointer ml-xs">
+<span class="material-symbols-outlined text-on-surface-variant group-hover:text-primary transition-colors">help</span>
+</div>
+<div class="w-8 h-8 rounded-full bg-surface-container-high border-subtle ml-sm overflow-hidden cursor-pointer hover:border-primary transition-colors">
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+</div>
+</div>
+</div>
+<!-- KPI Grid (Bento Style) -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-md mb-xl">
+<!-- Total Orgs -->
+<div class="bg-surface-container-low rounded-xl border-subtle p-lg relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+<div class="flex justify-between items-start mb-lg relative z-10">
+<span class="font-body-sm text-body-sm text-on-surface-variant font-medium uppercase tracking-wider">Total Active Orgs</span>
+<span class="material-symbols-outlined text-primary/70">corporate_fare</span>
+</div>
+<div class="flex items-baseline gap-sm relative z-10">
+<span class="font-display-lg text-display-lg text-on-surface font-data-mono">1,204</span>
+<span class="font-body-sm text-body-sm text-secondary flex items-center">
+<span class="material-symbols-outlined text-[16px]">arrow_upward</span> 12%
+                    </span>
+</div>
+</div>
+<!-- Active Exams -->
+<div class="bg-surface-container-low rounded-xl border-subtle p-lg relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-tertiary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+<div class="flex justify-between items-start mb-lg relative z-10">
+<span class="font-body-sm text-body-sm text-on-surface-variant font-medium uppercase tracking-wider">Live Exams</span>
+<span class="material-symbols-outlined text-tertiary/70">stream</span>
+</div>
+<div class="flex items-baseline gap-sm relative z-10">
+<span class="font-display-lg text-display-lg text-on-surface font-data-mono">842</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">curr. processing</span>
+</div>
+</div>
+<!-- Total MRR -->
+<div class="bg-surface-container-low rounded-xl border-subtle p-lg relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-secondary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
+<div class="flex justify-between items-start mb-lg relative z-10">
+<span class="font-body-sm text-body-sm text-on-surface-variant font-medium uppercase tracking-wider">Total MRR</span>
+<span class="material-symbols-outlined text-secondary/70">payments</span>
+</div>
+<div class="flex items-baseline gap-sm relative z-10">
+<span class="font-display-lg text-display-lg text-on-surface font-data-mono">$1.4M</span>
+<span class="font-body-sm text-body-sm text-secondary flex items-center">
+<span class="material-symbols-outlined text-[16px]">arrow_upward</span> 4.2%
+                    </span>
+</div>
+</div>
+</div>
+<!-- Table Controls & Search -->
+<div class="flex flex-col sm:flex-row justify-between items-center gap-md mb-md">
+<div class="relative w-full sm:w-96 group">
+<span class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-on-surface-variant group-focus-within:text-primary transition-colors">search</span>
+<input class="w-full bg-[#161b22] border-subtle rounded-lg py-sm pl-10 pr-sm font-body-sm text-body-sm text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 transition-all" placeholder="Search by organization name, ID, or domain..." type="text"/>
+</div>
+<div class="flex items-center gap-sm w-full sm:w-auto">
+<button class="flex-1 sm:flex-none flex items-center justify-center gap-xs px-md py-sm rounded-lg border-subtle text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+                    Filter
+                </button>
+<button class="flex-1 sm:flex-none flex items-center justify-center gap-xs px-md py-sm rounded-lg border-subtle text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-[18px]">download</span>
+                    Export
+                </button>
+</div>
+</div>
+<!-- Data Grid -->
+<div class="bg-surface-container-low rounded-xl border-subtle overflow-hidden flex-1 flex flex-col">
+<div class="overflow-x-auto flex-1">
+<table class="w-full text-left border-collapse min-w-[1000px]">
+<thead>
+<tr class="border-b border-outline-variant/50 bg-surface-container">
+<th class="px-md py-sm font-label-caps text-label-caps text-on-surface-variant font-medium">Organization</th>
+<th class="px-md py-sm font-label-caps text-label-caps text-on-surface-variant font-medium">Plan</th>
+<th class="px-md py-sm font-label-caps text-label-caps text-on-surface-variant font-medium text-right">Seats</th>
+<th class="px-md py-sm font-label-caps text-label-caps text-on-surface-variant font-medium text-right">Instructors</th>
+<th class="px-md py-sm font-label-caps text-label-caps text-on-surface-variant font-medium text-right">Exams (YTD)</th>
+<th class="px-md py-sm font-label-caps text-label-caps text-on-surface-variant font-medium">Status</th>
+<th class="px-md py-sm font-label-caps text-label-caps text-on-surface-variant font-medium">Created Date</th>
+<th class="px-md py-sm"></th>
+</tr>
+</thead>
+<tbody class="font-body-sm text-body-sm divide-y divide-outline-variant/30">
+<!-- Row 1 -->
+<tr class="hover:bg-[#21262d] transition-colors group cursor-pointer">
+<td class="px-md py-sm">
+<div class="flex items-center gap-sm">
+<div class="w-8 h-8 rounded bg-surface-container-high border-subtle flex items-center justify-center flex-shrink-0">
+<span class="font-headline-md text-headline-md text-primary">S</span>
+</div>
+<div>
+<div class="font-medium text-on-surface">Stanford University</div>
+<div class="text-on-surface-variant/70 font-data-mono text-[11px]">ID: ORG-8X9Y2A</div>
+</div>
+</div>
+</td>
+<td class="px-md py-sm">
+<span class="px-2 py-1 bg-surface-container-high border-subtle rounded font-data-mono text-[12px] text-on-surface">Enterprise</span>
+</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">25,000</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">1,240</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">8,421</td>
+<td class="px-md py-sm">
+<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-secondary/10 border border-secondary/20 text-secondary font-label-caps text-[10px]">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> Active
+                                </span>
+</td>
+<td class="px-md py-sm font-data-mono text-on-surface-variant/70">2021-08-14</td>
+<td class="px-md py-sm text-right">
+<button class="p-1 rounded hover:bg-surface-container text-on-surface-variant opacity-0 group-hover:opacity-100 transition-all">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-[#21262d] transition-colors group cursor-pointer">
+<td class="px-md py-sm">
+<div class="flex items-center gap-sm">
+<div class="w-8 h-8 rounded bg-surface-container-high border-subtle flex items-center justify-center flex-shrink-0">
+<span class="font-headline-md text-headline-md text-primary">M</span>
+</div>
+<div>
+<div class="font-medium text-on-surface">MIT</div>
+<div class="text-on-surface-variant/70 font-data-mono text-[11px]">ID: ORG-3B7C9D</div>
+</div>
+</div>
+</td>
+<td class="px-md py-sm">
+<span class="px-2 py-1 bg-surface-container-high border-subtle rounded font-data-mono text-[12px] text-on-surface">Enterprise</span>
+</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">12,500</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">890</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">5,112</td>
+<td class="px-md py-sm">
+<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-secondary/10 border border-secondary/20 text-secondary font-label-caps text-[10px]">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> Active
+                                </span>
+</td>
+<td class="px-md py-sm font-data-mono text-on-surface-variant/70">2022-01-05</td>
+<td class="px-md py-sm text-right">
+<button class="p-1 rounded hover:bg-surface-container text-on-surface-variant opacity-0 group-hover:opacity-100 transition-all">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 (Warning Status) -->
+<tr class="hover:bg-[#21262d] transition-colors group cursor-pointer">
+<td class="px-md py-sm">
+<div class="flex items-center gap-sm">
+<div class="w-8 h-8 rounded bg-surface-container-high border-subtle flex items-center justify-center flex-shrink-0">
+<span class="font-headline-md text-headline-md text-tertiary">O</span>
+</div>
+<div>
+<div class="font-medium text-on-surface">Online Certs Inc.</div>
+<div class="text-on-surface-variant/70 font-data-mono text-[11px]">ID: ORG-1L2M3N</div>
+</div>
+</div>
+</td>
+<td class="px-md py-sm">
+<span class="px-2 py-1 bg-surface-container-high border-subtle rounded font-data-mono text-[12px] text-on-surface">Professional</span>
+</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">5,000</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">45</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">1,205</td>
+<td class="px-md py-sm">
+<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-tertiary/10 border border-tertiary/20 text-tertiary font-label-caps text-[10px]">
+<span class="w-1.5 h-1.5 rounded-full bg-tertiary"></span> Overage
+                                </span>
+</td>
+<td class="px-md py-sm font-data-mono text-on-surface-variant/70">2023-05-22</td>
+<td class="px-md py-sm text-right">
+<button class="p-1 rounded hover:bg-surface-container text-on-surface-variant opacity-0 group-hover:opacity-100 transition-all">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-[#21262d] transition-colors group cursor-pointer">
+<td class="px-md py-sm">
+<div class="flex items-center gap-sm">
+<div class="w-8 h-8 rounded bg-surface-container-high border-subtle flex items-center justify-center flex-shrink-0">
+<span class="font-headline-md text-headline-md text-primary">C</span>
+</div>
+<div>
+<div class="font-medium text-on-surface">CodeBootcamp</div>
+<div class="text-on-surface-variant/70 font-data-mono text-[11px]">ID: ORG-9P8Q7R</div>
+</div>
+</div>
+</td>
+<td class="px-md py-sm">
+<span class="px-2 py-1 bg-surface-container-high border-subtle rounded font-data-mono text-[12px] text-on-surface">Starter</span>
+</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">500</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">12</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">340</td>
+<td class="px-md py-sm">
+<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-secondary/10 border border-secondary/20 text-secondary font-label-caps text-[10px]">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> Active
+                                </span>
+</td>
+<td class="px-md py-sm font-data-mono text-on-surface-variant/70">2024-02-10</td>
+<td class="px-md py-sm text-right">
+<button class="p-1 rounded hover:bg-surface-container text-on-surface-variant opacity-0 group-hover:opacity-100 transition-all">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 5 (Suspended Status) -->
+<tr class="hover:bg-[#21262d] transition-colors group cursor-pointer opacity-70 hover:opacity-100">
+<td class="px-md py-sm">
+<div class="flex items-center gap-sm">
+<div class="w-8 h-8 rounded bg-surface-container-high border-subtle flex items-center justify-center flex-shrink-0">
+<span class="font-headline-md text-headline-md text-on-surface-variant">T</span>
+</div>
+<div>
+<div class="font-medium text-on-surface line-through decoration-outline-variant">Test Org Alpha</div>
+<div class="text-on-surface-variant/70 font-data-mono text-[11px]">ID: ORG-5J6K7L</div>
+</div>
+</div>
+</td>
+<td class="px-md py-sm">
+<span class="px-2 py-1 bg-surface-container-high border-subtle rounded font-data-mono text-[12px] text-on-surface-variant">Trial</span>
+</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">50</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">2</td>
+<td class="px-md py-sm text-right font-data-mono text-on-surface-variant">14</td>
+<td class="px-md py-sm">
+<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-error/10 border border-error/20 text-error font-label-caps text-[10px]">
+<span class="w-1.5 h-1.5 rounded-full bg-error"></span> Suspended
+                                </span>
+</td>
+<td class="px-md py-sm font-data-mono text-on-surface-variant/70">2023-11-01</td>
+<td class="px-md py-sm text-right">
+<button class="p-1 rounded hover:bg-surface-container text-on-surface-variant opacity-0 group-hover:opacity-100 transition-all">
+<span class="material-symbols-outlined text-[18px]">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination Footer -->
+<div class="border-t border-outline-variant/50 p-sm flex items-center justify-between bg-surface-container-low">
+<span class="font-body-sm text-body-sm text-on-surface-variant pl-sm">Showing 1-5 of 1,204</span>
+<div class="flex gap-xs">
+<button class="w-8 h-8 rounded border-subtle flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined text-[18px]">chevron_left</span>
+</button>
+<button class="w-8 h-8 rounded border-subtle bg-primary/10 text-primary font-data-mono text-[12px] flex items-center justify-center">1</button>
+<button class="w-8 h-8 rounded border-subtle flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-data-mono text-[12px]">2</button>
+<button class="w-8 h-8 rounded border-subtle flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors font-data-mono text-[12px]">3</button>
+<button class="w-8 h-8 rounded border-subtle flex items-center justify-center text-on-surface-variant hover:bg-surface-container hover:text-on-surface transition-colors">
+<span class="material-symbols-outlined text-[18px]">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+</body></html>

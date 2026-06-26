@@ -661,6 +661,12 @@ def _build_validate_response(student: dict, student_tid: str, exam_id: str, exis
     return resp
 
 
+# Student-facing question fields. Everything else load_questions returns (correct,
+# reference_answer, max_score, rubric, teacher_id, …) is authoring/grading-only and
+# must never reach the exam client. See the allowlist use in get_questions.
+_STUDENT_Q_KEYS = ("id", "question", "options", "question_type", "image_url")
+
+
 @router.get("/api/v1/questions")
 @limiter.limit("30/minute")
 async def get_questions(request: Request):
@@ -688,8 +694,11 @@ async def get_questions(request: Request):
         questions, session_id, str(tid or ""),
         shuffle_q=shuffle_q, shuffle_o=shuffle_o)
 
-    # Strip correct answers — students must never see them
-    safe_questions = [{k: v for k, v in q.items() if k != "correct"} for q in shuffled]
+    # Whitelist only student-safe fields. A denylist (strip "correct") is fragile: any
+    # new authoring field surfaced by load_questions (reference_answer, max_score, rubric)
+    # would otherwise leak straight to students. Keep this allowlist tight — it is the
+    # single student-facing question emission point (audited: exam.py is the only one).
+    safe_questions = [{k: q[k] for k in _STUDENT_Q_KEYS if k in q} for q in shuffled]
     base = config.get("duration_minutes")
     if base is not None and eid and tid:
         extra = await get_time_extension(tid, eid, (claims.get("roll") or "").upper())

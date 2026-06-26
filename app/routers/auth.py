@@ -2190,6 +2190,36 @@ async def student_history(request: Request):
     return {"history": history}
 
 
+@router.get("/api/v1/student/scorecard/{session_key:path}")
+@limiter.limit("20/minute")
+async def student_scorecard(session_key: str, request: Request):
+    """Let a student download the official scorecard PDF for ONE of their OWN sessions.
+
+    Ownership is enforced the same way student_history scopes data: the session must
+    belong to a (roll_number, teacher_id) the caller is actually enrolled under. Any
+    session that isn't theirs 404s — a student can never pull another student's PDF.
+    The PDF is built by the same builder the teacher/email path uses.
+    """
+    from fastapi import Response as _Response
+    from ..services.scorecard import _build_scorecard_pdf
+    account = await require_student_account(request)
+    email = account["email"].strip().lower()
+    enrollments = await _student_enrollments_for_account(account, email, "roll_number,teacher_id")
+    for enr in enrollments:
+        teacher_id = str(enr["teacher_id"])
+        owned = (await _atable("exam_sessions").select("session_key")
+                 .eq("session_key", session_key)
+                 .eq("roll_number", enr["roll_number"])
+                 .eq("teacher_id", teacher_id)
+                 .in_("status", list(RESULT_STATUSES))
+                 .limit(1).execute()).data or []
+        if owned:
+            pdf_bytes, filename, _ = await _build_scorecard_pdf(session_key, teacher_id)
+            return _Response(content=pdf_bytes, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+    raise HTTPException(status_code=404, detail="Scorecard not found")
+
+
 def _exam_window_status(starts_at, ends_at, now, duration):
     """Determine exam status from time window."""
     if starts_at:
@@ -2736,6 +2766,23 @@ button.submit:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
   text-decoration:none;font-weight:600;font-size:14px;color:#fff;background:var(--navy)}
 .foot{text-align:center;color:#64748b;font-size:11.5px;margin-top:16px}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+/* Reskin to the decided Procta design system (Material-3 dark, lavender primary). */
+:root{--accent:#c0c1ff;--accent-dark:#8083ff;--navy:#292932;--ink:#e4e1ed;--muted:#c7c4d7}
+body{background:radial-gradient(1100px 520px at 50% -10%,#1f1f27 0%,#13131b 55%,#0d0d15 100%);color:#e4e1ed}
+.brand .name{color:#e4e1ed}
+.card{background:#1f1f27;border:1px solid #464554;box-shadow:0 24px 60px rgba(0,0,0,.55)}
+h1{color:#e4e1ed}label{color:#c7c4d7}
+input{background:#1b1b23;border-color:#464554;color:#e4e1ed}
+input:focus{border-color:#c0c1ff;box-shadow:0 0 0 3px rgba(192,193,255,.18)}
+.toggle:hover{color:#c0c1ff;background:#292932}
+.hint .dot{background:#464554}.hint.good .dot{background:#67df70}.hint.good{color:#67df70}
+button.submit{background:#c0c1ff;color:#1000a9;box-shadow:0 8px 20px rgba(192,193,255,.32)}
+button.submit:hover:not(:disabled){background:#8083ff;box-shadow:0 10px 26px rgba(192,193,255,.42)}
+.err{color:#ffb4ab;background:rgba(255,180,171,.08);border:1px solid rgba(255,180,171,.3)}
+.ok{color:#67df70;background:rgba(103,223,112,.08);border:1px solid rgba(103,223,112,.3)}
+.login-btn{background:#292932;color:#e4e1ed;border:1px solid #464554}
+.icon{background:rgba(255,180,171,.1)}
+.foot{color:#908fa0}
 </style></head>
 <body><div class="wrap">
 <div class="brand">
@@ -2788,6 +2835,23 @@ p{color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 22px}
 .btn{display:block;width:100%;padding:12px;border-radius:10px;text-decoration:none;font-weight:600;
   font-size:14px;color:#fff;background:var(--accent);box-shadow:0 8px 20px rgba(91,138,240,.32)}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+/* Reskin to the decided Procta design system (Material-3 dark, lavender primary). */
+:root{--accent:#c0c1ff;--accent-dark:#8083ff;--navy:#292932;--ink:#e4e1ed;--muted:#c7c4d7}
+body{background:radial-gradient(1100px 520px at 50% -10%,#1f1f27 0%,#13131b 55%,#0d0d15 100%);color:#e4e1ed}
+.brand .name{color:#e4e1ed}
+.card{background:#1f1f27;border:1px solid #464554;box-shadow:0 24px 60px rgba(0,0,0,.55)}
+h1{color:#e4e1ed}label{color:#c7c4d7}
+input{background:#1b1b23;border-color:#464554;color:#e4e1ed}
+input:focus{border-color:#c0c1ff;box-shadow:0 0 0 3px rgba(192,193,255,.18)}
+.toggle:hover{color:#c0c1ff;background:#292932}
+.hint .dot{background:#464554}.hint.good .dot{background:#67df70}.hint.good{color:#67df70}
+button.submit{background:#c0c1ff;color:#1000a9;box-shadow:0 8px 20px rgba(192,193,255,.32)}
+button.submit:hover:not(:disabled){background:#8083ff;box-shadow:0 10px 26px rgba(192,193,255,.42)}
+.err{color:#ffb4ab;background:rgba(255,180,171,.08);border:1px solid rgba(255,180,171,.3)}
+.ok{color:#67df70;background:rgba(103,223,112,.08);border:1px solid rgba(103,223,112,.3)}
+.login-btn{background:#292932;color:#e4e1ed;border:1px solid #464554}
+.icon{background:rgba(255,180,171,.1)}
+.foot{color:#908fa0}
 </style></head>
 <body><div class="wrap">
 <div class="brand">

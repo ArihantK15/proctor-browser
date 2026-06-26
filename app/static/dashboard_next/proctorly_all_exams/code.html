@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly | Exams Management</title>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #13131b; }
+        ::-webkit-scrollbar-thumb { background: #464554; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #908fa0; }
+        .glass-panel {
+            background: rgba(31, 31, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid #464554;
+        }
+        .table-row-hover:hover {
+            background: rgba(128, 131, 255, 0.05);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-base antialiased">
+<!-- SideNavBar Anchor -->
+<nav class="fixed left-0 top-0 h-full w-[260px] bg-surface-container border-r border-outline-variant flex flex-col py-lg z-[60]">
+<div class="px-lg mb-xl flex items-center gap-sm">
+<span class="material-symbols-outlined text-primary text-[28px]">shield_person</span>
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md font-bold text-primary">Proctorly</span>
+<span class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Mission Control</span>
+</div>
+</div>
+<div class="flex-1 px-sm space-y-1">
+<a class="flex items-center gap-md px-md py-sm rounded-lg transition-colors text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-body-base">Overview</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg border-l-4 border-primary bg-primary-container/10 text-primary font-bold" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">assignment</span>
+<span class="font-body-base">Exams</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg transition-colors text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface" href="#">
+<span class="material-symbols-outlined">quiz</span>
+<span class="font-body-base">Questions</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg transition-colors text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface" href="#">
+<span class="material-symbols-outlined">visibility</span>
+<span class="font-body-base">Live Monitor</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg transition-colors text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-body-base">Results</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg transition-colors text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="font-body-base">Students</span>
+</a>
+<div class="pt-xl pb-xs px-md">
+<span class="text-[11px] font-bold text-outline uppercase tracking-wider">System</span>
+</div>
+<a class="flex items-center gap-md px-md py-sm rounded-lg transition-colors text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface" href="#">
+<span class="material-symbols-outlined">extension</span>
+<span class="font-body-base">Integrations</span>
+</a>
+<a class="flex items-center gap-md px-md py-sm rounded-lg transition-colors text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-body-base">Settings</span>
+</a>
+</div>
+<div class="px-lg pt-lg mt-auto border-t border-outline-variant">
+<button class="w-full py-md bg-primary text-on-primary font-bold rounded-xl flex items-center justify-center gap-xs hover:opacity-90 active:scale-95 transition-all">
+<span class="material-symbols-outlined">add_circle</span>
+<span>Create Exam</span>
+</button>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="ml-[260px] min-h-screen flex flex-col">
+<!-- TopAppBar Anchor -->
+<header class="h-16 px-margin-desktop sticky top-0 z-50 glass-panel flex justify-between items-center">
+<div class="flex items-center gap-lg flex-1">
+<div class="relative w-full max-w-md">
+<span class="material-symbols-outlined absolute left-md top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input id="exams-search" class="w-full bg-surface-container-lowest border-outline-variant rounded-full pl-xl pr-md py-xs text-body-sm focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" placeholder="Search exams by title, ID or instructor..." type="text"/>
+</div>
+<div class="flex items-center bg-surface-container-low p-1 rounded-lg gap-1 border border-outline-variant">
+<button data-action="filterExams" data-filter="all" class="px-md py-1 text-[12px] font-bold rounded bg-primary-container text-on-primary-container">All</button>
+<button data-action="filterExams" data-filter="draft" class="px-md py-1 text-[12px] font-medium text-on-surface-variant hover:text-on-surface">Draft</button>
+<button data-action="filterExams" data-filter="live" class="px-md py-1 text-[12px] font-medium text-on-surface-variant hover:text-on-surface">Live</button>
+<button data-action="filterExams" data-filter="completed" class="px-md py-1 text-[12px] font-medium text-on-surface-variant hover:text-on-surface">Completed</button>
+</div>
+</div>
+<div class="flex items-center gap-lg">
+<div class="flex items-center gap-md">
+<button class="text-on-surface-variant hover:text-primary transition-colors relative">
+<span class="material-symbols-outlined">notifications</span>
+<span class="absolute -top-1 -right-1 w-2 h-2 bg-error rounded-full"></span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</div>
+<div class="h-8 w-[1px] bg-outline-variant"></div>
+<div class="flex items-center gap-sm">
+<div class="flex flex-col items-end">
+<span class="text-body-sm font-bold text-on-surface">Admin User</span>
+<span class="text-[10px] text-on-surface-variant leading-none">System Controller</span>
+</div>
+<div class="w-10 h-10 rounded-full border-2 border-primary overflow-hidden">
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+</div>
+</div>
+</div>
+</header>
+<div class="p-margin-desktop flex gap-xl">
+<!-- Data-Dense Grid Section -->
+<div class="flex-1 space-y-lg">
+<div class="flex justify-between items-end">
+<div>
+<h1 class="font-display-lg text-headline-md text-on-surface">Exams Repository</h1>
+<p id="exams-subtitle" class="text-on-surface-variant font-body-sm">Loading exams…</p>
+</div>
+<div class="flex gap-sm">
+<button class="px-md py-sm border border-outline-variant rounded-lg text-body-sm font-bold flex items-center gap-xs hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined">filter_list</span> Filter
+                        </button>
+<button class="px-md py-sm border border-outline-variant rounded-lg text-body-sm font-bold flex items-center gap-xs hover:bg-surface-container transition-colors">
+<span class="material-symbols-outlined">download</span> Export CSV
+                        </button>
+</div>
+</div>
+<div class="bg-surface-container rounded-xl border border-outline-variant overflow-hidden">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-high border-b border-outline-variant">
+<th class="px-lg py-md text-[12px] font-bold text-outline uppercase tracking-wider">Exam Details</th>
+<th class="px-lg py-md text-[12px] font-bold text-outline uppercase tracking-wider">Access Window</th>
+<th class="px-lg py-md text-[12px] font-bold text-outline uppercase tracking-wider">Metics</th>
+<th class="px-lg py-md text-[12px] font-bold text-outline uppercase tracking-wider">Status</th>
+<th class="px-lg py-md text-[12px] font-bold text-outline uppercase tracking-wider text-right">Actions</th>
+</tr>
+</thead>
+<tbody id="exams-tbody" class="divide-y divide-outline-variant">
+<!-- Live Row -->
+<tr class="table-row-hover transition-colors">
+<td class="px-lg py-lg">
+<div class="flex flex-col">
+<span class="font-bold text-on-surface">CS50: Introduction to AI</span>
+<span class="text-body-sm text-on-surface-variant">Course ID: COMP-102-B</span>
+</div>
+</td>
+<td class="px-lg py-lg">
+<div class="flex flex-col">
+<span class="font-data-mono text-data-mono text-primary">OCT 24, 2023</span>
+<span class="text-[12px] text-on-surface-variant">09:00 - 12:00 (EST)</span>
+</div>
+</td>
+<td class="px-lg py-lg">
+<div class="flex gap-md">
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">1,240</span>
+<span class="text-[10px] uppercase text-outline">Students</span>
+</div>
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">45</span>
+<span class="text-[10px] uppercase text-outline">Qs</span>
+</div>
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">100</span>
+<span class="text-[10px] uppercase text-outline">Marks</span>
+</div>
+</div>
+</td>
+<td class="px-lg py-lg">
+<span class="px-sm py-1 bg-secondary/10 border border-secondary text-secondary text-[11px] font-bold rounded-full uppercase flex items-center gap-1 w-fit">
+<span class="w-1.5 h-1.5 bg-secondary rounded-full animate-pulse"></span> Live
+                                    </span>
+</td>
+<td class="px-lg py-lg text-right">
+<div class="flex justify-end gap-sm">
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-primary" title="View Results">
+<span class="material-symbols-outlined">monitoring</span>
+</button>
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant" title="Clone">
+<span class="material-symbols-outlined">content_copy</span>
+</button>
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Scheduled Row -->
+<tr class="table-row-hover transition-colors">
+<td class="px-lg py-lg">
+<div class="flex flex-col">
+<span class="font-bold text-on-surface">Advanced Macroeconomics Final</span>
+<span class="text-body-sm text-on-surface-variant">Course ID: ECON-401-A</span>
+</div>
+</td>
+<td class="px-lg py-lg">
+<div class="flex flex-col">
+<span class="font-data-mono text-data-mono text-on-surface">OCT 28, 2023</span>
+<span class="text-[12px] text-on-surface-variant">14:00 - 17:00 (EST)</span>
+</div>
+</td>
+<td class="px-lg py-lg">
+<div class="flex gap-md">
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">450</span>
+<span class="text-[10px] uppercase text-outline">Students</span>
+</div>
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">12</span>
+<span class="text-[10px] uppercase text-outline">Qs</span>
+</div>
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">50</span>
+<span class="text-[10px] uppercase text-outline">Marks</span>
+</div>
+</div>
+</td>
+<td class="px-lg py-lg">
+<span class="px-sm py-1 bg-primary/10 border border-primary text-primary text-[11px] font-bold rounded-full uppercase flex items-center gap-1 w-fit">
+<span class="material-symbols-outlined text-[12px]">schedule</span> Scheduled
+                                    </span>
+</td>
+<td class="px-lg py-lg text-right">
+<div class="flex justify-end gap-sm">
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant" title="Edit">
+<span class="material-symbols-outlined">edit</span>
+</button>
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant" title="Clone">
+<span class="material-symbols-outlined">content_copy</span>
+</button>
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Draft Row -->
+<tr class="table-row-hover transition-colors">
+<td class="px-lg py-lg">
+<div class="flex flex-col">
+<span class="font-bold text-on-surface">Medical Ethics & Jurisprudence</span>
+<span class="text-body-sm text-on-surface-variant">Course ID: MED-602-Z</span>
+</div>
+</td>
+<td class="px-lg py-lg text-on-surface-variant">
+<span class="text-[12px] italic">Not set</span>
+</td>
+<td class="px-lg py-lg">
+<div class="flex gap-md">
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">--</span>
+<span class="text-[10px] uppercase text-outline">Students</span>
+</div>
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">8</span>
+<span class="text-[10px] uppercase text-outline">Qs</span>
+</div>
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">40</span>
+<span class="text-[10px] uppercase text-outline">Marks</span>
+</div>
+</div>
+</td>
+<td class="px-lg py-lg">
+<span class="px-sm py-1 bg-surface-container-highest border border-outline-variant text-on-surface-variant text-[11px] font-bold rounded-full uppercase flex items-center gap-1 w-fit">
+                                        Draft
+                                    </span>
+</td>
+<td class="px-lg py-lg text-right">
+<div class="flex justify-end gap-sm">
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant" title="Edit">
+<span class="material-symbols-outlined">edit</span>
+</button>
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant" title="Archive">
+<span class="material-symbols-outlined">archive</span>
+</button>
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+<!-- Completed Row -->
+<tr class="table-row-hover transition-colors">
+<td class="px-lg py-lg">
+<div class="flex flex-col">
+<span class="font-bold text-on-surface">Psychology 101 Midterm</span>
+<span class="text-body-sm text-on-surface-variant">Course ID: PSYCH-101</span>
+</div>
+</td>
+<td class="px-lg py-lg">
+<div class="flex flex-col">
+<span class="font-data-mono text-data-mono text-on-surface">OCT 15, 2023</span>
+<span class="text-[12px] text-on-surface-variant">Completed</span>
+</div>
+</td>
+<td class="px-lg py-lg">
+<div class="flex gap-md">
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">892</span>
+<span class="text-[10px] uppercase text-outline">Students</span>
+</div>
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">60</span>
+<span class="text-[10px] uppercase text-outline">Qs</span>
+</div>
+<div class="flex flex-col">
+<span class="font-data-mono text-on-surface">120</span>
+<span class="text-[10px] uppercase text-outline">Marks</span>
+</div>
+</div>
+</td>
+<td class="px-lg py-lg">
+<span class="px-sm py-1 bg-outline-variant/20 border border-outline-variant text-outline text-[11px] font-bold rounded-full uppercase flex items-center gap-1 w-fit">
+                                        Completed
+                                    </span>
+</td>
+<td class="px-lg py-lg text-right">
+<div class="flex justify-end gap-sm">
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-secondary" title="View Results">
+<span class="material-symbols-outlined">analytics</span>
+</button>
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant" title="Archive">
+<span class="material-symbols-outlined">archive</span>
+</button>
+<button class="p-2 hover:bg-surface-container-highest rounded-lg transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined">more_vert</span>
+</button>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="flex justify-between items-center px-lg py-md bg-surface-container-low rounded-lg border border-outline-variant">
+<span class="text-body-sm text-on-surface-variant">Showing <span class="text-on-surface font-bold">1-10</span> of 48 exams</span>
+<div class="flex gap-xs">
+<button class="p-1 rounded hover:bg-surface-container-highest disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center bg-primary text-on-primary font-bold rounded text-body-sm">1</button>
+<button class="w-8 h-8 flex items-center justify-center hover:bg-surface-container-highest rounded text-body-sm">2</button>
+<button class="w-8 h-8 flex items-center justify-center hover:bg-surface-container-highest rounded text-body-sm">3</button>
+<button class="w-8 h-8 flex items-center justify-center hover:bg-surface-container-highest rounded text-body-sm">...</button>
+<button class="w-8 h-8 flex items-center justify-center hover:bg-surface-container-highest rounded text-body-sm">5</button>
+<button class="p-1 rounded hover:bg-surface-container-highest">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Templates Sidebar -->
+<aside class="w-80 flex flex-col gap-lg">
+<div class="bg-surface-container p-lg rounded-xl border border-outline-variant">
+<div class="flex items-center justify-between mb-md">
+<h2 class="font-bold text-on-surface flex items-center gap-xs">
+<span class="material-symbols-outlined text-primary">auto_awesome</span>
+                            Quick Templates
+                        </h2>
+<button class="text-primary text-[12px] font-bold hover:underline">See All</button>
+</div>
+<div class="space-y-md">
+<div class="p-md rounded-lg bg-surface-container-low border border-outline-variant hover:border-primary transition-all cursor-pointer group">
+<h3 class="font-bold text-body-sm mb-1 group-hover:text-primary">Standard Multiple Choice</h3>
+<p class="text-[12px] text-on-surface-variant leading-tight">Configured with auto-grading, 60min limit, and camera proctoring.</p>
+</div>
+<div class="p-md rounded-lg bg-surface-container-low border border-outline-variant hover:border-primary transition-all cursor-pointer group">
+<h3 class="font-bold text-body-sm mb-1 group-hover:text-primary">Essay & Analysis</h3>
+<p class="text-[12px] text-on-surface-variant leading-tight">Screen recording + copy/paste lockout enabled for written exams.</p>
+</div>
+<div class="p-md rounded-lg bg-surface-container-low border border-outline-variant hover:border-primary transition-all cursor-pointer group">
+<h3 class="font-bold text-body-sm mb-1 group-hover:text-primary">Coding Challenge</h3>
+<p class="text-[12px] text-on-surface-variant leading-tight">IDE integration, terminal access, and source-code plagiarism check.</p>
+</div>
+</div>
+<button class="w-full mt-lg py-sm border-2 border-dashed border-outline-variant text-outline rounded-lg font-bold text-body-sm hover:border-primary hover:text-primary transition-all">
+                        + Save New Template
+                    </button>
+</div>
+<div class="bg-primary/5 p-lg rounded-xl border border-primary/20 relative overflow-hidden">
+<div class="relative z-10">
+<h3 class="font-bold text-on-surface mb-xs">Proctorly Tip</h3>
+<p class="text-body-sm text-on-surface-variant">Scheduled exams can be updated up to <span class="text-primary font-bold">15 minutes</span> before the access window opens.</p>
+</div>
+<span class="material-symbols-outlined absolute -bottom-4 -right-4 text-primary/10 text-[120px]" style="font-variation-settings: 'FILL' 1;">lightbulb</span>
+</div>
+<div class="bg-surface-container-high p-lg rounded-xl border border-outline-variant">
+<h3 class="font-bold text-on-surface mb-md">System Statistics</h3>
+<div class="space-y-sm">
+<div class="flex justify-between items-center">
+<span class="text-[12px] text-on-surface-variant">Server Load</span>
+<span class="text-[12px] font-data-mono text-secondary">Optimal</span>
+</div>
+<div class="w-full h-1 bg-background rounded-full overflow-hidden">
+<div class="h-full bg-secondary" style="width: 24%"></div>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-[12px] text-on-surface-variant">Student Capacity</span>
+<span class="text-[12px] font-data-mono text-on-surface">1.2k / 5k</span>
+</div>
+<div class="w-full h-1 bg-background rounded-full overflow-hidden">
+<div class="h-full bg-primary" style="width: 32%"></div>
+</div>
+</div>
+</div>
+</aside>
+</div>
+</main>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/exams.js" defer></script>
+</body></html>

@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly — Live Mission Control</title>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body {
+            background-color: #13131b;
+            color: #e4e1ed;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .risk-red-glow {
+            box-shadow: 0 0 15px -2px rgba(239, 68, 68, 0.4);
+            border-color: #ef4444 !important;
+        }
+        .risk-amber-glow {
+            box-shadow: 0 0 10px -2px rgba(245, 158, 11, 0.2);
+            border-color: #f59e0b !important;
+        }
+        .risk-emerald-glow {
+            border-color: #10b981 !important;
+        }
+        .glass-blur {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        @keyframes pulse-soft {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .pulse-dot {
+            animation: pulse-soft 2s infinite ease-in-out;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #13131b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 10px;
+        }
+    </style>
+
+</head>
+<body class="flex min-h-screen">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-screen w-[260px] bg-surface border-r border-[#30363d] flex flex-col py-lg z-50">
+<div class="px-lg mb-xl">
+<h1 class="font-headline-md text-headline-md font-bold text-primary">Proctorly</h1>
+<p class="text-on-surface-variant text-body-sm opacity-70">Mission Control</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-base">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="assignment">assignment</span>
+<span class="font-body-base">Exams</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="quiz">quiz</span>
+<span class="font-body-base">Questions</span>
+</a>
+<!-- Active Nav Item -->
+<a class="flex items-center gap-3 px-4 py-3 border-l-4 border-primary bg-primary-container/10 text-primary font-bold" href="#">
+<span class="material-symbols-outlined" data-icon="visibility">visibility</span>
+<span class="font-body-base">Live Monitor</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-body-base">Results</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span class="font-body-base">Students</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="extension">extension</span>
+<span class="font-body-base">Integrations</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body-base">Settings</span>
+</a>
+</nav>
+<div class="px-lg mt-auto pt-lg">
+<button class="w-full py-3 px-4 bg-primary text-on-primary font-bold rounded-lg mb-6 hover:opacity-90 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[20px]" data-icon="add">add</span>
+                Create New Exam
+            </button>
+<div class="p-sm bg-surface-container rounded-xl border border-[#30363d] flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-tertiary-container flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px] text-on-tertiary" data-icon="diamond">diamond</span>
+</div>
+<span class="text-body-sm font-semibold">Growth Plan</span>
+</div>
+<span class="text-[10px] uppercase font-bold tracking-widest text-primary">Active</span>
+</div>
+</div>
+</aside>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 left-[260px] h-16 bg-surface/80 glass-blur border-b border-[#30363d] shadow-sm z-40 px-margin-desktop flex items-center justify-between">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2 px-4 py-1.5 bg-surface-container-high rounded-full border border-[#30363d] cursor-pointer hover:bg-surface-variant transition-all">
+<span class="w-2 h-2 rounded-full bg-secondary pulse-dot"></span>
+<select id="exam-select" class="text-body-sm font-medium text-on-surface bg-transparent focus:outline-none cursor-pointer [&>option]:bg-surface-container [&>option]:text-on-surface"></select>
+</div>
+</div>
+<div class="flex items-center gap-sm">
+<div class="relative group">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all rounded-full hover:bg-surface-container">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+</button>
+</div>
+<div class="relative group">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all rounded-full hover:bg-surface-container relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-1 right-1 w-4 h-4 bg-error text-on-error text-[10px] font-bold rounded-full flex items-center justify-center">6</span>
+</button>
+</div>
+<button class="p-2 text-on-surface-variant hover:text-primary transition-all rounded-full hover:bg-surface-container">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<div class="h-8 w-[1px] bg-[#30363d] mx-2"></div>
+<div class="flex items-center gap-3 pl-2">
+<div class="text-right">
+<p class="text-body-sm font-bold leading-none">Dr. Sarah C.</p>
+<p class="text-[10px] text-on-surface-variant">System Admin</p>
+</div>
+<div class="w-10 h-10 rounded-lg overflow-hidden border border-[#30363d]">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of a female professor" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC_gPxecUUyfBtp7BvPC--IVpASo_zE4fEV4T1WrQOs5B_Q6VOVwgkZon1AQu6Kw3NqXXfhbC4KH8KKIDhUeMJea_dgrEpdnXLr-jo_yKWsNBUTWoU6tihN858DL55AqJBgSwEWRlXL1MjshVLYzJlpqMVP0KmV5h9onp8ewFwmvAobxbHcMoCdSVurDVrA2nrgVkKfteBAMCcpGmQTMDCYK7m4vBFdOgMH5OV6WBQCjGMiX9BixnlTQoTqkfYUhvNns8ggKsqAqcPR"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="ml-[260px] mt-16 p-margin-desktop flex-1 overflow-x-hidden">
+<!-- Stat Row -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-lg mb-lg">
+<div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-primary/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Active Students</p>
+<div class="flex items-end gap-3">
+<h2 class="text-headline-md font-bold" id="stat-active">42</h2>
+<div class="flex items-center gap-1 mb-1.5 text-secondary">
+<span class="w-2 h-2 rounded-full bg-secondary pulse-dot"></span>
+<span class="text-[12px] font-bold">LIVE</span>
+</div>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
+<div class="w-full h-full flex items-end gap-1">
+<div class="w-full h-[20%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[40%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[35%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[60%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[80%] bg-secondary/30 rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-secondary/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Avg Risk Score</p>
+<div class="flex items-end gap-3">
+<h2 class="text-headline-md font-bold text-secondary" id="stat-avgrisk">18/100</h2>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
+<div class="w-full h-full flex items-end gap-1">
+<div class="w-full h-[10%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[15%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[12%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[14%] bg-secondary/30 rounded-t-sm"></div>
+<div class="w-full h-[10%] bg-secondary/30 rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-tertiary/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Flagged Actions</p>
+<div class="flex items-end gap-3">
+<h2 class="text-headline-md font-bold text-tertiary" id="stat-flagged">6</h2>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
+<div class="w-full h-full flex items-end gap-1">
+<div class="w-full h-[5%] bg-tertiary/30 rounded-t-sm"></div>
+<div class="w-full h-[10%] bg-tertiary/30 rounded-t-sm"></div>
+<div class="w-full h-[30%] bg-tertiary/30 rounded-t-sm"></div>
+<div class="w-full h-[40%] bg-tertiary/30 rounded-t-sm"></div>
+<div class="w-full h-[20%] bg-tertiary/30 rounded-t-sm"></div>
+</div>
+</div>
+</div>
+<div class="bg-surface-container border border-[#30363d] rounded-xl p-md relative overflow-hidden group hover:border-outline/50 transition-all">
+<p class="text-on-surface-variant text-body-sm mb-1">Completed</p>
+<div class="flex items-end gap-3">
+<h2 class="text-headline-md font-bold text-outline" id="stat-completed">128</h2>
+</div>
+<div class="absolute bottom-0 left-0 right-0 h-10 px-md opacity-40">
+<div class="w-full h-full flex items-end gap-1">
+<div class="w-full h-[70%] bg-outline/20 rounded-t-sm"></div>
+<div class="w-full h-[85%] bg-outline/20 rounded-t-sm"></div>
+<div class="w-full h-[95%] bg-outline/20 rounded-t-sm"></div>
+<div class="w-full h-[100%] bg-outline/20 rounded-t-sm"></div>
+<div class="w-full h-[90%] bg-outline/20 rounded-t-sm"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="flex flex-col lg:flex-row gap-lg h-[calc(100vh-320px)]">
+<!-- Left Side: Live Grid -->
+<div class="flex-1 flex flex-col min-w-0">
+<!-- Filter Bar -->
+<div class="flex items-center justify-between mb-md">
+<div class="flex bg-surface-container border border-[#30363d] p-1 rounded-lg">
+<button data-action="filterLive" data-filter="all" class="px-6 py-1.5 text-body-sm font-bold bg-surface-container-highest text-on-surface rounded-md">All</button>
+<button data-action="filterLive" data-filter="live" class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Live</button>
+<button data-action="filterLive" data-filter="flagged" class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Flagged</button>
+<button data-action="filterLive" data-filter="completed" class="px-6 py-1.5 text-body-sm font-medium text-on-surface-variant hover:text-on-surface">Completed</button>
+</div>
+<button class="flex items-center gap-2 px-4 py-2 bg-surface-container border border-[#30363d] rounded-lg text-body-sm font-medium hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-[18px]" data-icon="sort">sort</span>
+                        Sort by risk
+                    </button>
+</div>
+<!-- Compact Cards Grid -->
+<div class="flex-1 overflow-y-auto pr-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-md content-start pb-lg">
+<!-- High Risk Student 1 -->
+<div class="group bg-surface-container-low border border-[#30363d] rounded-xl p-3 hover:border-error transition-all cursor-pointer risk-red-glow flex flex-col gap-2" data-action="peekDrawer">
+<div class="flex items-start gap-3">
+<div class="w-12 h-12 rounded-lg bg-black/40 overflow-hidden border border-error/50 flex-shrink-0">
+<img class="w-full h-full object-cover opacity-60" data-alt="Last captured evidence thumbnail" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDNXyyt0-ragfEjvSQKEQ1Oj4OuCCvBBnbPFjNa1ez8t4WsIxbtSZVLVuQSmtcgMqVea433PcRBw0_-UwmXqH9VNKZ7jOAsajv70I_AANUqkUyLmrLfHpyf6MBzxFg_voRMb3c1BSuRZeduDXDpciY1rVcBsvXCWbGXikKjmwFf8sq136ZjbEhrXNudpw0nWh6wH14exiHYKakWn0bNF1L6U1dgE8obnPS4ukK1wsrOAmNXxfSpr9aQTcsWW-rdLZY-X906IEA70Hk7"/>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-bold text-body-sm truncate">Aarav S.</h3>
+<p class="font-data-mono text-outline text-[11px]">R012</p>
+<div class="flex items-center gap-1 mt-1 text-error">
+<span class="text-[10px] font-black bg-error/10 px-1.5 py-0.5 rounded border border-error/20">82% RISK</span>
+</div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-[10px] text-on-surface-variant font-medium">
+<span>Progress 14/20</span>
+<span class="text-error font-data-mono">11:42</span>
+</div>
+<div class="w-full h-1 bg-surface rounded-full overflow-hidden">
+<div class="h-full bg-error" style="width: 70%"></div>
+</div>
+</div>
+<div class="flex items-center justify-between mt-auto pt-2 border-t border-[#30363d]/50">
+<div class="flex gap-1">
+<span class="material-symbols-outlined text-[14px] text-error" data-icon="phone_iphone">phone_iphone</span>
+<span class="material-symbols-outlined text-[14px] text-error" data-icon="volume_up">volume_up</span>
+</div>
+<button class="text-[10px] font-bold px-2.5 py-1 bg-primary text-on-primary rounded-lg flex items-center gap-1 hover:opacity-90">
+<span class="material-symbols-outlined text-[12px]" data-icon="videocam">videocam</span> Peek
+</button>
+</div>
+</div>
+<!-- Medium Risk Student 2 -->
+<div class="group bg-surface-container-low border border-[#30363d] rounded-xl p-3 hover:border-tertiary transition-all cursor-pointer risk-amber-glow flex flex-col gap-2" data-action="peekDrawer">
+<div class="flex items-start gap-3">
+<div class="w-12 h-12 rounded-lg bg-black/40 overflow-hidden border border-tertiary/50 flex-shrink-0">
+<img class="w-full h-full object-cover opacity-60" data-alt="Last captured evidence thumbnail" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAFCn462khAAArQbxuKRoFq7bBawEOtHmp58coRv3Yyu1YhIGdaJ7durfNq6FIZIf48Sp9nx36P8N-oSRwa_cr__UVOXl2tpwPfbQFBUBHIbSUoiYABZAl94vWHtauWNxxqn7hQUaRujjaIik11lKfjPbF0O7zCVtPRpnp5IqqdzzLM2QMEwzHY8xPeT-xu4uG6DwJjbK4ymZtDujbbnSGh4vhvmj22jJIbiTWJlDboCPArtJJhzXM8AWR58znrqR_MpW4f7IZQbXdY"/>
+</div>
+<div class="flex-1 min-w-0">
+<h3 class="font-bold text-body-sm truncate">John D.</h3>
+<p class="font-data-mono text-outline text-[11px]">R099</p>
+<div class="flex items-center gap-1 mt-1 text-tertiary">
+<span class="text-[10px] font-black bg-tertiary/10 px-1.5 py-0.5 rounded border border-tertiary/20">45% RISK</span>
+</div>
+</div>
+</div>
+<div class="space-y-1">
+<div class="flex justify-between text-[10px] text-on-surface-variant font-medium">
+<span>Progress 10/20</span>
+<span class="text-on-surface-variant font-data-mono">11:41</span>
+</div>
+<div class="w-full h-1 bg-surface rounded-full overflow-hidden">
+<div class="h-full bg-tertiary" style="width: 50%"></div>
+</div>
+</div>
+<div class="flex items-center justify-between mt-auto pt-2 border-t border-[#30363d]/50">
+<div class="flex gap-1">
+<span class="material-symbols-outlined text-[14px] text-tertiary" data-icon="visibility_off">visibility_off</span>
+</div>
+<button class="text-[10px] font-bold px-2.5 py-1 bg-primary text-on-primary rounded-lg flex items-center gap-1 hover:opacity-90">
+<span class="material-symbols-outlined text-[12px]" data-icon="videocam">videocam</span> Peek
+</button>
+</div>
+</div>
+<!-- Low Risk Student 3-12 (Mocked) -->
+
+<!-- Overflow Indicator -->
+<div class="bg-surface-container border-2 border-dashed border-[#30363d] rounded-xl flex items-center justify-center flex-col p-4 opacity-60 hover:opacity-100 transition-opacity cursor-pointer">
+<span class="text-headline-md font-bold text-primary">+26</span>
+<span class="text-body-sm font-medium">more students</span>
+</div>
+</div>
+</div>
+<!-- Right Feed: Live Violations -->
+<div class="w-full lg:w-[320px] bg-surface-container border border-[#30363d] rounded-xl flex flex-col overflow-hidden flex-shrink-0">
+<div class="p-md border-b border-[#30363d] flex items-center justify-between">
+<h3 class="font-bold text-body-base flex items-center gap-2">
+<span class="material-symbols-outlined text-error" data-icon="warning">warning</span>
+                        Live Violations
+                    </h3>
+<span class="bg-surface-container-high px-2 py-0.5 rounded text-[10px] font-bold text-outline">LATEST</span>
+</div>
+<div class="flex-1 overflow-y-auto p-2 space-y-2" id="violations-feed">
+<!-- Violation Items -->
+<div class="p-3 bg-surface-container-high/50 border border-error/30 rounded-lg cursor-pointer hover:bg-surface-container-high transition-all" data-action="peekDrawer">
+<div class="flex justify-between items-start mb-1">
+<span class="font-data-mono text-outline text-[11px]">11:42</span>
+<span class="w-2 h-2 rounded-full bg-error shadow-[0_0_8px_rgba(239,68,68,0.6)]"></span>
+</div>
+<p class="text-body-sm font-bold text-on-surface mb-0.5">Phone detected</p>
+<p class="text-[12px] text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="person">person</span>
+                            Aarav S. (R012)
+                        </p>
+</div>
+<div class="p-3 bg-surface-container-high/20 border border-[#30363d] rounded-lg cursor-pointer hover:bg-surface-container-high transition-all">
+<div class="flex justify-between items-start mb-1">
+<span class="font-data-mono text-outline text-[11px]">11:41</span>
+<span class="w-2 h-2 rounded-full bg-tertiary shadow-[0_0_8px_rgba(245,158,11,0.6)]"></span>
+</div>
+<p class="text-body-sm font-bold text-on-surface mb-0.5">Looked away 8s</p>
+<p class="text-[12px] text-on-surface-variant flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]" data-icon="person">person</span>
+                            John D. (R099)
+                        </p>
+</div>
+</div>
+<div class="p-md bg-surface border-t border-[#30363d]">
+<button class="w-full py-2 border border-outline/30 rounded-lg text-body-sm font-bold hover:bg-surface-container-high transition-colors"data-action="historicalLog">
+                        View Historical Log
+                    </button>
+</div>
+</div>
+</div>
+</main>
+<!-- Evidence Drawer Overlay (Enhanced) -->
+<div class="fixed inset-y-0 right-0 w-full sm:w-[500px] bg-surface border-l border-[#30363d] shadow-[-20px_0_40px_rgba(0,0,0,0.5)] transform translate-x-full transition-transform duration-300 z-[60] flex flex-col invisible" id="evidenceDrawer">
+<div class="p-lg border-b border-[#30363d] flex items-center justify-between">
+<div>
+<h2 class="font-headline-md text-body-base font-bold flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-error pulse-dot"></span>
+                Evidence Analysis
+            </h2>
+<p class="text-outline text-body-sm">Aarav S. · Case ID: #EV-99021-AS</p>
+</div>
+<button class="p-2 hover:bg-surface-container rounded-full" data-action="peekDrawer">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto p-lg space-y-8">
+<!-- Live On-Demand Camera -->
+<section>
+<div class="flex items-center justify-between mb-4">
+<h4 class="text-label-caps text-on-surface-variant uppercase tracking-widest font-bold text-[11px]">Live Peek Feed</h4>
+<span class="flex items-center gap-1 text-[10px] font-bold text-secondary">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary"></span> SECURE CONNECTION
+</span>
+</div>
+<div class="aspect-video bg-black rounded-xl overflow-hidden relative border border-primary/30">
+<img class="w-full h-full object-cover" data-alt="High-definition live webcam feed of student" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDNXyyt0-ragfEjvSQKEQ1Oj4OuCCvBBnbPFjNa1ez8t4WsIxbtSZVLVuQSmtcgMqVea433PcRBw0_-UwmXqH9VNKZ7jOAsajv70I_AANUqkUyLmrLfHpyf6MBzxFg_voRMb3c1BSuRZeduDXDpciY1rVcBsvXCWbGXikKjmwFf8sq136ZjbEhrXNudpw0nWh6wH14exiHYKakWn0bNF1L6U1dgE8obnPS4ukK1wsrOAmNXxfSpr9aQTcsWW-rdLZY-X906IEA70Hk7"/>
+<div class="absolute bottom-4 right-4 flex gap-2">
+<button class="p-2 bg-black/60 glass-blur rounded-full hover:bg-black/80">
+<span class="material-symbols-outlined text-on-surface text-[20px]" data-icon="screenshot_region">screenshot_region</span>
+</button>
+<button class="p-2 bg-black/60 glass-blur rounded-full hover:bg-black/80">
+<span class="material-symbols-outlined text-on-surface text-[20px]" data-icon="mic_off">mic_off</span>
+</button>
+</div>
+<div class="absolute top-4 left-4">
+<span class="bg-black/50 glass-blur text-[10px] px-2 py-1 rounded text-on-surface font-data-mono">LIVE 1080p</span>
+</div>
+</div>
+</section>
+<!-- Event Timeline -->
+<section>
+<h4 class="text-label-caps text-on-surface-variant mb-4 uppercase tracking-widest font-bold text-[11px]">Incident Timeline</h4>
+<div class="space-y-4 border-l-2 border-[#30363d] ml-2 pl-6">
+<div class="relative">
+<span class="absolute -left-[31px] top-1 w-2.5 h-2.5 rounded-full bg-error ring-4 ring-surface"></span>
+<div class="p-3 bg-surface-container-high rounded-xl border border-error/30">
+<div class="flex justify-between items-start mb-2">
+<span class="font-data-mono text-[11px] text-error">11:42:04</span>
+<span class="text-[10px] font-bold uppercase bg-error/20 text-error px-1.5 rounded">Critical</span>
+</div>
+<p class="text-body-sm font-bold mb-2">Unauthorized Object: Smartphone</p>
+<div class="rounded-lg overflow-hidden border border-[#30363d]">
+<img class="w-full h-24 object-cover" data-alt="Forensic snapshot" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCtiKUMx4ObZUhW76sBFSVhHBN-OJ6mWnWVESsTejcgl-rlB2HWnZ1Lpu5sgk8l2zya53Z_nj2S0S9LXm-DBO27PMbSVZnLAySSfLitk66f1Mt9hyPucCBgryEew5OoeuioahWjEPSqVv3PFHJBrgPxiE9dkACszPaQtl6vgyI2Z6Crtm-H0EEG1gwJQEe-jZuMKgnszNaV_tDvrpMKMFxqz05JtuUl7uC8JafkVRMn_N7uHgzd4K9HPUzMibKkUKapdCk7sPaj1FGy"/>
+</div>
+</div>
+</div>
+<div class="relative">
+<span class="absolute -left-[31px] top-1 w-2.5 h-2.5 rounded-full bg-tertiary ring-4 ring-surface"></span>
+<div class="p-3 bg-surface-container-low rounded-xl border border-[#30363d]">
+<div class="flex justify-between items-start">
+<span class="font-data-mono text-[11px] text-outline">11:39:12</span>
+</div>
+<p class="text-body-sm font-medium">Eye Gaze Deviation (8s)</p>
+</div>
+</div>
+</div>
+</section>
+<!-- Risk Breakdown -->
+<section>
+<h4 class="text-label-caps text-on-surface-variant mb-4 uppercase tracking-widest font-bold text-[11px]">Risk Profile</h4>
+<div class="grid grid-cols-2 gap-3">
+<div class="p-3 bg-surface-container rounded-lg border border-[#30363d] flex flex-col">
+<span class="text-[10px] text-on-surface-variant font-bold uppercase">Behavioral</span>
+<span class="text-headline-md font-bold text-tertiary">42<span class="text-sm opacity-50">/100</span></span>
+</div>
+<div class="p-3 bg-surface-container rounded-lg border border-[#30363d] flex flex-col">
+<span class="text-[10px] text-on-surface-variant font-bold uppercase">Technical</span>
+<span class="text-headline-md font-bold text-error">91<span class="text-sm opacity-50">/100</span></span>
+</div>
+</div>
+</section>
+</div>
+<!-- Actions Footer -->
+<div class="p-lg bg-surface-container border-t border-[#30363d] space-y-3">
+<textarea class="w-full bg-background border border-[#30363d] rounded-lg p-3 text-body-sm focus:border-primary outline-none h-20" placeholder="Internal proctor notes..."></textarea>
+<div class="flex gap-2">
+<button class="flex-1 py-2.5 bg-surface border border-outline/30 text-on-surface font-bold rounded-lg text-body-sm hover:bg-surface-container-high">Flag</button>
+<button class="flex-1 py-2.5 bg-secondary text-on-secondary font-bold rounded-lg text-body-sm hover:opacity-90">Approve</button>
+<button class="flex-1 py-2.5 bg-error text-on-error font-bold rounded-lg text-body-sm hover:opacity-90">Terminate</button>
+</div>
+</div>
+</div>
+
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/live.js" defer></script>
+</body></html>

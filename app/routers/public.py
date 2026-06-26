@@ -707,6 +707,18 @@ def download_page():
     return _static_html_response("download.html", "Download page not found")
 
 
+@router.get("/login")
+def login_page():
+    """Unified sign-in for students AND teachers. Role toggle picks the
+    endpoint (/api/v1/student/auth/login vs /api/v1/auth/login); both set
+    their own cookie session and redirect to /student-next or /dashboard-next.
+    Generic on purpose — the legacy login lives inside the teacher-flavoured
+    /dashboard page, and students had no web login form at all (it was
+    Electron-only). Sign-UP stays role-specific (students /register, teachers
+    procta.net), so this page only signs people in."""
+    return _static_html_response("login.html", "Login page not found")
+
+
 @router.get("/register")
 def register_page():
     """Self-registration page for students before exam day."""
@@ -742,6 +754,118 @@ def admin_dashboard_react():
     # content-hashed, so it needs no ?v= cache-bust).
     return _static_html_response(
         "dashboard-react/index.html", "React dashboard not found")
+
+
+@router.get("/dashboard-next")
+def admin_dashboard_next():
+    # Vanilla rebuild on the Stitch design (branch feat/react-dashboard-rebuild). WIP,
+    # built section-by-section to parity (docs/DASHBOARD_PARITY_*.md) then it replaces
+    # /dashboard. NOT default yet. Vanilla (no React) sidesteps the #321
+    # _stamp_static_urls double-React-instance bug that broke the old React dashboard.
+    return _static_html_response(
+        "dashboard_next/procta_live_monitor_high_density_view/code.html",
+        "Dashboard (next) not found")
+
+
+@router.get("/dashboard-next/questions")
+def admin_dashboard_next_questions():
+    return _static_html_response(
+        "dashboard_next/procta_question_authoring_coding_wizard/code.html",
+        "Dashboard (next) questions not found")
+
+
+@router.get("/dashboard-next/overview")
+def admin_dashboard_next_overview():
+    return _static_html_response(
+        "dashboard_next/proctorly_teacher_overview/code.html",
+        "Dashboard (next) overview not found")
+
+
+@router.get("/dashboard-next/exams")
+def admin_dashboard_next_exams():
+    return _static_html_response(
+        "dashboard_next/proctorly_all_exams/code.html",
+        "Dashboard (next) exams not found")
+
+
+@router.get("/dashboard-next/students")
+def admin_dashboard_next_students():
+    return _static_html_response(
+        "dashboard_next/proctorly_student_roster/code.html",
+        "Dashboard (next) students not found")
+
+
+@router.get("/dashboard-next/results")
+def admin_dashboard_next_results():
+    return _static_html_response(
+        "dashboard_next/proctorly_results_analytics/code.html",
+        "Dashboard (next) results not found")
+
+
+@router.get("/dashboard-next/integrations")
+def admin_dashboard_next_integrations():
+    return _static_html_response(
+        "dashboard_next/proctorly_integrations/code.html",
+        "Dashboard (next) integrations not found")
+
+
+@router.get("/dashboard-next/settings")
+def admin_dashboard_next_settings():
+    return _static_html_response(
+        "dashboard_next/proctorly_settings/code.html",
+        "Dashboard (next) settings not found")
+
+
+@router.get("/dashboard-next/evidence")
+def admin_dashboard_next_evidence():
+    # Appeals review queue (privacy-correct: frames only from appeal-attached evidence).
+    return _static_html_response(
+        "dashboard_next/proctorly_evidence_review/code.html",
+        "Dashboard (next) evidence not found")
+
+
+@router.get("/dashboard-next/members")
+def admin_dashboard_next_members():
+    return _static_html_response(
+        "dashboard_next/procta_admin_members_desktop/code.html", "Members not found")
+
+
+@router.get("/dashboard-next/org-settings")
+def admin_dashboard_next_org_settings():
+    return _static_html_response(
+        "dashboard_next/procta_admin_org_settings_desktop/code.html", "Org settings not found")
+
+
+@router.get("/dashboard-next/billing")
+def admin_dashboard_next_billing():
+    return _static_html_response(
+        "dashboard_next/procta_admin_billing_desktop/code.html", "Billing not found")
+
+
+@router.get("/dashboard-next/all-orgs")
+def admin_dashboard_next_all_orgs():
+    return _static_html_response(
+        "dashboard_next/procta_superadmin_all_organizations_desktop/code.html", "All orgs not found")
+
+
+@router.get("/dashboard-next/system-health")
+def admin_dashboard_next_system_health():
+    return _static_html_response(
+        "dashboard_next/procta_superadmin_system_health_desktop/code.html", "System health not found")
+
+
+@router.get("/dashboard-next/issues")
+def admin_dashboard_next_issues():
+    return _static_html_response(
+        "dashboard_next/procta_superadmin_issues_desktop/code.html", "Issues not found")
+
+
+@router.get("/student-next")
+def student_dashboard_next():
+    # Responsive student hub (schedule + results + scorecards). Student session;
+    # the proctored exam itself still runs in the desktop client. WIP → replaces /student.
+    return _static_html_response(
+        "student_next/code.html", "Student dashboard (next) not found")
 
 
 @router.get("/dashboard-legacy")

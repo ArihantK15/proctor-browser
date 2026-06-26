@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Organization Billing</title>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body { background-color: theme('colors.background'); color: theme('colors.on-surface'); }
+        .glass-panel { background: rgba(31, 31, 39, 0.6); backdrop-filter: blur(12px); border: 1px solid theme('colors.outline-variant'); }
+        .glow-border:focus-within { border-color: theme('colors.primary'); box-shadow: 0 0 0 1px theme('colors.primary'); }
+    </style>
+</head>
+<body class="font-body-base text-body-base bg-background text-on-surface antialiased min-h-screen flex flex-col md:flex-row">
+<!-- TopNavBar (Mobile Only) -->
+<header class="md:hidden flex justify-between items-center h-16 px-gutter w-full bg-surface/80 backdrop-blur-xl fixed top-0 z-40 shadow-sm border-b border-outline-variant">
+<div class="font-headline-md-mobile text-headline-md-mobile font-bold text-on-surface tracking-tight">Procta</div>
+<div class="flex gap-4">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer active:scale-95">notifications</span>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer active:scale-95">settings</span>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer active:scale-95">help</span>
+</div>
+</header>
+<!-- SideNavBar (Desktop) -->
+<nav class="fixed left-0 top-0 h-full w-[260px] hidden md:flex flex-col border-r border-outline-variant bg-surface-container py-lg gap-xs z-30">
+<div class="px-lg mb-8">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary font-bold" style="font-size: 18px;">admin_panel_settings</span>
+</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-black text-primary tracking-widest leading-none">PROCTA</h1>
+<span class="font-label-caps text-label-caps text-on-surface-variant opacity-70">SUPERADMIN</span>
+</div>
+</div>
+<button class="mt-6 w-full py-2 px-4 bg-primary text-on-primary rounded font-label-caps text-label-caps hover:bg-primary-fixed transition-colors">New Organization</button>
+</div>
+<div class="flex flex-col flex-1 gap-1 px-sm">
+<a class="flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">dashboard</span> Dashboard
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded text-primary font-bold border-l-4 border-primary bg-primary/10 transition-all duration-200 ease-in-out font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">corporate_fare</span> Organizations
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">group</span> Members
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">terminal</span> Logs
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">monitor_heart</span> Service Health
+            </a>
+<a class="flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">settings_applications</span> System Settings
+            </a>
+</div>
+<div class="px-sm mt-auto">
+<a class="flex items-center gap-3 px-4 py-3 rounded text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out font-label-caps text-label-caps" href="#">
+<span class="material-symbols-outlined" style="font-size: 20px;">logout</span> Log Out
+            </a>
+</div>
+</nav>
+<!-- Main Content Canvas -->
+<main class="flex-1 md:ml-[260px] pt-16 md:pt-0 p-margin-mobile md:p-margin-desktop w-full max-w-7xl mx-auto">
+<header class="mb-8 flex justify-between items-end border-b border-outline-variant pb-4">
+<div>
+<h2 class="font-display-lg text-display-lg text-on-surface mb-2">Billing &amp; Usage</h2>
+<p class="font-body-base text-body-base text-on-surface-variant">Manage organization subscription and monitor resource consumption.</p>
+</div>
+<div class="hidden md:flex gap-4 items-center">
+<button class="px-4 py-2 border border-outline-variant text-on-surface rounded font-label-caps text-label-caps hover:bg-surface-container-highest transition">Update Payment Method</button>
+</div>
+</header>
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+<!-- Plan & Usage Details -->
+<div class="lg:col-span-8 flex flex-col gap-6">
+<!-- Current Plan Card -->
+<div class="glass-panel rounded-xl p-6 relative overflow-hidden group">
+<div class="absolute inset-0 bg-primary opacity-5 group-hover:opacity-10 transition-opacity"></div>
+<div class="absolute -right-20 -top-20 w-64 h-64 bg-primary/20 blur-3xl rounded-full"></div>
+<div class="relative z-10 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+<div>
+<div class="flex items-center gap-2 mb-2">
+<span class="material-symbols-outlined text-primary">verified</span>
+<h3 class="font-headline-md text-headline-md text-on-surface">Pro Plan</h3>
+<span class="px-2 py-1 bg-surface-container-highest rounded text-xs text-on-surface-variant uppercase tracking-wider ml-2">Active</span>
+</div>
+<p class="font-body-sm text-body-sm text-on-surface-variant">Renews on October 1st, 2024</p>
+</div>
+<div class="text-right">
+<div class="font-display-lg text-display-lg text-primary">$499<span class="text-xl text-on-surface-variant font-normal">/mo</span></div>
+</div>
+</div>
+</div>
+<!-- Usage Meters -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Exams Usage -->
+<div class="glass-panel rounded-xl p-6">
+<div class="flex justify-between items-center mb-4">
+<h4 class="font-body-base text-body-base font-semibold">Exam Sessions</h4>
+<span class="material-symbols-outlined text-on-surface-variant">assignment</span>
+</div>
+<div class="mb-2 flex justify-between font-data-mono text-data-mono">
+<span class="text-on-surface">8,420</span>
+<span class="text-on-surface-variant">/ 10,000 limit</span>
+</div>
+<div class="h-2 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-secondary rounded-full" style="width: 84%;"></div>
+</div>
+<p class="mt-4 font-body-sm text-body-sm text-on-surface-variant">84% of monthly allocation used</p>
+</div>
+<!-- Storage Usage -->
+<div class="glass-panel rounded-xl p-6">
+<div class="flex justify-between items-center mb-4">
+<h4 class="font-body-base text-body-base font-semibold">Video Storage</h4>
+<span class="material-symbols-outlined text-on-surface-variant">cloud</span>
+</div>
+<div class="mb-2 flex justify-between font-data-mono text-data-mono">
+<span class="text-on-surface">1.2 TB</span>
+<span class="text-on-surface-variant">/ 2.0 TB limit</span>
+</div>
+<div class="h-2 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-tertiary rounded-full" style="width: 60%;"></div>
+</div>
+<p class="mt-4 font-body-sm text-body-sm text-on-surface-variant">60% of secure storage utilized</p>
+</div>
+</div>
+<!-- Invoice History Table -->
+<div class="glass-panel rounded-xl flex flex-col h-full">
+<div class="p-4 border-b border-outline-variant flex justify-between items-center">
+<h4 class="font-headline-md text-headline-md text-on-surface text-lg">Billing History</h4>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="border-b border-outline-variant bg-surface-container/50">
+<th class="p-4 font-label-caps text-label-caps text-on-surface-variant">Invoice Date</th>
+<th class="p-4 font-label-caps text-label-caps text-on-surface-variant">Amount</th>
+<th class="p-4 font-label-caps text-label-caps text-on-surface-variant">Status</th>
+<th class="p-4 font-label-caps text-label-caps text-on-surface-variant text-right">Action</th>
+</tr>
+</thead>
+<tbody class="font-data-mono text-data-mono divide-y divide-outline-variant/50">
+<tr class="hover:bg-surface-container-highest transition-colors group cursor-default">
+<td class="p-4 text-on-surface">2024-09-01</td>
+<td class="p-4 text-on-surface">$499.00</td>
+<td class="p-4"><span class="text-secondary flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">check_circle</span> Paid</span></td>
+<td class="p-4 text-right">
+<button class="text-on-surface-variant hover:text-primary transition-colors" title="Download PDF">
+<span class="material-symbols-outlined">download</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-surface-container-highest transition-colors group cursor-default">
+<td class="p-4 text-on-surface">2024-08-01</td>
+<td class="p-4 text-on-surface">$499.00</td>
+<td class="p-4"><span class="text-secondary flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">check_circle</span> Paid</span></td>
+<td class="p-4 text-right">
+<button class="text-on-surface-variant hover:text-primary transition-colors" title="Download PDF">
+<span class="material-symbols-outlined">download</span>
+</button>
+</td>
+</tr>
+<tr class="hover:bg-surface-container-highest transition-colors group cursor-default">
+<td class="p-4 text-on-surface">2024-07-01</td>
+<td class="p-4 text-on-surface">$499.00</td>
+<td class="p-4"><span class="text-secondary flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">check_circle</span> Paid</span></td>
+<td class="p-4 text-right">
+<button class="text-on-surface-variant hover:text-primary transition-colors" title="Download PDF">
+<span class="material-symbols-outlined">download</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</div>
+<!-- Side Panel (Payment Info & Summary) -->
+<div class="lg:col-span-4 flex flex-col gap-6">
+<div class="glass-panel rounded-xl p-6">
+<h4 class="font-headline-md text-headline-md text-on-surface text-lg mb-4">Payment Method</h4>
+<div class="flex items-center gap-4 p-4 bg-surface-container rounded border border-outline-variant mb-4">
+<div class="w-10 h-6 bg-white rounded flex items-center justify-center">
+<span class="text-[#1434CB] font-bold italic text-sm">VISA</span>
+</div>
+<div class="flex-1 font-data-mono text-data-mono">
+<div class="text-on-surface">•••• •••• •••• 4242</div>
+<div class="text-on-surface-variant text-xs mt-1">Expires 12/25</div>
+</div>
+</div>
+<button class="w-full py-2 bg-transparent border border-outline-variant text-on-surface rounded font-label-caps text-label-caps hover:bg-surface-container-highest transition">Edit Method</button>
+</div>
+<div class="glass-panel rounded-xl p-6">
+<h4 class="font-headline-md text-headline-md text-on-surface text-lg mb-4">Support</h4>
+<p class="font-body-sm text-body-sm text-on-surface-variant mb-4">Need help understanding your billing or want to discuss enterprise options?</p>
+<button class="w-full py-2 bg-surface-container text-on-surface rounded font-label-caps text-label-caps border border-outline-variant hover:border-primary transition-colors flex justify-center items-center gap-2">
+<span class="material-symbols-outlined" style="font-size: 18px;">support_agent</span> Contact Billing Support
+                     </button>
+</div>
+</div>
+</div>
+</main>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+</body></html>

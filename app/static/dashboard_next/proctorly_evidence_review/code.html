@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly | Single-student Evidence Review</title>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #13131b;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #34343d;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #464554;
+        }
+        .evidence-mask {
+            mask-image: linear-gradient(to bottom, black 80%, transparent 100%);
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface font-body-base overflow-hidden">
+<!-- Top Navigation Bar -->
+<header class="fixed top-0 left-0 w-full z-50 bg-surface/80 backdrop-blur-md border-b border-outline-variant px-margin-desktop h-16 flex items-center justify-between">
+<div class="flex items-center gap-lg">
+<div class="flex items-center gap-xs">
+<span class="material-symbols-outlined text-primary text-[28px]">shield_person</span>
+<span class="font-headline-md text-primary font-bold">Proctorly</span>
+</div>
+<div class="h-6 w-px bg-outline-variant"></div>
+<div class="flex flex-col">
+<span class="font-body-sm text-on-surface font-bold">Evidence Review</span>
+<span class="font-label-caps text-[10px] text-on-surface-variant uppercase">Case ID: PR-9942</span>
+</div>
+</div>
+<div class="flex items-center gap-xl">
+<div class="flex items-center gap-sm bg-surface-container rounded-lg px-md py-xs border border-outline-variant">
+<span class="material-symbols-outlined text-on-surface-variant" style="font-size: 18px;">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-body-sm w-48 text-on-surface" placeholder="Search events..." type="text"/>
+</div>
+<div class="flex items-center gap-md">
+<button class="p-xs text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+<button class="p-xs text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-primary-container/20 border border-primary/30 flex items-center justify-center">
+<span class="text-primary font-bold text-[12px]">JS</span>
+</div>
+</div>
+</div>
+</header>
+<main class="pt-16 h-screen flex overflow-hidden">
+<!-- Left Panel: Event Timeline -->
+<aside class="w-[320px] h-full bg-surface-container-low border-r border-outline-variant flex flex-col shrink-0">
+<div class="p-md border-b border-outline-variant flex justify-between items-center bg-surface-container">
+<h2 class="font-label-caps text-on-surface-variant">APPEALS QUEUE</h2>
+<span id="appeals-count" class="font-data-mono text-tertiary">—</span>
+</div>
+<div id="appeals-list" class="flex-1 overflow-y-auto evidence-mask">
+<!-- Timeline Event: Selected -->
+<div class="p-md bg-primary-container/10 border-l-4 border-primary cursor-pointer hover:bg-primary-container/20 transition-all">
+<div class="flex justify-between mb-xs">
+<span class="font-data-mono text-primary text-[11px]">14:22:05</span>
+<span class="flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+<span class="font-label-caps text-error text-[10px]">CRITICAL</span>
+</span>
+</div>
+<p class="font-body-sm text-on-surface font-semibold mb-sm">External Object Detected</p>
+<div class="relative w-full aspect-video rounded-lg overflow-hidden border border-outline-variant mb-xs group">
+<div class="w-full h-full bg-cover bg-center" data-alt="A grainy security-style webcam frame showing a student at a desk. A glowing red bounding box highlights a rectangular object resembling a smartphone held partially out of view. The lighting is dim, cool-toned, with high technical UI overlays and digital noise." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuBK8Od7xQ7UeiDXAI_Ug2twEeywdDTpDexjvzr7aB7AkQ3AiQunz4_7dBIvzCc-OjbYTmTlTIY3tEaa6Hm4LZlEn6IX3invpgWswD3zNqxbnIg09LltIWPtUUVIbZPIDvoUZTCmDpwfYb5NW5xSFu8lZjrCEEaBMhWxHLD-MsmYR8_vaRG8X8sD0mEUXOlvr_BFQO7k4PYEuJVGYes2bHxEBwmIpLlZ0635zQWjPyTSB4YqNoPo867WrIJ8b-elVFyiE1lN7GtcNNqm')"></div>
+<div class="absolute inset-0 bg-primary/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+<span class="material-symbols-outlined text-white">visibility</span>
+</div>
+</div>
+<span class="font-body-sm text-on-surface-variant text-[12px]">Confidence: 98.4%</span>
+</div>
+<!-- Timeline Event: Gaze Away -->
+<div class="p-md border-b border-outline-variant cursor-pointer hover:bg-surface-container-high transition-all">
+<div class="flex justify-between mb-xs">
+<span class="font-data-mono text-on-surface-variant text-[11px]">14:20:12</span>
+<span class="flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="font-label-caps text-tertiary text-[10px]">MEDIUM</span>
+</span>
+</div>
+<p class="font-body-sm text-on-surface mb-sm">Gaze Deviation (Left)</p>
+<div class="relative w-full aspect-video rounded-lg overflow-hidden border border-outline-variant opacity-60">
+<div class="w-full h-full bg-cover bg-center" data-alt="Close up of a student looking sharply away from a computer screen towards the left side of the frame. Digital eye-tracking markers and heatmaps are overlaid in amber tones. The aesthetic is dark and systematic, emphasizing AI surveillance." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCjUk5D8bABg3beSLvJBFDBKC5ilOUx5uX_7bB3ljr8bSsKzgU6u-t84r0k5CzIvDP4CCFTiAP1DP9ng4VhVRxklb3AX5o3isy7pFdxPtpIcRa_S1T2Axp8SE4KNfdKCAeIVqghXSQVhym2ZFhgD_PvJIF_JJdxIn32Wc-E6hNwuyPTBqvbtEJVMC1Ig_UXg04sA3Y4pP5As9K3lzN6mCGWyOsbKCvt6PX0WGvo-DjqF2JRhnGLjqxLbupZfs0JZgIgMnwkJ97OEkhX')"></div>
+</div>
+</div>
+<!-- Timeline Event: Multiple People -->
+<div class="p-md border-b border-outline-variant cursor-pointer hover:bg-surface-container-high transition-all">
+<div class="flex justify-between mb-xs">
+<span class="font-data-mono text-on-surface-variant text-[11px]">14:15:33</span>
+<span class="flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+<span class="font-label-caps text-error text-[10px]">CRITICAL</span>
+</span>
+</div>
+<p class="font-body-sm text-on-surface mb-sm">Multiple Persons Detected</p>
+<div class="relative w-full aspect-video rounded-lg overflow-hidden border border-outline-variant opacity-60">
+<div class="w-full h-full bg-cover bg-center" data-alt="A wide-angle webcam view showing a student at a desk with a blurred figure appearing in the background doorway. AI-generated skeletal tracking lines are drawn over both figures in red and white. High contrast, dark mode aesthetic." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDKSdg5FpsI_8SPwdH0nCZjcFK-ERtvKSED8RM4bPb6kf_h6cpWHSLmxEDEkC2cWl9N2eoA8Al42ecJPCCP5SF7s79RpoLB_aN35EsR4tGanLMdK_nNHYUmalvpWf1Fx1Mof9IHDx1tsCad32zsW903o1X711z7VcpQu7Tu3AbJAQPBRDQfA8n6MUYUfCynobmMV8ZRfyZ2K9Wl7TE_yb8iSD__SttWHrc7wjOij9iY2h9DgMXLIcnMk0lyIqcFhKZsbbwqNLfwzhQ_')"></div>
+</div>
+</div>
+<!-- Timeline Event: Audio -->
+<div class="p-md border-b border-outline-variant cursor-pointer hover:bg-surface-container-high transition-all">
+<div class="flex justify-between mb-xs">
+<span class="font-data-mono text-on-surface-variant text-[11px]">14:08:44</span>
+<span class="flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="font-label-caps text-tertiary text-[10px]">LOW</span>
+</span>
+</div>
+<p class="font-body-sm text-on-surface mb-sm">Sustained Audio Level</p>
+<div class="h-12 flex items-center gap-1 px-sm bg-surface-container-lowest rounded-lg border border-outline-variant">
+<div class="flex-1 h-8 flex items-end gap-[2px]">
+<div class="w-1 bg-outline-variant h-2"></div>
+<div class="w-1 bg-outline-variant h-4"></div>
+<div class="w-1 bg-tertiary h-6"></div>
+<div class="w-1 bg-error h-8"></div>
+<div class="w-1 bg-tertiary h-5"></div>
+<div class="w-1 bg-outline-variant h-3"></div>
+<div class="w-1 bg-outline-variant h-2"></div>
+</div>
+<span class="material-symbols-outlined text-on-surface-variant">volume_up</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- Center Panel: Primary Evidence Viewport -->
+<section class="flex-1 flex flex-col bg-background">
+<!-- Subject Header -->
+<div class="p-lg flex justify-between items-start">
+<div class="flex gap-md">
+<div class="w-16 h-16 rounded-xl overflow-hidden border-2 border-primary/20">
+<div id="ev-avatar" class="w-full h-full bg-surface-container-high flex items-center justify-center"><span class="material-symbols-outlined text-outline">person</span></div>
+</div>
+<div>
+<h1 id="ev-student" class="font-headline-md text-on-surface">Select an appeal</h1>
+<p id="ev-exam" class="text-body-sm text-on-surface-variant mb-xs">—</p>
+<div class="flex items-center gap-sm">
+<span class="px-xs py-[2px] bg-error-container text-on-error-container rounded-full text-[10px] font-bold uppercase tracking-wider">Flagged</span>
+<span class="font-data-mono text-on-surface-variant text-[12px]">Last updated: 2 mins ago</span>
+</div>
+</div>
+</div>
+<div class="flex gap-xl">
+<div class="flex flex-col items-end">
+<span class="font-label-caps text-on-surface-variant text-[10px]">RISK SCORE</span>
+<div class="flex items-baseline gap-xs">
+<span id="ev-risk" class="text-[40px] font-bold text-error leading-none">—</span>
+<span class="text-on-surface-variant font-data-mono">/100</span>
+</div>
+</div>
+<!-- Signal Breakdown List -->
+<div class="w-48 space-y-xs">
+<div class="flex justify-between items-center text-[11px]">
+<span class="text-on-surface-variant">Gaze Away</span>
+<div class="flex items-center gap-xs">
+<div class="w-16 h-1 bg-outline-variant rounded-full overflow-hidden">
+<div class="bg-error h-full" style="width: 45%;"></div>
+</div>
+<span class="font-data-mono">45%</span>
+</div>
+</div>
+<div class="flex justify-between items-center text-[11px]">
+<span class="text-on-surface-variant">Object Detect</span>
+<div class="flex items-center gap-xs">
+<div class="w-16 h-1 bg-outline-variant rounded-full overflow-hidden">
+<div class="bg-error h-full" style="width: 30%;"></div>
+</div>
+<span class="font-data-mono">30%</span>
+</div>
+</div>
+<div class="flex justify-between items-center text-[11px]">
+<span class="text-on-surface-variant">Other</span>
+<div class="flex items-center gap-xs">
+<div class="w-16 h-1 bg-outline-variant rounded-full overflow-hidden">
+<div class="bg-tertiary h-full" style="width: 25%;"></div>
+</div>
+<span class="font-data-mono">25%</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Primary Viewport -->
+<div class="flex-1 px-lg pb-lg flex flex-col gap-md">
+<div class="flex-1 relative rounded-2xl overflow-hidden border border-outline-variant bg-surface-container-lowest flex items-center justify-center group shadow-2xl">
+<!-- Main Frame -->
+<div id="ev-primary" class="absolute inset-0 bg-cover bg-center"></div>
+<!-- Overlay Controls -->
+<div class="absolute top-md right-md flex flex-col gap-xs">
+<button class="bg-surface/60 backdrop-blur-md p-xs rounded-lg border border-white/10 text-on-surface hover:bg-surface transition-colors">
+<span class="material-symbols-outlined">zoom_in</span>
+</button>
+<button class="bg-surface/60 backdrop-blur-md p-xs rounded-lg border border-white/10 text-on-surface hover:bg-surface transition-colors">
+<span class="material-symbols-outlined">download</span>
+</button>
+</div>
+<div class="absolute bottom-md left-1/2 -translate-x-1/2 flex items-center gap-md bg-surface/80 backdrop-blur-lg px-lg py-sm rounded-full border border-white/10 shadow-lg">
+<button class="text-white hover:text-primary"><span class="material-symbols-outlined">skip_previous</span></button>
+<button class="text-white hover:text-primary"><span class="material-symbols-outlined" style="font-size: 32px;">play_circle</span></button>
+<button class="text-white hover:text-primary"><span class="material-symbols-outlined">skip_next</span></button>
+<div class="h-4 w-px bg-white/20 mx-xs"></div>
+<button data-action="auditPdf" class="flex items-center gap-xs px-md py-xs bg-primary text-on-primary rounded-full font-bold text-body-sm transition-transform active:scale-95"><span class="material-symbols-outlined" style="font-size: 18px;">picture_as_pdf</span> Audit Report PDF</button>
+</div>
+</div>
+<!-- Context Frames -->
+<div id="ev-context" class="grid grid-cols-3 gap-md">
+<div class="relative group cursor-pointer aspect-video rounded-xl border border-outline-variant overflow-hidden">
+<div class="w-full h-full bg-cover bg-center" data-alt="Webcam frame 2 seconds before the flag, showing the student looking at the keyboard. Neutral lighting, dark study environment. Digital timestamp in corner." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuDr_c-0pszyNTL7gI6BwOA5f7wEmptLVEwzxhg04kXvgij-KNhb1j4RnNBOrJGXgFjORVUSyemsk56jyrW0-OApYzNZ8n3S_0M1MH6vjGXyNeQnKJQ3m1lDDPMtZAljqsyy3Qyqga0c8Tmh1SCB8N8BmdWgKMNVGtzgXjBM-sbZFZPkX-I-a0BzbPHCHFKandFYSTO2qYBZ3vcP3DtrFjnY98Yj6_juztR4Jrm7-Br6g1S9iPd0furkvAC6PzGrO3kZIlgmWez5lINQ')"></div>
+<div class="absolute top-2 left-2 bg-black/40 px-xs rounded text-[10px] font-data-mono">-2.0s</div>
+</div>
+<div class="relative group cursor-pointer aspect-video rounded-xl border-2 border-primary overflow-hidden shadow-lg shadow-primary/20">
+<div class="w-full h-full bg-cover bg-center" data-alt="The exact moment of the flag, student reaching for something under the desk. Red AI detection pulse animation frozen in frame. Highly detailed investigative aesthetic." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCGukFmq1Y_Q8hPr45k4GZy5_ym-uptxUduWefBcGgxJsEsqPhirnzYKXFz9jEgVqdDyqVqJafcujiFRs1oK6jFaApV1HWtEIlHtg_ZKPcF1eE1cMU4shhHxvv5hnP4yAKnD1xA-H2Y0jOoc6uVoWy2S8d-BgSv2CCVvnUnr3X3Mx70FwbmmgFKBi-0uHHTBAbSl1aIjMUnGepCnOxZaSQq5T7gZfarg2Xk1QrzI2Yi9RCj2M2NhW7j-dE79Dsgce5VF-Dy6q7-shj_')"></div>
+<div class="absolute top-2 left-2 bg-primary px-xs rounded text-[10px] font-data-mono font-bold">EVENT</div>
+</div>
+<div class="relative group cursor-pointer aspect-video rounded-xl border border-outline-variant overflow-hidden">
+<div class="w-full h-full bg-cover bg-center" data-alt="Webcam frame 2 seconds after the flag, student returning to normal position. Dark, minimalist room background. Digital timestamp overlay." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCQ1r_1S8rbXcoXvm-mmsEHIE21xMTf6I37XVTrOnWxkvI7kDz1CifAGpbqWB2FBf2zPUqKUnSF6cmkC6OKlGNAVjztiPa-GnmvtF4hPiwxCOf3a17glt3djc7-4GqHUz1OtzLNOaMGqsRXMj2CXTOkyBlQ4ueps1bSwxfoAbrFAqpOO3FQ19rP5N0rnPrE1m275kRi8Zd-3a4CILGOGxTC0QRqQSEaBDxn8gZuzPvv_rzVkAFBoQtUk_kE8CPRzt_1OYUXRVF1Nxq9')"></div>
+<div class="absolute top-2 left-2 bg-black/40 px-xs rounded text-[10px] font-data-mono">+2.0s</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Right Panel: Decision & Appeal -->
+<aside class="w-[360px] h-full bg-surface-container border-l border-outline-variant flex flex-col shrink-0">
+<!-- Review Actions -->
+<div class="p-lg border-b border-outline-variant bg-surface-container-high">
+<h3 class="font-label-caps text-on-surface-variant mb-md">ADJUDICATION</h3>
+<div class="grid grid-cols-2 gap-sm mb-md">
+<button data-action="acceptAppeal" class="flex items-center justify-center gap-xs px-md py-sm bg-secondary text-on-secondary rounded-lg font-bold text-body-sm hover:opacity-90 transition-all"><span class="material-symbols-outlined" style="font-size: 18px;">check_circle</span> Accept</button>
+<button data-action="rejectAppeal" class="flex items-center justify-center gap-xs px-md py-sm bg-error-container text-on-error-container rounded-lg font-bold text-body-sm hover:opacity-90 transition-all"><span class="material-symbols-outlined" style="font-size: 18px;">flag</span> Reject</button>
+</div>
+<button class="w-full flex items-center justify-center gap-xs px-md py-sm border border-outline-variant text-on-surface rounded-lg font-medium text-body-sm hover:bg-surface transition-all mb-lg">
+<span class="material-symbols-outlined" style="font-size: 18px;">note_add</span>
+                    Add Internal Note
+                </button>
+<!-- Tags / Quick Categorization -->
+<div class="flex flex-wrap gap-xs">
+<span class="px-xs py-1 bg-surface-container-highest border border-outline-variant rounded text-[10px] text-on-surface-variant font-medium">Suspected Phone</span>
+<span class="px-xs py-1 bg-surface-container-highest border border-outline-variant rounded text-[10px] text-on-surface-variant font-medium">Repeated Behavior</span>
+<span class="px-xs py-1 bg-surface-container-highest border border-outline-variant rounded text-[10px] text-on-surface-variant font-medium">First Offense</span>
+</div>
+</div>
+<!-- Student Appeal / Communication -->
+<div class="flex-1 flex flex-col">
+<div class="p-md border-b border-outline-variant bg-surface-container flex items-center gap-xs">
+<span class="material-symbols-outlined text-primary" style="font-size: 20px;">chat_bubble_outline</span>
+<h3 class="font-label-caps text-on-surface-variant">STUDENT APPEAL</h3>
+</div>
+<div class="flex-1 p-md space-y-md overflow-y-auto">
+<!-- Message from Student -->
+<div class="flex flex-col items-start gap-xs max-w-[85%]">
+<div class="bg-surface-container-highest p-sm rounded-xl rounded-tl-none border border-outline-variant">
+<p id="ev-appeal-msg" class="text-body-sm text-on-surface">Select an appeal to view the student's message.</p>
+</div>
+<span class="font-data-mono text-[10px] text-on-surface-variant">Today, 14:25</span>
+</div>
+<!-- System Message -->
+<div class="flex justify-center">
+<span class="px-md py-1 bg-surface-container-lowest text-on-surface-variant text-[10px] rounded-full border border-outline-variant">Automated appeal channel opened</span>
+</div>
+<!-- Proctor Reply (Placeholder) -->
+<div class="flex flex-col items-end gap-xs ml-auto max-w-[85%]">
+<div class="bg-primary/10 p-sm rounded-xl rounded-tr-none border border-primary/20">
+<p class="text-body-sm text-on-surface">Reviewing the footage now, Aarav. Please remain focused on your exam screen.</p>
+</div>
+<span class="font-data-mono text-[10px] text-on-surface-variant">Today, 14:26</span>
+</div>
+</div>
+<!-- Input Field -->
+<div class="p-md border-t border-outline-variant bg-surface-container-high">
+<div class="relative">
+<textarea id="ev-note" class="w-full bg-surface-container-lowest border border-outline-variant rounded-lg p-sm text-body-sm focus:ring-1 focus:ring-primary focus:border-primary resize-none h-20 text-on-surface" placeholder="Optional note recorded with your decision…"></textarea>
+<button class="absolute bottom-sm right-sm text-primary p-xs hover:bg-primary/10 rounded-full transition-all active:scale-90">
+<span class="material-symbols-outlined">send</span>
+</button>
+</div>
+</div>
+</div>
+</aside>
+</main>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/evidence.js" defer></script>
+</body></html>

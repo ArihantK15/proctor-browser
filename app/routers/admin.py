@@ -229,9 +229,12 @@ async def backfill_risk_scores(request: Request, exam_id: str = None):
 
 @router.get("/api/v1/admin/live-monitor")
 @limiter.limit("10/minute")
-async def live_monitor(request: Request):
+async def live_monitor(request: Request, exam_id: str = None):
     """Return active sessions in scope: teacher → own; admin → org-wide
-    (optionally narrowed via ?teacher_id=); superadmin → unrestricted."""
+    (optionally narrowed via ?teacher_id=); superadmin → unrestricted.
+    An optional ?exam_id= narrows to a single exam — the HTTP-polling fallback
+    for the live monitor's exam filter (the SSE path filters via /sse/sessions);
+    without it the dropdown silently showed sessions from every exam."""
     teacher = await require_admin(request)
     scope = await resolve_scope(teacher, request)
     tids = await scope_to_teacher_ids(scope)
@@ -239,6 +242,8 @@ async def live_monitor(request: Request):
     q = _atable("exam_sessions").select(
         "session_key,roll_number,full_name,email,status,risk_score,started_at,exam_id,teacher_id"
     ).eq("status", SessionStatus.IN_PROGRESS)
+    if exam_id:
+        q = q.eq("exam_id", exam_id)
     if tids is not None:
         # Collapse to .eq() for the single-teacher case (test stubs only mock .eq()).
         if not tids:

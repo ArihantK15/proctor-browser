@@ -156,7 +156,7 @@
 <label class="inline-flex items-center cursor-pointer">
 <span class="mr-3 text-sm font-medium text-on-surface-variant">Question Bank</span>
 <div class="relative w-11 h-6 bg-[#30363d] rounded-full peer peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-[#6366f1]"></div>
-<input checked="" class="sr-only peer" onchange="document.getElementById('bankPanel').classList.toggle('hidden')" type="checkbox"/>
+<input checked="" class="sr-only peer" data-action="bankToggle" type="checkbox"/>
 </label>
 </div>
 </div>
@@ -360,7 +360,7 @@
 </div>
 <div>
 <h2 class="font-bold text-lg leading-tight">Create Coding Question</h2>
-<p class="text-on-surface-variant text-xs">Step 1: Problem Definition</p>
+<p id="wizard-subtitle" class="text-on-surface-variant text-xs">Step 1: Problem Definition</p>
 </div>
 </div>
 <div class="flex items-center gap-4">
@@ -371,7 +371,7 @@
 </div>
 </div>
 <!-- Wizard Stepper -->
-<div class="flex items-center gap-0 bg-surface-container-lowest border-b border-[#30363d] px-lg overflow-x-auto no-scrollbar">
+<div id="wizard-stepper" class="flex items-center gap-0 bg-surface-container-lowest border-b border-[#30363d] px-lg overflow-x-auto no-scrollbar">
 <div class="flex items-center py-4 border-b-2 border-primary min-w-max px-4">
 <span class="w-6 h-6 rounded-full bg-primary text-on-primary text-[10px] font-bold flex items-center justify-center mr-2">1</span>
 <span class="text-xs font-bold text-on-surface">Problem</span>
@@ -398,59 +398,13 @@
 </div>
 </div>
 <!-- Modal Body -->
-<div class="flex-1 overflow-y-auto p-lg flex flex-col md:flex-row gap-lg">
-<div class="flex-1 space-y-6">
-<div>
-<label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2">Question Title</label>
-<input class="w-full bg-surface-container-low border border-[#30363d] rounded-lg px-4 py-3 text-body-base focus:ring-primary focus:border-primary" placeholder="e.g. Newton's Second Law Calculator" type="text"/>
-</div>
-<div>
-<label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2">Problem Statement</label>
-<textarea class="w-full bg-surface-container-low border border-[#30363d] rounded-lg px-4 py-3 text-body-base focus:ring-primary focus:border-primary resize-none" placeholder="Describe the programming task, constraints, and requirements..." rows="6"></textarea>
-</div>
-<div class="grid grid-cols-2 gap-4">
-<div>
-<label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2">Points</label>
-<input class="w-full bg-surface-container-low border border-[#30363d] rounded-lg px-4 py-3 font-data-mono text-primary" type="number" value="10"/>
-</div>
-<div>
-<label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2">Difficulty</label>
-<select class="w-full bg-surface-container-low border border-[#30363d] rounded-lg px-4 py-3 text-on-surface font-semibold focus:ring-primary">
-<option>Easy</option>
-<option selected="">Medium</option>
-<option>Hard</option>
-</select>
-</div>
-</div>
-</div>
-<div class="w-full md:w-[280px] space-y-4">
-<div class="bg-primary/5 border border-primary/20 rounded-xl p-4">
-<h4 class="flex items-center gap-2 text-primary font-bold text-sm mb-2">
-<span class="material-symbols-outlined text-sm" data-icon="tips_and_updates">tips_and_updates</span> Procta Tips
-                        </h4>
-<p class="text-xs text-on-surface-variant leading-relaxed mb-3">Keep problem statements concise. Code questions with clear return types reduce student confusion.</p>
-<div class="h-px bg-primary/10 mb-3"></div>
-<p class="text-xs text-on-surface-variant leading-relaxed">Students usually perform best when you provide 1-2 sample input/output examples in the description.</p>
-</div>
-<div class="bg-surface-container-low border border-[#30363d] rounded-xl p-4">
-<label class="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/50 mb-3">Template</label>
-<button class="w-full text-left p-2 rounded hover:bg-surface-container-high text-xs flex items-center justify-between group transition-all">
-<span>Python Starter Code</span>
-<span class="material-symbols-outlined text-sm opacity-0 group-hover:opacity-100" data-icon="chevron_right">chevron_right</span>
-</button>
-<button class="w-full text-left p-2 rounded hover:bg-surface-container-high text-xs flex items-center justify-between group transition-all">
-<span>JavaScript Boilerplate</span>
-<span class="material-symbols-outlined text-sm opacity-0 group-hover:opacity-100" data-icon="chevron_right">chevron_right</span>
-</button>
-</div>
-</div>
-</div>
+<div id="wizard-body" class="flex-1 overflow-y-auto p-lg"></div>
 <!-- Modal Footer -->
 <div class="px-lg py-4 border-t border-[#30363d] bg-surface-container-low flex justify-between items-center">
-<button class="text-on-surface-variant font-bold text-sm hover:text-on-surface px-4 py-2 transition-all">Save as Draft</button>
+<button id="wizard-back" data-action="wizardBack" class="text-on-surface-variant font-bold text-sm hover:text-on-surface px-4 py-2 transition-all hidden">Back</button>
 <div class="flex items-center gap-3">
 <button class="px-6 py-2.5 rounded-lg border border-[#30363d] font-bold text-sm hover:bg-surface-container-high transition-all" data-action="closeCoding">Cancel</button>
-<button class="px-8 py-2.5 rounded-lg bg-[#6366f1] text-white font-bold text-sm hover:bg-opacity-90 shadow-lg shadow-indigo-500/20 active:scale-95 transition-all">Next: Languages</button>
+<button id="wizard-next" data-action="wizardNext" class="px-8 py-2.5 rounded-lg bg-[#6366f1] text-white font-bold text-sm hover:bg-opacity-90 shadow-lg shadow-indigo-500/20 active:scale-95 transition-all">Next</button>
 </div>
 </div>
 </div>
@@ -481,4 +435,5 @@
 
 <script src="/static/dashboard_next/js/api.js" defer></script>
 <script src="/static/dashboard_next/js/questions.js" defer></script>
+<script src="/static/dashboard_next/js/wizard.js" defer></script>
 </body></html>

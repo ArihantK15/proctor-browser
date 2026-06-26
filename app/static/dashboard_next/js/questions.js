@@ -6,10 +6,9 @@
   const api = window.ProctaAPI; if (!api) return;
   const { authFetch, onAction } = api;
 
-  // ---- coding-wizard modal (replaces inline onclick) ----
-  const modal = () => document.getElementById("codingModal");
-  onAction("openCoding", () => { const m = modal(); if (m) m.classList.remove("hidden"); });
-  onAction("closeCoding", () => { const m = modal(); if (m) m.classList.add("hidden"); });
+  // The coding-wizard modal (#codingModal: open/close/steps/save) is owned by wizard.js,
+  // which registers openCoding/closeCoding. Here we just keep the list + bank toggle.
+  onAction("bankToggle", () => { const p = document.getElementById("bankPanel"); if (p) p.classList.toggle("hidden"); });
 
   // ---- question list ----
   const list = document.getElementById("question-list");
@@ -76,6 +75,7 @@
   onAction("editQuestion", () => { /* TODO: MCQ/numeric inline editor (next increment) */ });
   onAction("deleteQuestion", () => { /* TODO: confirm + DELETE (next increment) */ });
   if (api.onExamChange) api.onExamChange(() => load());
+  window.addEventListener("procta:reload-questions", load); // wizard saved a coding question
 
   load();
 })();

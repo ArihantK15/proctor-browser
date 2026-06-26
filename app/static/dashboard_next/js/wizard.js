@@ -208,4 +208,55 @@
     } catch (_) { alert("Save failed."); }
     finally { if (next) { next.disabled = false; next.textContent = "Save Question"; } }
   }
+
+  // ---------- AI generate → prefill wizard for review (never auto-saves) ----------
+  var GEN_HTML =
+    '<div id="aiGenModal" class="fixed inset-0 z-[60] hidden items-center justify-center bg-black/70 backdrop-blur-sm p-md">' +
+    '<div class="bg-surface border border-[#30363d] w-full max-w-md rounded-2xl p-xl shadow-2xl">' +
+    '<div class="flex items-center justify-between mb-lg"><h2 class="font-bold text-lg flex items-center gap-2"><span class="material-symbols-outlined text-primary">auto_awesome</span> Generate a Coding Question</h2>' +
+    '<button data-action="aiGenClose" class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">close</span></button></div>' +
+    '<div class="space-y-md">' +
+    '<div><label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Topic</label>' +
+    '<input id="ai-topic" type="text" placeholder="e.g. Two-sum, string reversal, prime sieve" class="' + fieldCls + '"/></div>' +
+    '<div class="grid grid-cols-2 gap-md">' +
+    '<div><label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Difficulty</label>' +
+    '<select id="ai-diff" class="' + fieldCls + ' font-semibold [&>option]:bg-surface-container"><option value="easy">Easy</option><option value="medium" selected>Medium</option><option value="hard">Hard</option></select></div>' +
+    '<div><label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Language</label>' +
+    '<select id="ai-lang" class="' + fieldCls + ' font-semibold [&>option]:bg-surface-container">' + LANGS.map((l) => '<option value="' + l + '">' + LANG_LABEL[l] + '</option>').join("") + '</select></div></div>' +
+    '<p class="text-on-surface-variant text-xs">The draft (statement, starter, test cases) opens in the wizard for you to review — AI-drafted expected outputs need verifying before saving.</p>' +
+    '<p id="ai-err" class="text-error text-body-sm hidden"></p></div>' +
+    '<div class="flex justify-end gap-md mt-xl"><button data-action="aiGenClose" class="px-lg py-md border border-[#30363d] rounded-lg font-bold text-body-sm hover:bg-surface-container-high">Cancel</button>' +
+    '<button id="ai-go" data-action="runGenerate" class="px-lg py-md bg-[#6366f1] text-white rounded-lg font-bold text-body-sm hover:bg-opacity-90">Generate</button></div></div></div>';
+  function genModal() { if (!document.getElementById("aiGenModal")) { var h = document.createElement("div"); h.innerHTML = GEN_HTML; document.body.appendChild(h.firstChild); } return document.getElementById("aiGenModal"); }
+  function genShow() { var m = genModal(); m.classList.remove("hidden"); m.classList.add("flex"); var e = $("ai-err"); if (e) e.classList.add("hidden"); var t = $("ai-topic"); if (t) { t.value = ""; t.focus(); } }
+  function genHide() { var m = document.getElementById("aiGenModal"); if (m) { m.classList.add("hidden"); m.classList.remove("flex"); } }
+  onAction("generateAI", genShow);
+  onAction("aiGenClose", genHide);
+  onAction("runGenerate", async (btn) => {
+    var topic = ($("ai-topic") || {}).value || "";
+    var err = $("ai-err");
+    if (!topic.trim()) { if (err) { err.textContent = "Enter a topic."; err.classList.remove("hidden"); } return; }
+    var language = ($("ai-lang") || {}).value || "python";
+    var difficulty = ($("ai-diff") || {}).value || "medium";
+    btn.disabled = true; btn.textContent = "Generating…";
+    try {
+      var r = await authFetch("/api/v1/admin/coding-question/generate", { method: "POST", body: JSON.stringify({ topic: topic.trim(), difficulty: difficulty, language: language }) });
+      if (!r.ok) { var d = await r.json().catch(() => ({})); throw new Error(d.detail || ("HTTP " + r.status)); }
+      var draft = await r.json();
+      // map draft -> wizard state, then open for review
+      state = blank(); step = 0; editingQid = null;
+      state.statement = draft.question || "";
+      state.starter_code = draft.starter_code || "";
+      state.languages = [language];
+      state.difficulty = difficulty;
+      var tc = Array.isArray(draft.test_cases) ? draft.test_cases : [];
+      state.sample = tc.filter((c) => c.visibility === "sample").map((c) => ({ input: c.input || "", expected: c.expected_output || "" }));
+      state.hidden = tc.filter((c) => c.visibility !== "sample").map((c) => ({ input: c.input || "", expected: c.expected_output || "", tol: "" }));
+      if (!state.sample.length) state.sample = [{ input: "", expected: "" }];
+      if (!state.hidden.length) state.hidden = [{ input: "", expected: "", tol: "" }];
+      genHide(); open();
+    } catch (e) {
+      if (err) { err.textContent = "Generation failed: " + (e.message || e); err.classList.remove("hidden"); }
+    } finally { btn.disabled = false; btn.textContent = "Generate"; }
+  });
 })();

@@ -707,6 +707,18 @@ def download_page():
     return _static_html_response("download.html", "Download page not found")
 
 
+@router.get("/login")
+def login_page():
+    """Unified sign-in for students AND teachers. Role toggle picks the
+    endpoint (/api/v1/student/auth/login vs /api/v1/auth/login); both set
+    their own cookie session and redirect to /student-next or /dashboard-next.
+    Generic on purpose — the legacy login lives inside the teacher-flavoured
+    /dashboard page, and students had no web login form at all (it was
+    Electron-only). Sign-UP stays role-specific (students /register, teachers
+    procta.net), so this page only signs people in."""
+    return _static_html_response("login.html", "Login page not found")
+
+
 @router.get("/register")
 def register_page():
     """Self-registration page for students before exam day."""

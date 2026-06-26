@@ -111,7 +111,7 @@
     if ($("st-avg")) { const ps = hist.map((h) => Number(h.percentage || 0)); $("st-avg").textContent = ps.length ? Math.round(ps.reduce((a, b) => a + b, 0) / ps.length) + "%" : "—"; }
   }
 
-  onAction("stLogout", async () => { try { await authFetch("/api/v1/student/auth/logout", { method: "POST" }); } catch (_) {} window.location.href = "/student"; });
+  onAction("stLogout", async () => { try { await authFetch("/api/v1/student/auth/logout", { method: "POST" }); } catch (_) {} window.location.href = "/login?role=student"; });
   onAction("stJoin", () => { alert("Open the Procta desktop app on your computer to start this proctored exam."); });
   onAction("stScorecard", async (el) => {
     const sid = el.getAttribute("data-sid"); if (!sid) return;

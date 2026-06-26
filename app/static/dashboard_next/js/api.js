@@ -22,7 +22,16 @@
       // Don't force JSON on FormData — the browser must set the multipart boundary itself.
       if (opts.body && !headers["Content-Type"] && !(opts.body instanceof FormData)) headers["Content-Type"] = "application/json";
     }
-    return fetch(BASE + url, Object.assign({}, opts, { credentials: "include", headers }));
+    const res = await fetch(BASE + url, Object.assign({}, opts, { credentials: "include", headers }));
+    // Session expired/absent -> bounce to the unified login. Guarded so an
+    // expected 401 from the in-app reauth password check (or the login/csrf
+    // endpoints themselves) never triggers a redirect loop, and opt-out via
+    // opts.noAuthRedirect for callers that handle 401 inline.
+    if (res.status === 401 && !opts.noAuthRedirect && !/\/(reauth|login|csrf)\b/.test(url)) {
+      const nx = encodeURIComponent(location.pathname + location.search);
+      location.href = "/login?role=teacher&next=" + nx;
+    }
+    return res;
   }
   // Delegated data-action dispatch — replaces inline onclick (CSP: script-src 'self').
   const _actions = {};
@@ -211,7 +220,27 @@
   });
   window.ProctaAPI.reauth = reauth;
 
-  function initShared() { wireNav(); wireExamSelect(); wireCreateExam(); }
+  // Wire any "Log Out" control in the sidebar/topbar to the real logout. The
+  // Stitch markup ships plain text buttons with no data-action, so (like
+  // wireNav) we match by trimmed text content and attach a handler — avoids
+  // editing every screen's HTML. Idempotent via a dataset guard.
+  async function doLogout() {
+    try { await authFetch("/api/v1/auth/logout", { method: "POST" }); } catch (_) {}
+    location.href = "/login?role=teacher";
+  }
+  function wireLogout() {
+    var nodes = document.querySelectorAll("a,button");
+    nodes.forEach(function (el) {
+      if (el.dataset.logoutWired) return;
+      var t = (el.textContent || "").replace(/\s+/g, " ").trim().toLowerCase();
+      if (t === "log out" || t === "logout" || t === "sign out") {
+        el.dataset.logoutWired = "1";
+        el.addEventListener("click", function (e) { e.preventDefault(); doLogout(); });
+      }
+    });
+  }
+
+  function initShared() { wireNav(); wireExamSelect(); wireCreateExam(); wireLogout(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initShared);
   else initShared();
 })();

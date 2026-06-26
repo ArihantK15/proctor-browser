@@ -727,19 +727,29 @@ def register_page():
 
 @router.get("/student")
 def student_page():
-    """Student-facing dashboard: upcoming exams, practice, profile."""
+    """CUTOVER (2026-06-26, PR #192 follow-up): the student-facing surface is now
+    the Material-3 rebuild at /student-next. Redirect so existing bookmarks/links
+    land on it. The legacy page stays reachable at /student-legacy as a fallback
+    (and LTI launches target it directly — it reads the #access_token fragment).
+    Reversible: point this back at student.html to roll back."""
+    return RedirectResponse(url="/student-next", status_code=302)
+
+
+@router.get("/student-legacy")
+def student_page_legacy():
+    """Legacy student dashboard, kept on standby during the /student-next cutover."""
     return _static_html_response("student.html", "Student dashboard not found")
 
 
 @router.get("/dashboard")
 def admin_dashboard():
-    # The legacy hand-rolled HTML dashboard is the canonical teacher surface.
-    # It is feature-complete and battle-tested. The React rewrite was made
-    # default for a brief window but reverted (2026-06-04): it lagged the
-    # HTML one on features and had an unresolved lazy-chunk React-instance
-    # bug (#321) that broke every panel. React is kept reachable at
-    # /dashboard-react for incremental work, but is NOT the default.
-    return _static_html_response("dashboard.html", "Dashboard not found")
+    # CUTOVER (2026-06-26, PR #192 follow-up): the teacher surface is now the
+    # Material-3 vanilla rebuild at /dashboard-next. Redirect so existing
+    # bookmarks/links/emails land on it. The legacy HTML dashboard stays reachable
+    # at /dashboard-legacy as a fallback (and LTI launches target it directly — it
+    # reads the #access_token fragment the new cookie-session UI doesn't).
+    # Reversible: point this back at dashboard.html to roll back.
+    return RedirectResponse(url="/dashboard-next", status_code=302)
 
 
 @router.get("/dashboard-react")
@@ -758,10 +768,10 @@ def admin_dashboard_react():
 
 @router.get("/dashboard-next")
 def admin_dashboard_next():
-    # Vanilla rebuild on the Stitch design (branch feat/react-dashboard-rebuild). WIP,
-    # built section-by-section to parity (docs/DASHBOARD_PARITY_*.md) then it replaces
-    # /dashboard. NOT default yet. Vanilla (no React) sidesteps the #321
-    # _stamp_static_urls double-React-instance bug that broke the old React dashboard.
+    # Vanilla Material-3 rebuild (PR #192). NOW THE DEFAULT: /dashboard redirects
+    # here as of the 2026-06-26 cutover. This is the canonical teacher surface;
+    # the legacy HTML dashboard is on standby at /dashboard-legacy. Vanilla (no
+    # React) sidesteps the #321 _stamp_static_urls double-React-instance bug.
     return _static_html_response(
         "dashboard_next/procta_live_monitor_high_density_view/code.html",
         "Dashboard (next) not found")

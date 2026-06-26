@@ -214,7 +214,13 @@ def _isolate_shared_cache():
     _get_teacher_by_id), surfacing as "'int' object has no attribute 'get'" 500s
     under randomised order. Mirrors _isolate_shared_supabase."""
     mock_cache.get.return_value = None
-    for _attr in ("get", "set", "delete", "delete_pattern", "set_live_frame"):
+    # set_if_absent backs reserve_idempotency(): default True = "key absent →
+    # reserved". Tests of the duplicate/409 path flip this to False; without
+    # resetting it here that False leaks and makes the next test using the REAL
+    # reserve_idempotency 409 instead of proceeding (e.g. the coding-judge 503
+    # retry test, which intentionally omits the reserve patch). Order-dependent.
+    mock_cache.set_if_absent.return_value = True
+    for _attr in ("get", "set", "delete", "delete_pattern", "set_live_frame", "set_if_absent"):
         _m = getattr(mock_cache, _attr, None)
         if _m is not None:
             _m.side_effect = None

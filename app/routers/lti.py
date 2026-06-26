@@ -195,13 +195,16 @@ async def lti_launch(request: Request):
     token = issue_lti_session_token(user, target_link_uri)
 
     # Redirect based on role — use fragment to avoid token in server logs.
-    # /dashboard serves the legacy HTML dashboard whose JS reads the
-    # #access_token fragment that LTI delivers (no cookie is set here), so
-    # launches stay authenticated.
+    # Target the LEGACY pages explicitly: /dashboard and /student now redirect to
+    # the new cookie-session rebuild, which does NOT read the #access_token
+    # fragment LTI delivers (no cookie is set on this launch path). /dashboard-legacy
+    # and /student-legacy still serve the hash-token-reading HTML, so launches stay
+    # authenticated. (Porting LTI to the cookie-session flow would let this point at
+    # the new UI — tracked follow-up; LTI is currently dormant.)
     if user.get("role") == "teacher":
-        redirect_to = f"/dashboard#access_token={token}&token_type=Bearer"
+        redirect_to = f"/dashboard-legacy#access_token={token}&token_type=Bearer"
     else:
-        redirect_to = f"/student#access_token={token}&token_type=Bearer"
+        redirect_to = f"/student-legacy#access_token={token}&token_type=Bearer"
 
     logger.info("LTI launch successful: role=%s email=%s", safe(user.get("role")), mask_email(user.get("email")))
     return RedirectResponse(url=redirect_to, status_code=302)

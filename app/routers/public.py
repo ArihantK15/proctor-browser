@@ -727,29 +727,26 @@ def register_page():
 
 @router.get("/student")
 def student_page():
-    """CUTOVER (2026-06-26, PR #192 follow-up): the student-facing surface is now
-    the Material-3 rebuild at /student-next. Redirect so existing bookmarks/links
-    land on it. The legacy page stays reachable at /student-legacy as a fallback
-    (and LTI launches target it directly — it reads the #access_token fragment).
-    Reversible: point this back at student.html to roll back."""
-    return RedirectResponse(url="/student-next", status_code=302)
+    """REVERTED to legacy (2026-06-27): the /student-next rebuild was cut over
+    prematurely and shipped many unwired/broken surfaces, so /student serves the
+    battle-tested legacy student page again. The rebuild stays reachable at
+    /student-next for continued fixing, but is NOT the default."""
+    return _static_html_response("student.html", "Student dashboard not found")
 
 
 @router.get("/student-legacy")
 def student_page_legacy():
-    """Legacy student dashboard, kept on standby during the /student-next cutover."""
+    """Back-compat alias for the legacy student page (== /student)."""
     return _static_html_response("student.html", "Student dashboard not found")
 
 
 @router.get("/dashboard")
 def admin_dashboard():
-    # CUTOVER (2026-06-26, PR #192 follow-up): the teacher surface is now the
-    # Material-3 vanilla rebuild at /dashboard-next. Redirect so existing
-    # bookmarks/links/emails land on it. The legacy HTML dashboard stays reachable
-    # at /dashboard-legacy as a fallback (and LTI launches target it directly — it
-    # reads the #access_token fragment the new cookie-session UI doesn't).
-    # Reversible: point this back at dashboard.html to roll back.
-    return RedirectResponse(url="/dashboard-next", status_code=302)
+    # REVERTED to legacy (2026-06-27): the /dashboard-next rebuild was cut over
+    # prematurely (PR #193) and shipped many unwired/broken surfaces, so /dashboard
+    # serves the battle-tested legacy HTML dashboard again. The rebuild stays
+    # reachable at /dashboard-next for continued fixing, but is NOT the default.
+    return _static_html_response("dashboard.html", "Dashboard not found")
 
 
 @router.get("/dashboard-react")

@@ -2309,9 +2309,8 @@ async def verify_email(request: Request, token: str = ""):
 
     # Route the post-verify "Log In" button to the right dashboard. Without
     # this, a student-account verify link landed them on /dashboard which
-    # is the TEACHER login — they couldn't sign in there at all. The unified
-    # /login now handles both roles, so route there with a role hint.
-    _login_url = "/login?role=student" if claims.get("kind") == "student_account" else "/login?role=teacher"
+    # is the TEACHER login — they couldn't sign in there at all.
+    _login_url = "/student" if claims.get("kind") == "student_account" else "/dashboard"
 
     user_id = claims.get("uid", "")
     kind = claims.get("kind", "teacher")
@@ -2806,7 +2805,7 @@ button.submit:hover:not(:disabled){background:#8083ff;box-shadow:0 10px 26px rgb
   </form>
   <div class="msg err" id="err"></div>
   <div class="msg ok" id="ok">Password updated. You can now sign in with your new password.</div>
-  <a class="login-btn" id="login-btn" href="/login">Go to login</a>
+  <a class="login-btn" id="login-btn" href="/dashboard">Go to login</a>
 </div>
 <p class="foot">If you didn't request this, you can safely ignore the email.</p>
 </div>
@@ -2866,7 +2865,7 @@ button.submit:hover:not(:disabled){background:#8083ff;box-shadow:0 10px 26px rgb
     <circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><circle cx="12" cy="16.5" r=".5" fill="#dc2626"/></svg></div>
   <h1>%(title)s</h1>
   <p>%(message)s</p>
-  <a class="btn" href="/login">Back to login</a>
+  <a class="btn" href="/dashboard">Back to login</a>
 </div>
 </div>
 </body></html>"""

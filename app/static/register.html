@@ -155,6 +155,28 @@
   .links a { color:var(--accent-light); text-decoration:none; margin:0 8px; transition:color .2s; }
   .links a:hover { color:white; }
 </style>
+<!-- Reskin to the new Procta design system (Material-3 dark, lavender primary, Inter).
+     Variable + targeted overrides only — the registration flow (register-app.js) is untouched. -->
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet"/>
+<style id="procta-reskin">
+  :root{
+    --bg:#13131b; --bg-base:#13131b; --card:#1f1f27; --border:#464554;
+    --text:#e4e1ed; --muted:#c7c4d7;
+    --accent:#c0c1ff; --accent-light:#c0c1ff; --accent-dark:#8083ff;
+    --emerald:#67df70; --red:#ffb4ab;
+    --font-display:'Inter',system-ui,sans-serif; --font-body:'Inter',system-ui,sans-serif; --font-mono:'JetBrains Mono',ui-monospace,monospace;
+  }
+  body{ background:#13131b; color:#e4e1ed; }
+  .header h1{ color:#e4e1ed; }
+  .form-card{ background:#1f1f27; border-color:#464554; border-radius:16px; }
+  .fg input{ background:#1b1b23; border-color:#464554; color:#e4e1ed; border-radius:10px; }
+  .fg input:focus{ outline:none; border-color:rgba(192,193,255,.5)!important; background:#13131b!important; box-shadow:0 0 0 3px rgba(192,193,255,.15); }
+  .submit-btn{ background:#c0c1ff!important; color:#1000a9!important; border-color:#c0c1ff!important; border-radius:10px; }
+  .submit-btn:hover{ background:#8083ff!important; color:#1000a9!important; box-shadow:0 0 30px rgba(192,193,255,.3)!important; transform:translateY(-1px); }
+  .form-card::before{ background:linear-gradient(90deg,transparent,#c0c1ff,transparent)!important; }
+  .otp-code{ color:#c0c1ff!important; }
+  .success-icon{ background:rgba(103,223,112,.12)!important; }
+</style>
 </head>
 <body>
 

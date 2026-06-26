@@ -289,7 +289,80 @@
     });
   }
 
-  function initShared() { wireNav(); wireExamSelect(); wireCreateExam(); wireLogout(); }
+  onAction("logout", function () { doLogout(); });
+
+  // ---- Global topbar: real identity + working profile/notifications/help -----
+  // Every Stitch topbar ships a hardcoded fake user ("Dr. Sarah C." / "System
+  // Admin") and a CSP-blocked googleusercontent avatar, plus dead bell/help icons.
+  // Wire them once here (real /auth/me, initials avatar, profile menu w/ logout)
+  // so every screen gets a functional topbar without per-screen edits.
+  var _me = null;
+  async function _getMe() {
+    if (_me) return _me;
+    try { var r = await authFetch("/api/v1/auth/me", { noAuthRedirect: true }); if (r.ok) _me = await r.json(); } catch (_) {}
+    return _me || {};
+  }
+  function _initials(name, email) {
+    var s = String(name || "").trim() || String(email || "");
+    var p = s.split(/[\s@._-]+/).filter(Boolean);
+    return (((p[0] || "")[0] || "") + ((p[1] || "")[0] || "")).toUpperCase() || "U";
+  }
+  function _popover(id, anchor, html) {
+    var ex = document.getElementById(id);
+    document.querySelectorAll("[data-procta-pop]").forEach(function (n) { n.remove(); });
+    if (ex) return; // was open -> toggle closed
+    var r = anchor.getBoundingClientRect();
+    var d = document.createElement("div");
+    d.id = id; d.setAttribute("data-procta-pop", "1");
+    d.className = "fixed z-[200] bg-surface-container border border-outline-variant rounded-xl shadow-2xl py-2 text-on-surface";
+    d.style.top = (r.bottom + 8) + "px"; d.style.right = (window.innerWidth - r.right) + "px"; d.style.minWidth = "210px";
+    d.innerHTML = html;
+    document.body.appendChild(d);
+    setTimeout(function () {
+      document.addEventListener("click", function close(ev) {
+        if (!d.contains(ev.target) && !anchor.contains(ev.target)) { d.remove(); document.removeEventListener("click", close); }
+      });
+    }, 0);
+  }
+  function _wireProfileMenu(wrap) {
+    if (wrap.dataset.profileWired) return; wrap.dataset.profileWired = "1";
+    wrap.style.cursor = "pointer";
+    wrap.addEventListener("click", function (e) {
+      e.preventDefault(); e.stopPropagation();
+      _popover("procta-profile-pop", wrap,
+        '<a href="/dashboard-next/settings" class="block px-4 py-2 text-body-sm hover:bg-surface-container-high">Settings</a>' +
+        '<div class="h-px bg-outline-variant my-1"></div>' +
+        '<button data-action="logout" class="w-full text-left px-4 py-2 text-body-sm text-error hover:bg-surface-container-high">Log out</button>');
+    });
+  }
+  async function wireTopbar() {
+    var me = await _getMe();
+    var name = me.full_name || me.email || "Account";
+    var sub = me.email || "";
+    document.querySelectorAll('img[src*="googleusercontent"]').forEach(function (img) {
+      if (img.dataset.avatarFixed) return; img.dataset.avatarFixed = "1";
+      var box = img.parentElement;
+      if (box) box.innerHTML = '<div class="w-full h-full flex items-center justify-center bg-primary text-on-primary font-bold text-body-sm">' + _initials(name, sub) + '</div>';
+      var wrap = box && box.parentElement;
+      if (wrap) {
+        var ps = wrap.querySelectorAll("p");
+        if (ps[0]) ps[0].textContent = name;
+        if (ps[1]) ps[1].textContent = sub;
+        _wireProfileMenu(wrap);
+      }
+    });
+    document.querySelectorAll('[data-icon="notifications"]').forEach(function (icon) {
+      var btn = icon.closest("button"); if (!btn || btn.dataset.notifWired) return; btn.dataset.notifWired = "1";
+      btn.querySelectorAll("span.absolute").forEach(function (b) { b.remove(); }); // drop the fake "6" badge
+      btn.addEventListener("click", function (e) { e.preventDefault(); e.stopPropagation(); _popover("procta-notif-pop", btn, '<div class="px-4 py-3 text-body-sm text-on-surface-variant">You’re all caught up — no new notifications.</div>'); });
+    });
+    document.querySelectorAll('[data-icon="help"]').forEach(function (icon) {
+      var btn = icon.closest("button,a"); if (!btn || btn.dataset.helpWired) return; btn.dataset.helpWired = "1";
+      btn.addEventListener("click", function (e) { e.preventDefault(); window.open("https://procta.net/", "_blank", "noopener"); });
+    });
+  }
+
+  function initShared() { wireNav(); wireExamSelect(); wireCreateExam(); wireLogout(); wireTopbar(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initShared);
   else initShared();
 })();

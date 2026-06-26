@@ -4,103 +4,10 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Procta - Support Issues</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
-<script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    "colors": {
-                        "secondary-container": "#27a640",
-                        "inverse-primary": "#494bd6",
-                        "secondary": "#67df70",
-                        "primary": "#c0c1ff",
-                        "inverse-on-surface": "#303038",
-                        "primary-container": "#8083ff",
-                        "on-primary": "#1000a9",
-                        "surface-bright": "#393841",
-                        "surface-container-highest": "#34343d",
-                        "on-secondary-fixed": "#002105",
-                        "on-tertiary-fixed-variant": "#5f4100",
-                        "on-primary-fixed-variant": "#2f2ebe",
-                        "outline-variant": "#464554",
-                        "secondary-fixed": "#83fc89",
-                        "on-surface-variant": "#c7c4d7",
-                        "surface": "#13131b",
-                        "error-container": "#93000a",
-                        "tertiary-fixed": "#ffdeaa",
-                        "primary-fixed": "#e1e0ff",
-                        "surface-variant": "#34343d",
-                        "surface-container-high": "#292932",
-                        "inverse-surface": "#e4e1ed",
-                        "tertiary-fixed-dim": "#fabc45",
-                        "on-tertiary-container": "#392600",
-                        "outline": "#908fa0",
-                        "surface-dim": "#13131b",
-                        "on-primary-fixed": "#07006c",
-                        "on-tertiary-fixed": "#271900",
-                        "on-secondary": "#00390d",
-                        "tertiary-container": "#bd8708",
-                        "surface-tint": "#c0c1ff",
-                        "on-tertiary": "#422c00",
-                        "on-secondary-container": "#00320a",
-                        "on-error": "#690005",
-                        "primary-fixed-dim": "#c0c1ff",
-                        "on-error-container": "#ffdad6",
-                        "background": "#13131b",
-                        "on-primary-container": "#0d0096",
-                        "tertiary": "#fabc45",
-                        "surface-container-low": "#1b1b23",
-                        "secondary-fixed-dim": "#67df70",
-                        "error": "#ffb4ab",
-                        "on-secondary-fixed-variant": "#005317",
-                        "surface-container": "#1f1f27",
-                        "on-surface": "#e4e1ed",
-                        "surface-container-lowest": "#0d0d15",
-                        "on-background": "#e4e1ed"
-                    },
-                    "borderRadius": {
-                        "DEFAULT": "0.25rem",
-                        "lg": "0.5rem",
-                        "xl": "0.75rem",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "xs": "8px",
-                        "xl": "32px",
-                        "base": "4px",
-                        "gutter": "20px",
-                        "margin-desktop": "32px",
-                        "margin-mobile": "16px",
-                        "md": "16px",
-                        "sm": "12px",
-                        "lg": "24px"
-                    },
-                    "fontFamily": {
-                        "headline-md-mobile": ["Inter"],
-                        "body-sm": ["Inter"],
-                        "label-caps": ["Inter"],
-                        "body-base": ["Inter"],
-                        "headline-md": ["Inter"],
-                        "display-lg": ["Inter"],
-                        "data-mono": ["JetBrains Mono"]
-                    },
-                    "fontSize": {
-                        "headline-md-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
-                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
-                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700" }],
-                        "body-base": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
-                        "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
-                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
-                        "data-mono": ["13px", { "lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "500" }]
-                    }
-                }
-            }
-        }
-    </script>
 <style>
         .custom-scrollbar::-webkit-scrollbar {
             width: 8px;
@@ -123,7 +30,7 @@
 <nav class="bg-surface-container fixed left-0 top-0 h-full w-[260px] hidden md:flex flex-col border-r border-outline-variant py-lg gap-xs z-30 flex-shrink-0">
 <div class="px-gutter mb-xl">
 <div class="flex items-center gap-sm">
-<img class="w-8 h-8 object-contain rounded-md" data-alt="A minimalist, geometric logo mark for a high-security proctoring application. The logo features sharp angles, executed in a glowing, luminous indigo and pristine white against a deep, dark charcoal background. The mood is authoritative and precise." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBG9c6ZQd8idV6u-b6Kyrsxf6iYLk3tD-maVQ5tM3Rnjp8guyy_sIrG9tNBWwXLOnBr5qmFMbD_TYNY6LYDkn8E3KtdRKwBi5y1I5iEAHf9eA8i179_6N8RpjvT-l1wy6lPaCwoTMzdgeVnaxVtN4Dsoa7g5ELlF1R6YybbKPkWVdyAWLq6GV-G5rkTSimygke5rCLdxKCOTfsL3Pax73-nlM0QkGN95H9rJbORm0Mi7JfJ41mlf5lTNoFIuk2Jpp4b2sD0nLJAkQ1m"/>
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
 <div>
 <h1 class="font-headline-md text-headline-md font-black text-primary tracking-widest leading-none">PROCTA</h1>
 <p class="font-label-caps text-label-caps text-on-surface-variant leading-none mt-1">SUPERADMIN</p>
@@ -178,7 +85,7 @@
 <div class="font-headline-md-mobile text-headline-md-mobile font-bold text-on-surface tracking-tight">Procta</div>
 <div class="flex items-center gap-4">
 <span class="material-symbols-outlined text-on-surface-variant cursor-pointer active:scale-95">notifications</span>
-<img class="w-8 h-8 rounded-full border border-outline-variant object-cover" data-alt="A small, circular avatar portrait of an administrator. The subject is well-lit, wearing professional attire against a neutral, dark gray background. High-quality corporate headshot style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuApArc-Egnt7faXSjEmQB60EyqVf5bNVsUuvOljLg35mFwBtmFPOCfpe5S3f2R6NIXbmO3zjouFoQZgggr4G9HhA1LrqOf0dQKHDkB1v6m2p3j5863EV5Vgsv-TmZ-omAi0RXPUjTnGIZTVl-cHaHstKX3Y0mD4zwBHD8zTk5zIZ7jIdF4svoxENxrSPIc0iopH5NeeZ2YfptNi4x8jj_wE-DTGpRuyGnswjPGwvM5xWljb6xcW_nWh9w_mydVF_duwBdK8NHvEd32s"/>
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
 </div>
 </header>
 <!-- Content Canvas -->
@@ -363,7 +270,7 @@ Occurring across multiple browsers (Chrome, Safari). Exams are paused, need imme
 </div>
 <!-- Comment -->
 <div class="flex gap-4 relative z-10">
-<img class="w-8 h-8 rounded-full border border-outline-variant object-cover flex-shrink-0 mt-1" data-alt="Small circular avatar of a technical support engineer. Female, professional, neutral dark background. High-quality corporate headshot." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC2piHFKbjWzvQzfd_k05l-yUj9lFHu1xNhnV-eubn6suGoBE2xpS95ZHygL9g1uAG_ROSWFwB0smAD_bEB40QLMemFLw006ym__e2RUTIMk8ROLwC-ynCJjzHaI-gdkAhmGR6VSCou8rOMuP4Ciu2rjuXoLu5qMgja8elgHM3f4OrY-wHjneHsDbBcAg76SmmTd6Do-iilFpZpZxe-oaEm1brRiBT8jBcmSQCu-uqft2GKfyAnw7bpPuf_90E7aIJIOBmyPuzegsJH"/>
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
 <div>
 <div class="flex items-baseline gap-2 mb-1">
 <span class="font-body-sm font-semibold text-on-surface">Sarah J. (Tier 3)</span>
@@ -389,4 +296,5 @@ Occurring across multiple browsers (Chrome, Safari). Exams are paused, need imme
 </section>
 </div>
 </main>
+<script src="/static/dashboard_next/js/api.js" defer></script>
 </body></html>

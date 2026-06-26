@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Proctorly Admin | Settings</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet"/>
@@ -29,105 +29,12 @@
             background: #464554;
         }
     </style>
-<script id="tailwind-config">
-        tailwind.config = {
-          darkMode: "class",
-          theme: {
-            extend: {
-              "colors": {
-                      "tertiary-container": "#bd8708",
-                      "on-tertiary": "#422c00",
-                      "surface-container-high": "#292932",
-                      "primary-container": "#8083ff",
-                      "surface-container-highest": "#34343d",
-                      "on-error-container": "#ffdad6",
-                      "surface-container": "#1f1f27",
-                      "on-secondary-fixed": "#002105",
-                      "inverse-surface": "#e4e1ed",
-                      "on-surface-variant": "#c7c4d7",
-                      "on-tertiary-container": "#392600",
-                      "error": "#ffb4ab",
-                      "background": "#13131b",
-                      "on-primary": "#1000a9",
-                      "on-secondary-fixed-variant": "#005317",
-                      "tertiary-fixed-dim": "#fabc45",
-                      "outline": "#908fa0",
-                      "secondary-fixed-dim": "#67df70",
-                      "surface-variant": "#34343d",
-                      "tertiary": "#fabc45",
-                      "surface-bright": "#393841",
-                      "primary-fixed-dim": "#c0c1ff",
-                      "on-secondary": "#00390d",
-                      "on-primary-container": "#0d0096",
-                      "on-tertiary-fixed-variant": "#5f4100",
-                      "on-secondary-container": "#00320a",
-                      "surface-container-low": "#1b1b23",
-                      "secondary": "#67df70",
-                      "on-surface": "#e4e1ed",
-                      "surface": "#13131b",
-                      "on-background": "#e4e1ed",
-                      "inverse-primary": "#494bd6",
-                      "on-error": "#690005",
-                      "on-tertiary-fixed": "#271900",
-                      "surface-tint": "#c0c1ff",
-                      "surface-dim": "#13131b",
-                      "secondary-fixed": "#83fc89",
-                      "on-primary-fixed": "#07006c",
-                      "primary": "#c0c1ff",
-                      "outline-variant": "#464554",
-                      "secondary-container": "#27a640",
-                      "inverse-on-surface": "#303038",
-                      "tertiary-fixed": "#ffdeaa",
-                      "primary-fixed": "#e1e0ff",
-                      "surface-container-lowest": "#0d0d15",
-                      "on-primary-fixed-variant": "#2f2ebe",
-                      "error-container": "#93000a"
-              },
-              "borderRadius": {
-                      "DEFAULT": "0.25rem",
-                      "lg": "0.5rem",
-                      "xl": "0.75rem",
-                      "full": "9999px"
-              },
-              "spacing": {
-                      "xs": "8px",
-                      "lg": "24px",
-                      "sm": "12px",
-                      "margin-desktop": "32px",
-                      "xl": "32px",
-                      "margin-mobile": "16px",
-                      "md": "16px",
-                      "gutter": "20px",
-                      "base": "4px"
-              },
-              "fontFamily": {
-                      "label-caps": ["Inter"],
-                      "display-lg": ["Inter"],
-                      "headline-md": ["Inter"],
-                      "data-mono": ["JetBrains Mono"],
-                      "headline-md-mobile": ["Inter"],
-                      "body-base": ["Inter"],
-                      "body-sm": ["Inter"]
-              },
-              "fontSize": {
-                      "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
-                      "display-lg": ["48px", {"lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
-                      "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
-                      "data-mono": ["13px", {"lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "500"}],
-                      "headline-md-mobile": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
-                      "body-base": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
-                      "body-sm": ["14px", {"lineHeight": "20px", "fontWeight": "400"}]
-              }
-            },
-          },
-        }
-      </script>
 </head>
 <body class="bg-background text-on-surface selection:bg-primary/30">
 <!-- SideNavBar Shell -->
 <aside class="fixed left-0 top-0 h-full w-[260px] bg-surface-container border-r border-outline-variant flex flex-col h-full py-lg z-50">
 <div class="px-lg mb-xl flex items-center gap-sm">
-<img alt="Proctorly Logo" class="w-10 h-10 object-contain" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDD6XYQtZ7OnSG_k3s2kk3bs9huvgI9uyt3b0CmIPbnNwSL_5hx1NmswTBHGqaJ4M23yEsRsxN15fVBOUs6uo4BFRMNJS0VzNIrxLWELw9shREeiGbGIZDRVdsGsxusaJ-ZbpJ3hjquEHORT5s6A20F2OqZ3YZGP6XpHOitGOzkef5dciE7L5MDL7X7w5YHUMWm_1liW9H6TZ7rw9ERSx9sQNQ0AqCYnvuJP0_kYCrkhVWEgNlwvPAqv2e2W3XX_ElNzLXGKnKqZuzm"/>
+<span class="material-symbols-outlined text-primary text-[28px]">shield_person</span>
 <div>
 <h1 class="font-headline-md text-headline-md font-bold text-primary">Proctorly</h1>
 <p class="text-[10px] uppercase tracking-widest text-outline">Mission Control</p>
@@ -196,7 +103,7 @@
 <div class="h-8 w-px bg-outline-variant"></div>
 <div class="flex items-center gap-sm group cursor-pointer">
 <div class="w-8 h-8 rounded-full bg-surface-container-highest border border-outline-variant overflow-hidden">
-<img class="w-full h-full object-cover" data-alt="A professional headshot of a female administrator in a modern office, wearing soft business casual attire. The lighting is crisp and cinematic, matching a dark mode interface with deep indigo and cool grey tones. The mood is authoritative yet approachable, suitable for a tech-focused platform profile icon." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBt5WXr9tXgNe5dASZyjBPtwPRx6pfHRVAYgy5rLCHFpKuuDpMcZL5X4ZjsMXSqibm48fCmlWEWTjgUhUwyO61-CC5Qcn_JBh46lAPBx0PR22rucjYG-zCTNqxlTy8INTHC1QVAu_Ie2nhAfI-W93M7rwjsReKOOXE9ZSkhVY3Yj2OnVUdlt6g87p8LwE38NE0OJHE0MawQ08BKsoVg3V3Joe47rv1zku7innvrSFN91kWQbJKNqbuZ38fs9BBKRmj0pDLQQlNqqXnc"/>
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
 </div>
 <div class="hidden lg:block text-right">
 <p class="font-body-sm text-body-sm font-bold text-on-surface">Admin User</p>
@@ -217,30 +124,30 @@
 <div class="grid grid-cols-12 gap-xl">
 <!-- Left Category Rail -->
 <nav class="col-span-3 space-y-2">
-<button class="w-full flex items-center gap-md p-md rounded-lg bg-surface-container-high border border-primary/20 active-glow transition-all" id="tab-account" onclick="switchTab('account')">
+<button class="w-full flex items-center gap-md p-md rounded-lg bg-surface-container-high border border-primary/20 active-glow transition-all" id="tab-account" data-action="settingsTab" data-tab="account">
 <span class="material-symbols-outlined text-primary">account_circle</span>
 <span class="font-body-base font-semibold text-primary">Account</span>
 </button>
-<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-exam" onclick="switchTab('exam')">
+<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-exam" data-action="settingsTab" data-tab="exam">
 <span class="material-symbols-outlined">settings_suggest</span>
 <span class="font-body-base">Exam Defaults</span>
 </button>
-<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-proctoring" onclick="switchTab('proctoring')">
+<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-proctoring" data-action="settingsTab" data-tab="proctoring">
 <span class="material-symbols-outlined">security</span>
 <span class="font-body-base">Proctoring</span>
 </button>
-<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-integrations" onclick="switchTab('integrations')">
+<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-integrations" data-action="settingsTab" data-tab="integrations">
 <span class="material-symbols-outlined">hub</span>
 <span class="font-body-base">Integrations</span>
 </button>
-<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-maintenance" onclick="switchTab('maintenance')">
+<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-surface-container-high text-on-surface-variant transition-all" id="tab-maintenance" data-action="settingsTab" data-tab="maintenance">
 <span class="material-symbols-outlined">build</span>
 <span class="font-body-base">Maintenance</span>
 </button>
 <div class="pt-xl pb-base px-md">
 <p class="text-[10px] font-bold uppercase tracking-wider text-error">Critical</p>
 </div>
-<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-error/10 text-error/80 transition-all" id="tab-danger" onclick="switchTab('danger')">
+<button class="w-full flex items-center gap-md p-md rounded-lg hover:bg-error/10 text-error/80 transition-all" id="tab-danger" data-action="settingsTab" data-tab="danger">
 <span class="material-symbols-outlined">warning</span>
 <span class="font-body-base">Danger Zone</span>
 </button>
@@ -255,17 +162,17 @@
 <div class="grid grid-cols-2 gap-lg">
 <div class="space-y-base">
 <label class="font-label-caps text-label-caps text-on-surface-variant">Display Name</label>
-<input class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-md text-body-base focus:border-primary transition-all" type="text" value="Alexander Vance"/>
+<input id="set-name" class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-md text-body-base focus:border-primary transition-all" type="text" value=""/>
 </div>
 <div class="space-y-base">
 <label class="font-label-caps text-label-caps text-on-surface-variant">Email Address</label>
-<input class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-md text-body-base focus:border-primary transition-all" type="email" value="alex.vance@proctorly.edu"/>
+<input id="set-email" class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-md text-body-base focus:border-primary transition-all" type="email" value="" disabled/>
 </div>
 <div class="space-y-base col-span-2">
 <label class="font-label-caps text-label-caps text-on-surface-variant">Update Password</label>
 <div class="relative">
 <input class="w-full bg-surface-container-low border border-outline-variant rounded-lg p-md text-body-base focus:border-primary transition-all" type="password" value="••••••••••••"/>
-<button class="absolute right-md top-1/2 -translate-y-1/2 text-primary font-body-sm font-bold">Change</button>
+<button data-action="changePassword" class="absolute right-md top-1/2 -translate-y-1/2 text-primary font-body-sm font-bold">Change</button>
 </div>
 </div>
 </div>
@@ -349,12 +256,8 @@
 <h3 class="font-headline-md text-headline-md-mobile text-on-surface mb-xs">Privacy & Your Data</h3>
 <p class="text-on-surface-variant font-body-sm max-w-lg mb-lg">Export your data for GDPR/CCPA compliance or permanently delete your account and all associated exam history.</p>
 <div class="flex gap-md">
-<button class="px-lg py-md bg-surface-container text-on-surface font-bold border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high transition-all">
-                                                Export Data (.json)
-                                            </button>
-<button class="px-lg py-md border border-error/50 text-error font-bold rounded-lg text-body-sm hover:bg-error/10 transition-all">
-                                                Delete All Records
-                                            </button>
+<button data-action="exportData" class="px-lg py-md bg-surface-container text-on-surface font-bold border border-outline-variant rounded-lg text-body-sm hover:bg-surface-container-high transition-all">Export Data (.json)</button>
+<button data-action="deleteAllRecords" class="px-lg py-md border border-error/50 text-error font-bold rounded-lg text-body-sm hover:bg-error/10 transition-all">Delete All Records</button>
 </div>
 </div>
 </div>
@@ -371,51 +274,6 @@
 </div>
 </div>
 </main>
-<script>
-        function switchTab(tabId) {
-            const tabs = ['account', 'exam', 'proctoring', 'integrations', 'maintenance', 'danger'];
-            const container = document.getElementById('section-account');
-            const placeholder = document.getElementById('section-other');
-
-            // UI Updates for Nav Buttons
-            tabs.forEach(t => {
-                const btn = document.getElementById(`tab-${t}`);
-                if(t === tabId) {
-                    btn.classList.add('bg-surface-container-high', 'border-primary/20', 'active-glow', 'text-primary');
-                    btn.classList.remove('hover:bg-surface-container-high', 'text-on-surface-variant');
-                    const icon = btn.querySelector('.material-symbols-outlined');
-                    if(icon) icon.classList.add('text-primary');
-                    const label = btn.querySelector('.font-body-base');
-                    if(label) label.classList.add('font-semibold');
-                } else {
-                    btn.classList.remove('bg-surface-container-high', 'border-primary/20', 'active-glow', 'text-primary');
-                    btn.classList.add('hover:bg-surface-container-high', 'text-on-surface-variant');
-                    const icon = btn.querySelector('.material-symbols-outlined');
-                    if(icon) icon.classList.remove('text-primary');
-                    const label = btn.querySelector('.font-body-base');
-                    if(label) label.classList.remove('font-semibold');
-                }
-            });
-
-            // Content Visibility Logic
-            if(tabId === 'account') {
-                container.classList.remove('hidden');
-                placeholder.classList.add('hidden');
-            } else {
-                container.classList.add('hidden');
-                placeholder.classList.remove('hidden');
-            }
-        }
-
-        // Slider Interaction (Mock)
-        const sliderKnob = document.querySelector('.absolute.h-4.w-4');
-        if(sliderKnob) {
-            sliderKnob.addEventListener('mousedown', () => {
-                sliderKnob.classList.add('scale-125');
-            });
-            window.addEventListener('mouseup', () => {
-                sliderKnob.classList.remove('scale-125');
-            });
-        }
-    </script>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/settings.js" defer></script>
 </body></html>

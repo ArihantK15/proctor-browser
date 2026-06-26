@@ -96,7 +96,82 @@
       }
     }
   }
-  function initShared() { wireNav(); wireExamSelect(); }
+  // ---- Create Exam (shared) — the sidebar "Create Exam" button ships on every screen
+  // but no modal was designed, so inject one once + wire every trigger by text. POSTs
+  // /admin/exams (+ optional /exam-schedule), selects the new exam, lands on Exams. ----
+  var CE_HTML =
+    '<div id="createExamModal" class="fixed inset-0 z-[100] hidden items-center justify-center bg-black/70 backdrop-blur-sm p-md">' +
+    '<div class="bg-surface-container border border-outline-variant w-full max-w-lg rounded-2xl p-xl shadow-2xl">' +
+    '<div class="flex items-center justify-between mb-lg"><h2 class="font-bold text-lg text-on-surface">Create Exam</h2>' +
+    '<button data-action="closeCreateExam" class="text-on-surface-variant hover:text-on-surface"><span class="material-symbols-outlined">close</span></button></div>' +
+    '<div class="space-y-md">' +
+    '<div><label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Exam Title</label>' +
+    '<input id="ce-title" type="text" placeholder="e.g. Physics Midterm" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 text-body-base focus:border-primary"/></div>' +
+    '<div class="grid grid-cols-2 gap-md">' +
+    '<div><label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Duration (min)</label>' +
+    '<input id="ce-duration" type="number" min="1" value="60" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 font-data-mono text-primary focus:border-primary"/></div>' +
+    '<div><label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Proctoring Camera</label>' +
+    '<select id="ce-phone" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 font-semibold focus:border-primary [&>option]:bg-surface-container"><option value="false">Webcam only</option><option value="true">+ Phone camera</option></select></div></div>' +
+    '<div class="grid grid-cols-2 gap-md">' +
+    '<div><label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Opens (optional)</label>' +
+    '<input id="ce-start" type="datetime-local" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 text-body-sm focus:border-primary [color-scheme:dark]"/></div>' +
+    '<div><label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-1">Closes (optional)</label>' +
+    '<input id="ce-end" type="datetime-local" class="w-full bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 text-body-sm focus:border-primary [color-scheme:dark]"/></div></div>' +
+    '<p id="ce-err" class="text-error text-body-sm hidden"></p></div>' +
+    '<div class="flex justify-end gap-md mt-xl"><button data-action="closeCreateExam" class="px-lg py-md border border-outline-variant rounded-lg font-bold text-body-sm hover:bg-surface-container-high">Cancel</button>' +
+    '<button id="ce-submit" data-action="submitCreateExam" class="px-lg py-md bg-primary text-on-primary rounded-lg font-bold text-body-sm hover:opacity-90">Create Exam</button></div></div></div>';
+
+  function ceModal() { return document.getElementById("createExamModal"); }
+  function ceOpen() { var m = ceModal(); if (m) { m.classList.remove("hidden"); m.classList.add("flex"); var t = document.getElementById("ce-title"); if (t) { t.value = ""; t.focus(); } } }
+  function ceClose() { var m = ceModal(); if (m) { m.classList.add("hidden"); m.classList.remove("flex"); } }
+  function ceIso(v) { try { return v ? new Date(v).toISOString() : null; } catch (_) { return null; } }
+  onAction("openCreateExam", ceOpen);
+  onAction("closeCreateExam", ceClose);
+  onAction("submitCreateExam", async function (el) {
+    var title = (document.getElementById("ce-title") || {}).value || "";
+    var err = document.getElementById("ce-err");
+    if (!title.trim()) { if (err) { err.textContent = "Title is required."; err.classList.remove("hidden"); } return; }
+    if (err) err.classList.add("hidden");
+    el.disabled = true; el.textContent = "Creating…";
+    try {
+      var dur = parseInt((document.getElementById("ce-duration") || {}).value, 10) || 60;
+      var phone = (document.getElementById("ce-phone") || {}).value === "true";
+      var r = await authFetch("/api/v1/admin/exams", { method: "POST", body: JSON.stringify({ exam_title: title.trim(), duration_minutes: dur, phone_camera: phone }) });
+      if (!r.ok) { var d = await r.json().catch(function () { return {}; }); throw new Error(d.detail || ("HTTP " + r.status)); }
+      var created = await r.json();
+      var eid = created.exam_id;
+      var start = ceIso((document.getElementById("ce-start") || {}).value);
+      var end = ceIso((document.getElementById("ce-end") || {}).value);
+      if (eid && (start || end)) {
+        try { await authFetch("/api/v1/admin/exam-schedule", { method: "POST", body: JSON.stringify({ exam_id: eid, starts_at: start, ends_at: end }) }); } catch (_) {}
+      }
+      if (eid) { try { localStorage.setItem(EXAM_KEY, eid); } catch (_) {} }
+      window.location.href = "/dashboard-next/exams";
+    } catch (e) {
+      if (err) { err.textContent = "Create failed: " + (e.message || e); err.classList.remove("hidden"); }
+      el.disabled = false; el.textContent = "Create Exam";
+    }
+  });
+  function wireCreateExam() {
+    if (!document.getElementById("createExamModal")) {
+      var holder = document.createElement("div"); holder.innerHTML = CE_HTML;
+      document.body.appendChild(holder.firstChild);
+    }
+    var trigs = document.querySelectorAll("button, a");
+    for (var i = 0; i < trigs.length; i++) {
+      var el = trigs[i];
+      var t = (el.textContent || "").trim().toLowerCase();
+      // match "Create Exam"/"Create exam" (text may include an icon ligature); skip the
+      // modal's own buttons (they carry data-action / live inside #createExamModal).
+      if (t.indexOf("create exam") !== -1 && !el.hasAttribute("data-ce-wired") &&
+          !el.hasAttribute("data-action") && !el.closest("#createExamModal")) {
+        el.setAttribute("data-ce-wired", "1");
+        el.addEventListener("click", function (e) { e.preventDefault(); ceOpen(); });
+      }
+    }
+  }
+
+  function initShared() { wireNav(); wireExamSelect(); wireCreateExam(); }
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initShared);
   else initShared();
 })();

@@ -2766,6 +2766,23 @@ button.submit:disabled{opacity:.55;cursor:not-allowed;box-shadow:none}
   text-decoration:none;font-weight:600;font-size:14px;color:#fff;background:var(--navy)}
 .foot{text-align:center;color:#64748b;font-size:11.5px;margin-top:16px}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+/* Reskin to the decided Procta design system (Material-3 dark, lavender primary). */
+:root{--accent:#c0c1ff;--accent-dark:#8083ff;--navy:#292932;--ink:#e4e1ed;--muted:#c7c4d7}
+body{background:radial-gradient(1100px 520px at 50% -10%,#1f1f27 0%,#13131b 55%,#0d0d15 100%);color:#e4e1ed}
+.brand .name{color:#e4e1ed}
+.card{background:#1f1f27;border:1px solid #464554;box-shadow:0 24px 60px rgba(0,0,0,.55)}
+h1{color:#e4e1ed}label{color:#c7c4d7}
+input{background:#1b1b23;border-color:#464554;color:#e4e1ed}
+input:focus{border-color:#c0c1ff;box-shadow:0 0 0 3px rgba(192,193,255,.18)}
+.toggle:hover{color:#c0c1ff;background:#292932}
+.hint .dot{background:#464554}.hint.good .dot{background:#67df70}.hint.good{color:#67df70}
+button.submit{background:#c0c1ff;color:#1000a9;box-shadow:0 8px 20px rgba(192,193,255,.32)}
+button.submit:hover:not(:disabled){background:#8083ff;box-shadow:0 10px 26px rgba(192,193,255,.42)}
+.err{color:#ffb4ab;background:rgba(255,180,171,.08);border:1px solid rgba(255,180,171,.3)}
+.ok{color:#67df70;background:rgba(103,223,112,.08);border:1px solid rgba(103,223,112,.3)}
+.login-btn{background:#292932;color:#e4e1ed;border:1px solid #464554}
+.icon{background:rgba(255,180,171,.1)}
+.foot{color:#908fa0}
 </style></head>
 <body><div class="wrap">
 <div class="brand">
@@ -2818,6 +2835,23 @@ p{color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 22px}
 .btn{display:block;width:100%;padding:12px;border-radius:10px;text-decoration:none;font-weight:600;
   font-size:14px;color:#fff;background:var(--accent);box-shadow:0 8px 20px rgba(91,138,240,.32)}
 @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+/* Reskin to the decided Procta design system (Material-3 dark, lavender primary). */
+:root{--accent:#c0c1ff;--accent-dark:#8083ff;--navy:#292932;--ink:#e4e1ed;--muted:#c7c4d7}
+body{background:radial-gradient(1100px 520px at 50% -10%,#1f1f27 0%,#13131b 55%,#0d0d15 100%);color:#e4e1ed}
+.brand .name{color:#e4e1ed}
+.card{background:#1f1f27;border:1px solid #464554;box-shadow:0 24px 60px rgba(0,0,0,.55)}
+h1{color:#e4e1ed}label{color:#c7c4d7}
+input{background:#1b1b23;border-color:#464554;color:#e4e1ed}
+input:focus{border-color:#c0c1ff;box-shadow:0 0 0 3px rgba(192,193,255,.18)}
+.toggle:hover{color:#c0c1ff;background:#292932}
+.hint .dot{background:#464554}.hint.good .dot{background:#67df70}.hint.good{color:#67df70}
+button.submit{background:#c0c1ff;color:#1000a9;box-shadow:0 8px 20px rgba(192,193,255,.32)}
+button.submit:hover:not(:disabled){background:#8083ff;box-shadow:0 10px 26px rgba(192,193,255,.42)}
+.err{color:#ffb4ab;background:rgba(255,180,171,.08);border:1px solid rgba(255,180,171,.3)}
+.ok{color:#67df70;background:rgba(103,223,112,.08);border:1px solid rgba(103,223,112,.3)}
+.login-btn{background:#292932;color:#e4e1ed;border:1px solid #464554}
+.icon{background:rgba(255,180,171,.1)}
+.foot{color:#908fa0}
 </style></head>
 <body><div class="wrap">
 <div class="brand">

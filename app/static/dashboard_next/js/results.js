@@ -54,10 +54,12 @@
   function row(r, i) {
     const p = pct(r), pass = p >= threshold, rv = riskOf(r), rt = riskTone(rv);
     const flagged = (r.violation_count || 0) > 0 || (rv || 0) >= 70;
+    // Fall back to email/roll so a session with a blank name never shows "Unnamed".
+    const nm = r.full_name || r.email || (r.roll_number ? "#" + r.roll_number : "") || "Unnamed";
     return `<tr class="hover:bg-surface-container-low transition-colors group ${flagged ? "bg-error/5" : ""}">
       <td class="px-lg py-md"><div class="flex items-center gap-md">
-        <div class="w-9 h-9 rounded-full bg-primary-container/20 flex items-center justify-center font-bold text-primary">${esc(initials(r.full_name))}</div>
-        <div><p class="font-body-sm font-bold text-on-surface">${esc(r.full_name || "Unnamed")}</p><p class="font-data-mono text-[11px] text-on-surface-variant">#${esc(r.roll_number || "")}</p></div></div></td>
+        <div class="w-9 h-9 rounded-full bg-primary-container/20 flex items-center justify-center font-bold text-primary">${esc(initials(nm))}</div>
+        <div><p class="font-body-sm font-bold text-on-surface">${esc(nm)}</p><p class="font-data-mono text-[11px] text-on-surface-variant">#${esc(r.roll_number || "")}</p></div></div></td>
       <td class="px-lg py-md"><div class="flex flex-col"><span class="font-data-mono text-body-base font-bold text-on-surface">${esc(r.score)}/${esc(r.total)}</span><span class="text-[11px] ${pass ? "text-secondary" : "text-error"} font-bold">${p}%</span></div></td>
       <td class="px-lg py-md text-center"><span class="px-sm py-1 rounded-full ${pass ? "bg-secondary-container/20 text-secondary border-secondary/30" : "bg-error-container/20 text-error border-error/30"} text-[11px] font-bold border">${pass ? "PASS" : "FAIL"}</span></td>
       <td class="px-lg py-md"><div class="flex flex-col items-center gap-1"><span class="font-data-mono text-${rt} font-bold">${rv == null ? "—" : String(rv).padStart(2, "0")}</span>
@@ -83,8 +85,27 @@
     tb.innerHTML = html;
   }
 
+  // When a specific exam is selected, pass/fail must use THAT exam's configured
+  // pass-mark — not a default 60% slider. /results rows don't carry pass_mark, so
+  // pull it from the exam list and drive the threshold (+ sync the slider/label).
+  async function syncThresholdToExam(ex) {
+    if (!ex) return; // "All exams" view keeps the manual slider (mixed pass-marks)
+    try {
+      const r = await authFetch("/api/v1/admin/exams?include_archived=1");
+      if (!r.ok) return;
+      const d = await r.json().catch(() => ({}));
+      const me = (d.exams || []).find((e) => String(e.exam_id) === String(ex));
+      const pm = me && me.pass_mark != null ? Number(me.pass_mark) : null;
+      if (pm == null || isNaN(pm)) return;
+      threshold = pm;
+      const sl = $("pass-threshold"); if (sl) sl.value = String(pm);
+      const lbl = $("threshold-val"); if (lbl) lbl.textContent = pm + "%";
+    } catch (_) {}
+  }
+
   async function load() {
     const ex = api.examId ? api.examId() : "";
+    await syncThresholdToExam(ex);
     const q = ex ? `?exam_id=${encodeURIComponent(ex)}` : "";
     const an = await getJSON("/api/v1/admin/analytics" + q);
     dist = an && Array.isArray(an.score_distribution) ? an.score_distribution : [];

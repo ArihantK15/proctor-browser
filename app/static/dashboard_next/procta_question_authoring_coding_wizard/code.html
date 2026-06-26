@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly - Questions</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        :root {
+            --primary-indigo: #6366f1;
+            --border-color: #30363d;
+            --surface-bg: #13131b;
+        }
+        body {
+            background-color: var(--surface-bg);
+            color: #e4e1ed;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .drag-handle:hover { cursor: grab; }
+        .drag-handle:active { cursor: grabbing; }
+        .glass-overlay {
+            backdrop-filter: blur(12px);
+            background: rgba(19, 19, 27, 0.8);
+        }
+        .card-glow:hover {
+            border-color: var(--primary-indigo);
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.1);
+        }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                "on-secondary": "#00390d",
+                "tertiary": "#fabc45",
+                "on-background": "#e4e1ed",
+                "surface-tint": "#c0c1ff",
+                "surface-dim": "#13131b",
+                "outline-variant": "#464554",
+                "primary-fixed-dim": "#c0c1ff",
+                "on-surface-variant": "#c7c4d7",
+                "on-primary-fixed-variant": "#2f2ebe",
+                "inverse-primary": "#494bd6",
+                "on-tertiary-fixed-variant": "#5f4100",
+                "secondary-fixed-dim": "#67df70",
+                "surface-container-low": "#1b1b23",
+                "primary": "#c0c1ff",
+                "on-primary": "#1000a9",
+                "on-primary-fixed": "#07006c",
+                "inverse-surface": "#e4e1ed",
+                "error": "#ffb4ab",
+                "surface": "#13131b",
+                "secondary-fixed": "#83fc89",
+                "on-tertiary": "#422c00",
+                "background": "#13131b",
+                "outline": "#908fa0",
+                "surface-container-lowest": "#0d0d15",
+                "primary-fixed": "#e1e0ff",
+                "on-surface": "#e4e1ed",
+                "on-tertiary-fixed": "#271900",
+                "on-error-container": "#ffdad6",
+                "on-primary-container": "#0d0096",
+                "tertiary-container": "#bd8708",
+                "inverse-on-surface": "#303038",
+                "on-secondary-fixed-variant": "#005317",
+                "tertiary-fixed": "#ffdeaa",
+                "surface-container": "#1f1f27",
+                "on-secondary-container": "#00320a",
+                "surface-container-high": "#292932",
+                "surface-bright": "#393841",
+                "secondary-container": "#27a640",
+                "secondary": "#67df70",
+                "error-container": "#93000a",
+                "primary-container": "#8083ff",
+                "surface-container-highest": "#34343d",
+                "on-tertiary-container": "#392600",
+                "on-error": "#690005",
+                "tertiary-fixed-dim": "#fabc45",
+                "on-secondary-fixed": "#002105",
+                "surface-variant": "#34343d"
+              },
+              "borderRadius": {
+                "DEFAULT": "0.25rem",
+                "lg": "0.5rem",
+                "xl": "0.75rem",
+                "full": "9999px"
+              },
+              "spacing": {
+                "xs": "8px",
+                "base": "4px",
+                "margin-mobile": "16px",
+                "gutter": "20px",
+                "xl": "32px",
+                "margin-desktop": "32px",
+                "md": "16px",
+                "lg": "24px",
+                "sm": "12px"
+              },
+              "fontFamily": {
+                "body-base": ["Inter"],
+                "headline-md": ["Inter"],
+                "data-mono": ["JetBrains Mono"],
+                "label-caps": ["Inter"],
+                "display-lg": ["Inter"],
+                "headline-md-mobile": ["Inter"],
+                "body-sm": ["Inter"]
+              }
+            }
+          }
+        }
+    </script>
+</head>
+<body class="dark bg-background text-on-surface">
+<!-- Sidebar (Shared Component) -->
+<aside class="fixed left-0 top-0 h-screen w-[260px] border-r border-[#30363d] bg-surface flex flex-col py-lg hidden md:flex">
+<div class="px-lg mb-xl">
+<h1 class="font-headline-md text-headline-md font-bold text-primary">Proctorly</h1>
+<p class="text-on-surface-variant font-body-sm text-body-sm opacity-60">Mission Control</p>
+</div>
+<nav class="flex-1 space-y-base overflow-y-auto">
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-body-base text-body-base">Overview</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="assignment">assignment</span>
+<span class="font-body-base text-body-base">Exams</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 border-l-4 border-primary bg-primary-container/10 text-primary font-bold" href="#">
+<span class="material-symbols-outlined" data-icon="quiz">quiz</span>
+<span class="font-body-base text-body-base">Questions</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="visibility">visibility</span>
+<span class="font-body-base text-body-base">Live Monitor</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="analytics">analytics</span>
+<span class="font-body-base text-body-base">Results</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="group">group</span>
+<span class="font-body-base text-body-base">Students</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="extension">extension</span>
+<span class="font-body-base text-body-base">Integrations</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors duration-200" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-body-base text-body-base">Settings</span>
+</a>
+</nav>
+<div class="px-lg mt-auto">
+<button class="w-full bg-[#6366f1] text-white py-3 rounded-lg font-bold hover:bg-opacity-90 transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined" data-icon="add">add</span>
+<span>Create New Exam</span>
+</button>
+</div>
+</aside>
+<!-- Top Bar (Shared Component) -->
+<header class="fixed top-0 right-0 left-0 md:left-[260px] h-16 z-40 bg-surface/80 backdrop-blur-md border-b border-[#30363d] flex justify-between items-center px-margin-mobile md:px-margin-desktop">
+<div class="flex items-center gap-4">
+<button class="md:hidden text-on-surface">
+<span class="material-symbols-outlined" data-icon="menu">menu</span>
+</button>
+<div class="hidden md:flex flex-col">
+<h2 class="font-bold text-on-surface text-body-base">Physics Midterm</h2>
+<p class="text-on-surface-variant font-data-mono text-[11px] uppercase tracking-wider">May 12, 10:00 • 120 Minutes</p>
+</div>
+<div class="flex md:hidden font-headline-md-mobile text-headline-md-mobile font-black text-primary">P.</div>
+</div>
+<div class="flex items-center gap-md">
+<div class="hidden sm:flex items-center bg-surface-container-highest px-3 py-1.5 rounded-full border border-[#30363d]">
+<span class="material-symbols-outlined text-primary mr-2 text-sm" data-icon="search">search</span>
+<input class="bg-transparent border-none focus:ring-0 text-sm w-48 font-body-sm" placeholder="Search exams..." type="text"/>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-on-surface-variant hover:text-primary transition-all relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-0 right-0 w-2 h-2 bg-error rounded-full"></span>
+</button>
+<button class="text-on-surface-variant hover:text-primary transition-all">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<img class="w-8 h-8 rounded-full border border-[#30363d] object-cover" data-alt="A professional high-resolution headshot of a female professor in her late 40s, wearing academic professional attire. She has a confident and intelligent expression, set against a blurred background of a modern architectural library with deep blue and wood tones. The lighting is soft, cinematic, and professional, maintaining the dark-mode aesthetic of the dashboard." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB2-24y5BgIcK-DbrAND5hRIQaP23AlTIdpTnvXval9y4aycPETbcjOjcQdMlqwdLHzAyaC6IxxSaZYxS6djxAW0HV2VJyxEgT8Ro_vTLnUsKAHu9F_xNzbSN2mRIgfCJlMkPQKsUMNshQJzgpbaksajjVqPF6f5yFiUtdySJvBketfW3MiossY3Sl0gDo5IFcxXznr5YGwVQeHj9nbgKJhWYsfkIN3f7k0A8Q-zNV_G_tTT29Y-QLwOGcCDaM0KiiSmKhzazOFH92K"/>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="pt-24 pb-20 md:pb-8 md:pl-[260px] min-h-screen flex">
+<!-- Center Canvas -->
+<div class="flex-1 px-margin-mobile md:px-margin-desktop overflow-x-hidden">
+<!-- Main Area Header -->
+<div class="mb-lg">
+<div class="flex items-center gap-2 text-on-surface-variant mb-2">
+<span class="material-symbols-outlined text-sm" data-icon="arrow_back">arrow_back</span>
+<span class="font-body-sm text-body-sm">Back to Exam Details</span>
+</div>
+<h1 class="font-headline-md text-headline-md font-bold mb-1">Physics Midterm</h1>
+<div class="flex flex-wrap items-center gap-4 text-on-surface-variant text-body-sm">
+<span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm" data-icon="format_list_numbered">format_list_numbered</span> 12 questions</span>
+<span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm" data-icon="grade">grade</span> 40 marks total</span>
+<span class="flex items-center gap-1.5"><span class="material-symbols-outlined text-sm text-tertiary" data-icon="schedule">schedule</span> access window: May 12, 10:00 AM</span>
+</div>
+</div>
+<!-- Action Row -->
+<div class="flex flex-col lg:flex-row lg:items-center justify-between gap-md mb-xl bg-surface-container-low p-4 rounded-xl border border-[#30363d]">
+<div class="flex flex-wrap items-center gap-3">
+<!-- Split Button -->
+<div class="flex shadow-lg rounded-lg overflow-hidden border border-white/10">
+<button class="bg-[#6366f1] text-white px-4 py-2.5 font-bold flex items-center gap-2 hover:bg-opacity-90 active:scale-95 transition-all" onclick="document.getElementById('codingModal').classList.remove('hidden')">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span> Add Question
+                        </button>
+<button class="bg-[#6366f1] border-l border-indigo-400 text-white px-2 py-2.5 hover:bg-opacity-90 active:scale-95 transition-all">
+<span class="material-symbols-outlined" data-icon="arrow_drop_down">arrow_drop_down</span>
+</button>
+</div>
+<button class="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-[#30363d] hover:bg-surface-container-high transition-all text-on-surface-variant hover:text-on-surface font-semibold text-sm">
+<span class="material-symbols-outlined" data-icon="upload_file">upload_file</span>
+                        Import from PDF/Word
+                    </button>
+<button class="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-all text-primary font-semibold text-sm group">
+<span class="material-symbols-outlined group-hover:rotate-12 transition-transform" data-icon="auto_awesome">auto_awesome</span>
+                        Generate with AI
+                    </button>
+</div>
+<div class="flex items-center gap-4">
+<label class="inline-flex items-center cursor-pointer">
+<span class="mr-3 text-sm font-medium text-on-surface-variant">Question Bank</span>
+<div class="relative w-11 h-6 bg-[#30363d] rounded-full peer peer-focus:ring-4 peer-focus:ring-indigo-300 dark:peer-focus:ring-indigo-800 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-[#6366f1]"></div>
+<input checked="" class="sr-only peer" onchange="document.getElementById('bankPanel').classList.toggle('hidden')" type="checkbox"/>
+</label>
+</div>
+</div>
+<!-- Question List -->
+<div class="space-y-4">
+<!-- MCQ Card -->
+<div class="group relative bg-surface-container border border-[#30363d] rounded-xl p-md card-glow transition-all duration-300">
+<div class="absolute left-[-16px] top-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity drag-handle text-[#30363d] hover:text-primary">
+<span class="material-symbols-outlined text-lg" data-icon="drag_indicator">drag_indicator</span>
+</div>
+<div class="flex items-start justify-between mb-4">
+<div class="flex items-center gap-3">
+<span class="font-data-mono text-sm text-on-surface-variant bg-surface-container-highest px-2 py-0.5 rounded border border-[#30363d]">Q1</span>
+<span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider bg-blue-500/10 text-blue-400 border border-blue-500/20">Multiple Choice</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant text-sm font-data-mono">4 Marks</span>
+<div class="h-4 w-px bg-[#30363d] mx-2"></div>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-highest rounded transition-colors"><span class="material-symbols-outlined text-xl" data-icon="edit">edit</span></button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-highest rounded transition-colors"><span class="material-symbols-outlined text-xl" data-icon="content_copy">content_copy</span></button>
+<button class="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded transition-colors"><span class="material-symbols-outlined text-xl" data-icon="delete">delete</span></button>
+</div>
+</div>
+<p class="font-body-base text-body-base mb-6 text-on-surface leading-relaxed">
+                        What is the terminal velocity of a 2kg spherical object dropped from a height of 500m, assuming a drag coefficient of 0.47 and air density of 1.225 kg/m³?
+                    </p>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+<div class="flex items-center gap-3 p-3 rounded-lg border border-[#30363d] bg-surface-container-low transition-colors">
+<span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border border-[#30363d] text-on-surface-variant">A</span>
+<span class="text-sm">45.2 m/s</span>
+</div>
+<div class="flex items-center gap-3 p-3 rounded-lg border border-secondary/40 bg-secondary/10 transition-colors">
+<span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold bg-secondary text-on-secondary">B</span>
+<span class="text-sm font-semibold">58.4 m/s</span>
+<span class="material-symbols-outlined ml-auto text-secondary text-lg" data-icon="check_circle">check_circle</span>
+</div>
+<div class="flex items-center gap-3 p-3 rounded-lg border border-[#30363d] bg-surface-container-low transition-colors">
+<span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border border-[#30363d] text-on-surface-variant">C</span>
+<span class="text-sm">62.1 m/s</span>
+</div>
+<div class="flex items-center gap-3 p-3 rounded-lg border border-[#30363d] bg-surface-container-low transition-colors">
+<span class="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold border border-[#30363d] text-on-surface-variant">D</span>
+<span class="text-sm">39.8 m/s</span>
+</div>
+</div>
+</div>
+<!-- Coding Card -->
+<div class="group relative bg-surface-container border border-[#30363d] rounded-xl p-md card-glow transition-all duration-300">
+<div class="absolute left-[-16px] top-1/2 -translate-y-1/2 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity drag-handle text-[#30363d] hover:text-primary">
+<span class="material-symbols-outlined text-lg" data-icon="drag_indicator">drag_indicator</span>
+</div>
+<div class="flex items-start justify-between mb-4">
+<div class="flex items-center gap-3">
+<span class="font-data-mono text-sm text-on-surface-variant bg-surface-container-highest px-2 py-0.5 rounded border border-[#30363d]">Q2</span>
+<span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider bg-tertiary/10 text-tertiary border border-tertiary/20">
+<span class="material-symbols-outlined text-[12px] mr-1" data-icon="code">code</span> Coding
+                            </span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant text-sm font-data-mono">10 Marks</span>
+<div class="h-4 w-px bg-[#30363d] mx-2"></div>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-highest rounded transition-colors"><span class="material-symbols-outlined text-xl" data-icon="edit">edit</span></button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-highest rounded transition-colors"><span class="material-symbols-outlined text-xl" data-icon="content_copy">content_copy</span></button>
+<button class="p-1.5 text-on-surface-variant hover:text-error hover:bg-error/10 rounded transition-colors"><span class="material-symbols-outlined text-xl" data-icon="delete">delete</span></button>
+</div>
+</div>
+<p class="font-body-base text-body-base mb-4 text-on-surface leading-relaxed">
+                        Write a function <code class="font-data-mono text-primary bg-primary/10 px-1 rounded">calculate_force(mass, acceleration)</code> that returns the net force in Newtons. Include error handling for negative mass.
+                    </p>
+<div class="flex flex-wrap items-center gap-3 mb-4">
+<span class="text-[10px] uppercase font-bold text-on-surface-variant/60 tracking-widest">Languages:</span>
+<div class="flex gap-2">
+<span class="bg-[#21262d] text-on-surface-variant px-2.5 py-1 rounded-full text-xs border border-[#30363d] flex items-center gap-1.5">
+<img class="w-3 h-3" data-alt="Official Python programming language logo in high resolution, minimalist flat design vector icon style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBoA9FbVzUZPMjuJtJC1rb1PA80CZaSo6B4hwy2WoTUrxpFKO3033L-Uhu-b6HE2OTVZLI5u3yibnJgfBo4i0pCbGJCe0N-RqXWZAj0yWUCF_eA_ykkWCn8nZJIewFMARql-CJ4v-dwRR57cuYkHvPDnspMsltU74tskQnXNFRDbvNbiGwgH1RAex7OsAX-uQRz8okqB8lHWg3IXuhXht3HvuiyJ4b7lVNv0vs9PNCnUrucltst0o_9gMF-4hoJvc5ctENLJanJx_Z7"/> Python
+                            </span>
+<span class="bg-[#21262d] text-on-surface-variant px-2.5 py-1 rounded-full text-xs border border-[#30363d] flex items-center gap-1.5">
+<img class="w-3 h-3" data-alt="Official JavaScript programming language logo in high resolution, minimalist flat design yellow and black vector icon style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD4oMXBIPu_35Xc9Qtkdb_q8hFJAdekUzGh0bnNdTMhbSrZe2d-nhJjVn-rWW1ij78qxuEjMdS3_vpUxUuqFOU4Wud6qCxr8Zvn9eiAl9QqApi44O-YUCliZxX8vfAxW-mMebKaLqBWK_9TXKzyF7FolG5G912Ytv-lrQAX2UPEWk3M5SLA15hk3tuyPFBAUPvoKwaA8QIPy0I9qqBoJGp6omGGrlYTtIQSJ36Fs558Qk7vktDvBRA0kXzChnEN-GFqaToMpSh59FF3"/> JavaScript
+                            </span>
+<span class="bg-[#21262d] text-on-surface-variant px-2.5 py-1 rounded-full text-xs border border-[#30363d] flex items-center gap-1.5">
+<img class="w-3 h-3" data-alt="Official C++ programming language logo in high resolution, minimalist flat design blue and white vector icon style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCT2A8u3PRSjYWOsbci5yA0cp4nQvYaUXN-eO0CFyspBnGqDg_n5vVbe3Beo0npQ6aOUQgEdKVZOP8NLM1fP4kxUogh91UBvpYSluefFBJIWcmi6V0AGRvw0c-dxsdQsQGrfVGLQqtZszePWEHiVbt4d730iZbqc7qhiYTxr476QCsQbR9msrmnQCIAcHQUc7ZNft9PAqHotiWAVfE-XCY_rfJnhi7YvOI0yqWk_iVc3la_-MDInp0gtgQWeaEVUwfJJY4Pii9MbXxC"/> C++
+                            </span>
+</div>
+</div>
+<div class="flex items-center gap-4 bg-surface-container-low rounded-lg p-3 border border-[#30363d]">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-on-surface-variant" data-icon="science">science</span>
+<span class="text-xs text-on-surface-variant"><span class="font-bold text-on-surface">2</span> Sample tests</span>
+</div>
+<div class="w-px h-3 bg-[#30363d]"></div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-on-surface-variant" data-icon="visibility_off">visibility_off</span>
+<span class="text-xs text-on-surface-variant"><span class="font-bold text-on-surface">5</span> Hidden tests</span>
+</div>
+<div class="ml-auto">
+<button class="text-primary text-[11px] font-bold uppercase tracking-wider flex items-center gap-1 hover:underline">
+                                Preview Environment <span class="material-symbols-outlined text-sm" data-icon="open_in_new">open_in_new</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Numeric Card -->
+<div class="group relative bg-surface-container border border-[#30363d] rounded-xl p-md card-glow transition-all duration-300">
+<div class="flex items-start justify-between mb-4">
+<div class="flex items-center gap-3">
+<span class="font-data-mono text-sm text-on-surface-variant bg-surface-container-highest px-2 py-0.5 rounded border border-[#30363d]">Q3</span>
+<span class="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Numeric</span>
+</div>
+<div class="flex items-center gap-2">
+<span class="text-on-surface-variant text-sm font-data-mono">2 Marks</span>
+<div class="h-4 w-px bg-[#30363d] mx-2"></div>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-highest rounded transition-colors"><span class="material-symbols-outlined text-xl" data-icon="edit">edit</span></button>
+<button class="p-1.5 text-on-surface-variant hover:text-primary hover:bg-surface-container-highest rounded transition-colors"><span class="material-symbols-outlined text-xl" data-icon="delete">delete</span></button>
+</div>
+</div>
+<p class="font-body-base text-body-base mb-4 text-on-surface">What is the value of gravitational constant G in m³ kg⁻¹ s⁻²?</p>
+<div class="flex items-center gap-3">
+<div class="bg-surface-container-low border border-[#30363d] rounded p-2 text-sm font-data-mono text-primary">6.67430e-11</div>
+<span class="text-xs text-on-surface-variant">± 0.00001 Tolerance</span>
+</div>
+</div>
+</div>
+<!-- Empty State / Add Divider -->
+<div class="my-xl flex items-center gap-4">
+<div class="h-px flex-1 bg-[#30363d]"></div>
+<button class="text-on-surface-variant hover:text-primary transition-all flex items-center gap-2 group">
+<span class="w-8 h-8 rounded-full border border-dashed border-[#30363d] flex items-center justify-center group-hover:border-primary">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+</span>
+<span class="text-sm font-bold uppercase tracking-widest">End of Questions</span>
+</button>
+<div class="h-px flex-1 bg-[#30363d]"></div>
+</div>
+</div>
+<!-- Right Panel: Question Bank -->
+<aside class="w-[340px] border-l border-[#30363d] bg-surface flex flex-col hidden xl:flex sticky top-16 h-[calc(100vh-64px)] overflow-hidden" id="bankPanel">
+<div class="p-lg border-b border-[#30363d]">
+<div class="flex items-center justify-between mb-4">
+<h3 class="font-bold text-on-surface flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-icon="database">database</span>
+                        Question Bank
+                    </h3>
+<button class="text-on-surface-variant hover:text-on-surface">
+<span class="material-symbols-outlined text-sm" data-icon="close">close</span>
+</button>
+</div>
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-sm" data-icon="search">search</span>
+<input class="w-full bg-surface-container-low border border-[#30363d] rounded-lg pl-9 py-2 text-sm focus:ring-1 focus:ring-primary focus:border-primary" placeholder="Search by topic or tag..." type="text"/>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-4 space-y-3">
+<div class="text-[10px] uppercase font-bold text-on-surface-variant/50 tracking-widest pb-1 border-b border-[#30363d]">Recent Collections</div>
+<!-- Bank Item 1 -->
+<div class="p-3 rounded-lg border border-transparent hover:border-[#30363d] hover:bg-surface-container-low cursor-pointer transition-all group">
+<div class="flex justify-between items-start mb-1">
+<span class="text-xs font-bold text-primary">Quantum Mechanics Basics</span>
+<span class="text-[10px] text-on-surface-variant font-data-mono">24 items</span>
+</div>
+<p class="text-[11px] text-on-surface-variant line-clamp-2 mb-2 italic">Essential questions for undergraduate physics covering wave-particle duality.</p>
+<div class="flex flex-wrap gap-1">
+<span class="px-1.5 py-0.5 rounded bg-surface-container-highest text-[9px] text-on-surface-variant">Hard</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-highest text-[9px] text-on-surface-variant">2023 Spring</span>
+</div>
+</div>
+<!-- Bank Item 2 -->
+<div class="p-3 rounded-lg border border-transparent hover:border-[#30363d] hover:bg-surface-container-low cursor-pointer transition-all group">
+<div class="flex justify-between items-start mb-1">
+<span class="text-xs font-bold text-primary">Classical Electrodynamics</span>
+<span class="text-[10px] text-on-surface-variant font-data-mono">18 items</span>
+</div>
+<p class="text-[11px] text-on-surface-variant line-clamp-2 mb-2 italic">Gauss's Law and Maxwell Equations problem sets.</p>
+<div class="flex flex-wrap gap-1">
+<span class="px-1.5 py-0.5 rounded bg-surface-container-highest text-[9px] text-on-surface-variant">Medium</span>
+</div>
+</div>
+<!-- Bank Item 3 -->
+<div class="p-3 rounded-lg border border-transparent hover:border-[#30363d] hover:bg-surface-container-low cursor-pointer transition-all group">
+<div class="flex justify-between items-start mb-1">
+<span class="text-xs font-bold text-primary">Lab Practical Formulas</span>
+<span class="text-[10px] text-on-surface-variant font-data-mono">10 items</span>
+</div>
+<p class="text-[11px] text-on-surface-variant line-clamp-2 mb-2 italic">Questions based on experimental physics methodologies.</p>
+</div>
+</div>
+<div class="p-4 bg-surface-container-lowest border-t border-[#30363d]">
+<button class="w-full py-2 bg-surface-container-high border border-[#30363d] rounded-lg text-xs font-bold hover:text-primary transition-all flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm" data-icon="auto_awesome">auto_awesome</span> AI Collection Builder
+                </button>
+</div>
+</aside>
+</main>
+<!-- Coding Question Editor Wizard Modal -->
+<div class="fixed inset-0 z-50 flex items-center justify-center hidden" id="codingModal">
+<div class="absolute inset-0 bg-black/60 backdrop-blur-sm" onclick="document.getElementById('codingModal').classList.add('hidden')"></div>
+<div class="relative bg-surface border border-[#30363d] w-full max-w-4xl h-full md:h-[921px] md:max-h-[800px] md:rounded-2xl overflow-hidden flex flex-col shadow-2xl">
+<!-- Modal Header -->
+<div class="px-lg py-4 border-b border-[#30363d] flex items-center justify-between bg-surface-container-low">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-lg bg-tertiary/10 text-tertiary flex items-center justify-center">
+<span class="material-symbols-outlined" data-icon="code">code</span>
+</div>
+<div>
+<h2 class="font-bold text-lg leading-tight">Create Coding Question</h2>
+<p class="text-on-surface-variant text-xs">Step 1: Problem Definition</p>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<a class="text-primary text-xs font-semibold hover:underline hidden md:block" href="#">Use advanced editor</a>
+<button class="p-2 hover:bg-surface-container-high rounded-full transition-colors" onclick="document.getElementById('codingModal').classList.add('hidden')">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+</div>
+<!-- Wizard Stepper -->
+<div class="flex items-center gap-0 bg-surface-container-lowest border-b border-[#30363d] px-lg overflow-x-auto no-scrollbar">
+<div class="flex items-center py-4 border-b-2 border-primary min-w-max px-4">
+<span class="w-6 h-6 rounded-full bg-primary text-on-primary text-[10px] font-bold flex items-center justify-center mr-2">1</span>
+<span class="text-xs font-bold text-on-surface">Problem</span>
+</div>
+<div class="w-8 h-px bg-[#30363d] mx-2"></div>
+<div class="flex items-center py-4 border-b-2 border-transparent min-w-max px-4 opacity-40">
+<span class="w-6 h-6 rounded-full bg-surface-container-highest text-on-surface-variant text-[10px] font-bold flex items-center justify-center mr-2">2</span>
+<span class="text-xs font-bold text-on-surface">Languages</span>
+</div>
+<div class="w-8 h-px bg-[#30363d] mx-2"></div>
+<div class="flex items-center py-4 border-b-2 border-transparent min-w-max px-4 opacity-40">
+<span class="w-6 h-6 rounded-full bg-surface-container-highest text-on-surface-variant text-[10px] font-bold flex items-center justify-center mr-2">3</span>
+<span class="text-xs font-bold text-on-surface">Sample Tests</span>
+</div>
+<div class="w-8 h-px bg-[#30363d] mx-2"></div>
+<div class="flex items-center py-4 border-b-2 border-transparent min-w-max px-4 opacity-40">
+<span class="w-6 h-6 rounded-full bg-surface-container-highest text-on-surface-variant text-[10px] font-bold flex items-center justify-center mr-2">4</span>
+<span class="text-xs font-bold text-on-surface">Hidden Tests</span>
+</div>
+<div class="w-8 h-px bg-[#30363d] mx-2"></div>
+<div class="flex items-center py-4 border-b-2 border-transparent min-w-max px-4 opacity-40">
+<span class="w-6 h-6 rounded-full bg-surface-container-highest text-on-surface-variant text-[10px] font-bold flex items-center justify-center mr-2">5</span>
+<span class="text-xs font-bold text-on-surface">Review</span>
+</div>
+</div>
+<!-- Modal Body -->
+<div class="flex-1 overflow-y-auto p-lg flex flex-col md:flex-row gap-lg">
+<div class="flex-1 space-y-6">
+<div>
+<label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2">Question Title</label>
+<input class="w-full bg-surface-container-low border border-[#30363d] rounded-lg px-4 py-3 text-body-base focus:ring-primary focus:border-primary" placeholder="e.g. Newton's Second Law Calculator" type="text"/>
+</div>
+<div>
+<label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2">Problem Statement</label>
+<textarea class="w-full bg-surface-container-low border border-[#30363d] rounded-lg px-4 py-3 text-body-base focus:ring-primary focus:border-primary resize-none" placeholder="Describe the programming task, constraints, and requirements..." rows="6"></textarea>
+</div>
+<div class="grid grid-cols-2 gap-4">
+<div>
+<label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2">Points</label>
+<input class="w-full bg-surface-container-low border border-[#30363d] rounded-lg px-4 py-3 font-data-mono text-primary" type="number" value="10"/>
+</div>
+<div>
+<label class="block text-xs font-bold uppercase tracking-widest text-on-surface-variant mb-2">Difficulty</label>
+<select class="w-full bg-surface-container-low border border-[#30363d] rounded-lg px-4 py-3 text-on-surface font-semibold focus:ring-primary">
+<option>Easy</option>
+<option selected="">Medium</option>
+<option>Hard</option>
+</select>
+</div>
+</div>
+</div>
+<div class="w-full md:w-[280px] space-y-4">
+<div class="bg-primary/5 border border-primary/20 rounded-xl p-4">
+<h4 class="flex items-center gap-2 text-primary font-bold text-sm mb-2">
+<span class="material-symbols-outlined text-sm" data-icon="tips_and_updates">tips_and_updates</span> Procta Tips
+                        </h4>
+<p class="text-xs text-on-surface-variant leading-relaxed mb-3">Keep problem statements concise. Code questions with clear return types reduce student confusion.</p>
+<div class="h-px bg-primary/10 mb-3"></div>
+<p class="text-xs text-on-surface-variant leading-relaxed">Students usually perform best when you provide 1-2 sample input/output examples in the description.</p>
+</div>
+<div class="bg-surface-container-low border border-[#30363d] rounded-xl p-4">
+<label class="block text-[10px] font-bold uppercase tracking-widest text-on-surface-variant/50 mb-3">Template</label>
+<button class="w-full text-left p-2 rounded hover:bg-surface-container-high text-xs flex items-center justify-between group transition-all">
+<span>Python Starter Code</span>
+<span class="material-symbols-outlined text-sm opacity-0 group-hover:opacity-100" data-icon="chevron_right">chevron_right</span>
+</button>
+<button class="w-full text-left p-2 rounded hover:bg-surface-container-high text-xs flex items-center justify-between group transition-all">
+<span>JavaScript Boilerplate</span>
+<span class="material-symbols-outlined text-sm opacity-0 group-hover:opacity-100" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Modal Footer -->
+<div class="px-lg py-4 border-t border-[#30363d] bg-surface-container-low flex justify-between items-center">
+<button class="text-on-surface-variant font-bold text-sm hover:text-on-surface px-4 py-2 transition-all">Save as Draft</button>
+<div class="flex items-center gap-3">
+<button class="px-6 py-2.5 rounded-lg border border-[#30363d] font-bold text-sm hover:bg-surface-container-high transition-all" onclick="document.getElementById('codingModal').classList.add('hidden')">Cancel</button>
+<button class="px-8 py-2.5 rounded-lg bg-[#6366f1] text-white font-bold text-sm hover:bg-opacity-90 shadow-lg shadow-indigo-500/20 active:scale-95 transition-all">Next: Languages</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Mobile Navigation Shell -->
+<div class="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-surface-container-highest border-t border-[#30363d] flex items-center justify-around z-50">
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="text-[10px]">Home</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-primary" href="#">
+<span class="material-symbols-outlined" data-icon="quiz">quiz</span>
+<span class="text-[10px]">Questions</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined" data-icon="visibility">visibility</span>
+<span class="text-[10px]">Live</span>
+</a>
+<a class="flex flex-col items-center gap-1 text-on-surface-variant" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="text-[10px]">Settings</span>
+</a>
+</div>
+<!-- Mobile FAB -->
+<button class="md:hidden fixed right-4 bottom-20 w-14 h-14 rounded-full bg-[#6366f1] text-white flex items-center justify-center shadow-2xl z-40 active:scale-90 transition-transform">
+<span class="material-symbols-outlined text-3xl" data-icon="add">add</span>
+</button>
+<script>
+        // Simple micro-interactions
+        document.addEventListener('DOMContentLoaded', () => {
+            // Drag handles visualization
+            const cards = document.querySelectorAll('.group.relative');
+            cards.forEach(card => {
+                card.addEventListener('mouseenter', () => {
+                    card.style.transform = 'translateX(4px)';
+                });
+                card.addEventListener('mouseleave', () => {
+                    card.style.transform = 'translateX(0)';
+                });
+            });
+
+            // Tab bar toggle logic would go here
+            // Currently using inline onclick for modal and bank visibility
+        });
+    </script>
+</body></html>

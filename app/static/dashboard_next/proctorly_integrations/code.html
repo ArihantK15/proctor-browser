@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Proctorly | Integrations</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body {
+            background-color: #13131b;
+            color: #e4e1ed;
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+        }
+        .glass-card {
+            background: rgba(31, 31, 39, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid #30363d;
+            transition: all 0.3s ease;
+        }
+        .glass-card:hover {
+            border-color: #464554;
+            background: rgba(41, 41, 50, 0.8);
+        }
+        .status-pill {
+            padding: 2px 10px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .copy-chip {
+            background: #161b22;
+            border: 1px solid #30363d;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+        }
+        .glow-active {
+            box-shadow: inset 0 0 10px rgba(99, 102, 241, 0.1);
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #13131b; }
+        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: #464554; }
+    </style>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "tertiary-container": "#bd8708",
+                        "on-tertiary": "#422c00",
+                        "surface-container-high": "#292932",
+                        "primary-container": "#8083ff",
+                        "surface-container-highest": "#34343d",
+                        "on-error-container": "#ffdad6",
+                        "surface-container": "#1f1f27",
+                        "on-secondary-fixed": "#002105",
+                        "inverse-surface": "#e4e1ed",
+                        "on-surface-variant": "#c7c4d7",
+                        "on-tertiary-container": "#392600",
+                        "error": "#ffb4ab",
+                        "background": "#13131b",
+                        "on-primary": "#1000a9",
+                        "on-secondary-fixed-variant": "#005317",
+                        "tertiary-fixed-dim": "#fabc45",
+                        "outline": "#908fa0",
+                        "secondary-fixed-dim": "#67df70",
+                        "surface-variant": "#34343d",
+                        "tertiary": "#fabc45",
+                        "surface-bright": "#393841",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "on-secondary": "#00390d",
+                        "on-primary-container": "#0d0096",
+                        "on-tertiary-fixed-variant": "#5f4100",
+                        "on-secondary-container": "#00320a",
+                        "surface-container-low": "#1b1b23",
+                        "secondary": "#67df70",
+                        "on-surface": "#e4e1ed",
+                        "surface": "#13131b",
+                        "on-background": "#e4e1ed",
+                        "inverse-primary": "#494bd6",
+                        "on-error": "#690005",
+                        "on-tertiary-fixed": "#271900",
+                        "surface-tint": "#c0c1ff",
+                        "surface-dim": "#13131b",
+                        "secondary-fixed": "#83fc89",
+                        "on-primary-fixed": "#07006c",
+                        "primary": "#c0c1ff",
+                        "outline-variant": "#464554",
+                        "secondary-container": "#27a640",
+                        "inverse-on-surface": "#303038",
+                        "tertiary-fixed": "#ffdeaa",
+                        "primary-fixed": "#e1e0ff",
+                        "surface-container-lowest": "#0d0d15",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "error-container": "#93000a"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "xs": "8px",
+                        "lg": "24px",
+                        "sm": "12px",
+                        "margin-desktop": "32px",
+                        "xl": "32px",
+                        "margin-mobile": "16px",
+                        "md": "16px",
+                        "gutter": "20px",
+                        "base": "4px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "data-mono": ["JetBrains Mono"],
+                        "body-base": ["Inter"],
+                        "body-sm": ["Inter"]
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-background text-on-surface">
+<!-- SideNavBar (Execution from JSON) -->
+<aside class="fixed left-0 top-0 h-full w-[260px] bg-surface-container border-r border-outline-variant flex flex-col py-lg z-50">
+<div class="px-lg mb-xl flex items-center gap-sm">
+<img class="w-10 h-10 object-contain rounded-lg" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDD6XYQtZ7OnSG_k3s2kk3bs9huvgI9uyt3b0CmIPbnNwSL_5hx1NmswTBHGqaJ4M23yEsRsxN15fVBOUs6uo4BFRMNJS0VzNIrxLWELw9shREeiGbGIZDRVdsGsxusaJ-ZbpJ3hjquEHORT5s6A20F2OqZ3YZGP6XpHOitGOzkef5dciE7L5MDL7X7w5YHUMWm_1liW9H6TZ7rw9ERSx9sQNQ0AqCYnvuJP0_kYCrkhVWEgNlwvPAqv2e2W3XX_ElNzLXGKnKqZuzm"/>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold text-primary">Proctorly</h1>
+<p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Mission Control</p>
+</div>
+</div>
+<nav class="flex-1 space-y-1">
+<!-- Navigation Items Generated from JSON -->
+<a class="flex items-center px-lg py-3 text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-3">dashboard</span>
+<span class="font-body-base text-body-base">Overview</span>
+</a>
+<a class="flex items-center px-lg py-3 text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-3">assignment</span>
+<span class="font-body-base text-body-base">Exams</span>
+</a>
+<a class="flex items-center px-lg py-3 text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-3">quiz</span>
+<span class="font-body-base text-body-base">Questions</span>
+</a>
+<a class="flex items-center px-lg py-3 text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-3">visibility</span>
+<span class="font-body-base text-body-base">Live Monitor</span>
+</a>
+<a class="flex items-center px-lg py-3 text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-3">analytics</span>
+<span class="font-body-base text-body-base">Results</span>
+</a>
+<a class="flex items-center px-lg py-3 text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-3">group</span>
+<span class="font-body-base text-body-base">Students</span>
+</a>
+<!-- Active Item: Integrations -->
+<a class="flex items-center px-lg py-3 border-l-4 border-primary bg-primary-container/10 text-primary font-bold transition-all duration-150" href="#">
+<span class="material-symbols-outlined mr-3">extension</span>
+<span class="font-body-base text-body-base">Integrations</span>
+</a>
+<a class="flex items-center px-lg py-3 text-on-surface-variant font-medium hover:bg-surface-container-high hover:text-on-surface transition-colors" href="#">
+<span class="material-symbols-outlined mr-3">settings</span>
+<span class="font-body-base text-body-base">Settings</span>
+</a>
+</nav>
+<div class="px-lg pt-lg border-t border-outline-variant">
+<button class="w-full bg-primary text-on-primary py-3 px-4 rounded-xl font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-all active:scale-95">
+<span class="material-symbols-outlined">add</span>
+                Create Exam
+            </button>
+</div>
+</aside>
+<!-- TopAppBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-260px)] h-16 bg-surface/80 backdrop-blur-md border-b border-outline-variant flex justify-between items-center px-margin-desktop z-40">
+<div class="flex items-center gap-lg">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant">search</span>
+<input class="bg-surface-container border-none rounded-full pl-10 pr-4 py-2 w-64 text-body-sm focus:ring-1 focus:ring-primary" placeholder="Search integrations..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-md">
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors">notifications</button>
+<button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors">help_outline</button>
+<div class="w-8 h-8 rounded-full bg-surface-container-high border border-outline-variant flex items-center justify-center overflow-hidden">
+<img class="w-full h-full object-cover" data-alt="A professional headshot of a corporate administrator, female, wearing glasses and a smart dark blazer, in a soft-lit modern office environment. High resolution, professional profile style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBa2mM9mMoEcuqRO36wxTWyWr454ypHqZLDcaotYONpdm5uomhEkHe9Xnok6LRnzwLnMAmB2Ag4k929RFgfBz4-IqRQjQnXfC2ptlDxrEH7O-g7Y_hVoIjsjijvDUI4JIJQGOMRTKFBmz14VByCL9JTmGgVfwMAqdJCtPfYjDoTdjOaxVgAuE1r27RxD06fKT63QWlp6i0GZEv0uM-gw9-_4EQ4xk249aUodmyoeouVfq7e9sUyzhQbTZqgSAoaTVL_br-3cPZ1YMPu"/>
+</div>
+</div>
+</header>
+<!-- Main Canvas -->
+<main class="ml-[260px] pt-16 min-h-screen p-margin-desktop">
+<div class="max-w-6xl mx-auto space-y-xl">
+<!-- Page Header -->
+<div class="flex justify-between items-end">
+<div>
+<h2 class="font-headline-md text-headline-md font-bold mb-1">Integrations</h2>
+<p class="text-on-surface-variant">Connect your existing LMS and billing tools to streamline your proctoring workflow.</p>
+</div>
+<div class="flex gap-sm">
+<button class="px-4 py-2 bg-surface-container-high border border-outline-variant rounded-lg text-body-sm font-medium hover:bg-surface-variant transition-all">Documentation</button>
+<button class="px-4 py-2 bg-primary text-on-primary rounded-lg text-body-sm font-bold flex items-center gap-1 hover:opacity-90">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                        New Connection
+                    </button>
+</div>
+</div>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-12 gap-lg">
+<!-- Google Classroom Card (Connected) -->
+<div class="col-span-12 md:col-span-8 glass-card rounded-xl p-lg flex flex-col relative overflow-hidden glow-active">
+<div class="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-3xl"></div>
+<div class="flex justify-between items-start mb-lg relative z-10">
+<div class="flex items-center gap-md">
+<div class="w-14 h-14 bg-white rounded-xl flex items-center justify-center p-2 shadow-lg">
+<img class="w-full h-full object-contain" data-alt="Official Google Classroom logo icon, high-quality vector flat design on pure white background, vibrant greens and yellows." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBGC9XECEtZuGgixDMSRomBimGLECX8tc7HUXYQtZdK0o0mcEhzmI2C6QFjXtOO2LMZ87VYZ9PTULUWYvB9ZC6TFJ4xDKwcMvhQSn4p-ehWSwEDXb0sx7jUF5s0odhxTQKArkMBgp02_7iEDljLdVoff8SPAtjBTNdf9GTZg5zMSPt88Zm7WIOdtkbG3RPUhDMmL60E2FzXs7kx9Xx7CaKS_bg94BU3CN7TRJbGDIxFKt36oBMJsw6lvxvec8NSOS0WNuGU_7gu1_5O"/>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="font-headline-md text-body-base font-bold">Google Classroom</h3>
+<span class="status-pill bg-secondary/10 text-secondary border border-secondary/20">Connected</span>
+</div>
+<p class="text-body-sm text-on-surface-variant">Sync rosters, assignments, and grades directly.</p>
+</div>
+</div>
+<button class="text-on-surface-variant hover:text-error transition-colors">
+<span class="material-symbols-outlined">settings</span>
+</button>
+</div>
+<div class="grid grid-cols-2 gap-lg mb-lg relative z-10">
+<div class="bg-surface-container-low p-md rounded-lg border border-outline-variant/50">
+<p class="text-[10px] uppercase font-bold text-on-surface-variant mb-1">Last Sync</p>
+<p class="font-data-mono text-primary">2 hours ago</p>
+</div>
+<div class="bg-surface-container-low p-md rounded-lg border border-outline-variant/50">
+<p class="text-[10px] uppercase font-bold text-on-surface-variant mb-1">Synced Courses</p>
+<p class="font-data-mono text-primary">14 Active</p>
+</div>
+</div>
+<div class="flex gap-md mt-auto relative z-10">
+<button class="bg-primary text-on-primary font-bold px-6 py-2.5 rounded-lg text-body-sm flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-[20px]">sync</span>
+                            Sync Roster
+                        </button>
+<button class="text-on-surface-variant font-medium px-4 py-2.5 rounded-lg text-body-sm hover:bg-surface-variant transition-all">View Details</button>
+</div>
+</div>
+<!-- Feature Mini-Grid (Logos) -->
+<div class="col-span-12 md:col-span-4 flex flex-col gap-lg">
+<div class="glass-card rounded-xl p-md flex items-center justify-center h-full">
+<div class="text-center">
+<p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-tighter mb-4">Supported Platforms</p>
+<div class="flex justify-center gap-lg items-center">
+<div class="w-12 h-12 bg-white/10 rounded-lg p-2 filter grayscale hover:grayscale-0 transition-all opacity-60 hover:opacity-100">
+<img class="w-full h-full object-contain" data-alt="The Canvas LMS logo icon, bold red circular shape with a stylized 'C' design, modern minimalist vector." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZdePZB6Fn1AYaUCfkhhpS4TN48_Zvv9HzxF9IdJJZQB8DD_N6HP9Jv_JVr0qgt1jYfWExJrjgZl-PTwuoI-Z__6XJJMU343H6KDRHcw3LTaDGM3-clsQdFmCN1P_xfQ2JEYRqhwpbdTu0EYW70MonWJWPPoBhCx-MWhckxyg1L_Gi7kd1GSUGzrEw2A2MGjid2MH0hyPhZJzUQ6m_CZqtWYnhBJLXBj-QAJG3Uh9YzdPT0gugKxqavHqSX1-gdIN-TKDzOC-bCPJL"/>
+</div>
+<div class="w-12 h-12 bg-white/10 rounded-lg p-2 filter grayscale hover:grayscale-0 transition-all opacity-60 hover:opacity-100">
+<img class="w-full h-full object-contain" data-alt="Moodle LMS logo, iconic orange 'm' with a graduation cap on top, flat design, modern educational tech icon." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBdig-hiooOJByxxmnTFFssSlq1e5dy-u_vP-OyZFuN-eWyxk0FY05balZBqi-t1Ys_UxIpLLXbnQ-zU6DPAEirBAT4OnwIEomTtGaWXzPYICqghzoLeOdbOBGWKj9z72iNNIFDKQio4Aj587ToNJRknjl0fVIo2G3kSnNXq8sl1whEcHUTz8eFsypWz6iftenysnemm2MSVCRazu_IlTwe42_H-FivSwK4_OV5uPWMvWQRlURKrbWVe1X-B7JEmgHd_HP_g4viEiKg"/>
+</div>
+<div class="w-12 h-12 bg-white/10 rounded-lg p-2 filter grayscale hover:grayscale-0 transition-all opacity-60 hover:opacity-100">
+<img class="w-full h-full object-contain" data-alt="Blackboard LMS logo, bold yellow and dark gray typography style icon, minimalist corporate vector." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD6nEQRH7ZEpPoRRVNiCxcvXlfjbdQkGgzxpyYYrw9Pxe6B7xzj_V5z8LIYWT8CrBFaAzun05VoBYxs76yGvya4GL_4mKWzZ8NfAMy4p1CBPh8W7VvpgSHmTsAasNoQHXh17NXl1hSAH2YkR9XLzPALQqPb4K6L-Tsn_XBf2ZNx1UfNylKlGmxnAvd2ntfqnf2Ye6If2FKYOzUbbN0TzUUKH3vDgv8lfgJnPeKpJARmTzuXheHs9okhbj-D7JaV1wl7KgRf6U3xU_5x"/>
+</div>
+</div>
+</div>
+</div>
+<!-- Billing Placeholder -->
+<div class="glass-card rounded-xl p-lg border-dashed border-primary/30 bg-primary/5 flex flex-col justify-center items-center text-center">
+<span class="material-symbols-outlined text-primary text-3xl mb-2">payments</span>
+<h3 class="font-bold text-body-base mb-1">Billing Integration</h3>
+<p class="text-body-sm text-on-surface-variant mb-4">Razorpay &amp; Stripe support coming soon.</p>
+<button class="text-primary font-bold text-body-sm hover:underline">Get Notified</button>
+</div>
+</div>
+<!-- LTI 1.3 Card -->
+<div class="col-span-12 glass-card rounded-xl p-lg">
+<div class="flex justify-between items-start mb-lg">
+<div class="flex items-center gap-md">
+<div class="w-12 h-12 bg-tertiary-container/20 rounded-xl flex items-center justify-center border border-tertiary/20">
+<span class="material-symbols-outlined text-tertiary text-2xl" style="font-variation-settings: 'FILL' 1;">security</span>
+</div>
+<div>
+<div class="flex items-center gap-2">
+<h3 class="font-headline-md text-body-base font-bold">LTI 1.3 Advantage</h3>
+<span class="status-pill bg-tertiary/10 text-tertiary border border-tertiary/20">Beta</span>
+</div>
+<p class="text-body-sm text-on-surface-variant">Universal integration for Canvas, Moodle, Brightspace, and more.</p>
+</div>
+</div>
+<button class="bg-surface-container-high border border-outline-variant px-4 py-2 rounded-lg text-body-sm font-medium hover:border-primary/50 transition-all">
+                            Configure
+                        </button>
+</div>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-xl">
+<!-- Configuration Values -->
+<div class="space-y-md">
+<h4 class="text-label-caps font-label-caps text-on-surface-variant">Deployment Details</h4>
+<div class="space-y-sm">
+<div class="flex flex-col gap-1">
+<label class="text-[11px] text-on-surface-variant font-bold">Client ID</label>
+<div class="flex gap-2">
+<div class="copy-chip flex-1 truncate">7382-9401-PRCTR-LTI-X92</div>
+<button class="p-1.5 hover:bg-surface-variant rounded transition-all material-symbols-outlined text-[18px]" onclick="this.innerText='check'; setTimeout(()=&gt;this.innerText='content_copy', 2000)">content_copy</button>
+</div>
+</div>
+<div class="flex flex-col gap-1">
+<label class="text-[11px] text-on-surface-variant font-bold">Deployment ID</label>
+<div class="flex gap-2">
+<div class="copy-chip flex-1 truncate">dep_proctorly_v3_prod_9921</div>
+<button class="p-1.5 hover:bg-surface-variant rounded transition-all material-symbols-outlined text-[18px]" onclick="this.innerText='check'; setTimeout(()=&gt;this.innerText='content_copy', 2000)">content_copy</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Accordion Steps -->
+<div class="space-y-sm">
+<h4 class="text-label-caps font-label-caps text-on-surface-variant">Setup Instructions</h4>
+<div class="border border-outline-variant rounded-lg divide-y divide-outline-variant overflow-hidden">
+<details class="group bg-surface-container-low" open="">
+<summary class="flex justify-between items-center p-md cursor-pointer hover:bg-surface-container transition-all">
+<span class="text-body-sm font-bold flex items-center gap-2">
+<span class="w-5 h-5 bg-primary/20 text-primary rounded-full flex items-center justify-center text-[10px]">1</span>
+                                            Register Developer Key
+                                        </span>
+<span class="material-symbols-outlined group-open:rotate-180 transition-transform">expand_more</span>
+</summary>
+<div class="p-md text-body-sm text-on-surface-variant border-t border-outline-variant">
+                                        Navigate to your LMS Admin panel, select Developer Keys, and click Add LTI Key. Use the Client ID provided on the left.
+                                    </div>
+</details>
+<details class="group bg-surface-container-low">
+<summary class="flex justify-between items-center p-md cursor-pointer hover:bg-surface-container transition-all">
+<span class="text-body-sm font-bold flex items-center gap-2">
+<span class="w-5 h-5 bg-primary/20 text-primary rounded-full flex items-center justify-center text-[10px]">2</span>
+                                            Map OIDC Endpoints
+                                        </span>
+<span class="material-symbols-outlined group-open:rotate-180 transition-transform">expand_more</span>
+</summary>
+<div class="p-md text-body-sm text-on-surface-variant border-t border-outline-variant">
+                                        Enter the Proctorly auth endpoint: <code class="text-primary">https://api.proctorly.com/lti/auth</code>
+</div>
+</details>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Micro-interaction Script -->
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('Integrations module initialized.');
+            // Add subtle pulse to sync button
+            const syncBtn = document.querySelector('button:has(span:contains("sync"))');
+            if(syncBtn) {
+                syncBtn.addEventListener('click', function() {
+                    const icon = this.querySelector('.material-symbols-outlined');
+                    icon.classList.add('animate-spin');
+                    setTimeout(() => {
+                        icon.classList.remove('animate-spin');
+                        alert('Syncing Google Classroom roster...');
+                    }, 1500);
+                });
+            }
+        });
+    </script>
+</body></html>

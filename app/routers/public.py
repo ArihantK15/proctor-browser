@@ -744,6 +744,17 @@ def admin_dashboard_react():
         "dashboard-react/index.html", "React dashboard not found")
 
 
+@router.get("/dashboard-next")
+def admin_dashboard_next():
+    # Vanilla rebuild on the Stitch design (branch feat/react-dashboard-rebuild). WIP,
+    # built section-by-section to parity (docs/DASHBOARD_PARITY_*.md) then it replaces
+    # /dashboard. NOT default yet. Vanilla (no React) sidesteps the #321
+    # _stamp_static_urls double-React-instance bug that broke the old React dashboard.
+    return _static_html_response(
+        "dashboard_next/procta_live_monitor_high_density_view/code.html",
+        "Dashboard (next) not found")
+
+
 @router.get("/dashboard-legacy")
 def admin_dashboard_legacy():
     # Back-compat alias for the legacy dashboard, now identical to /dashboard.

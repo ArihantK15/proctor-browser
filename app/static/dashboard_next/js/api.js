@@ -54,30 +54,74 @@
   // Populate every topbar <select id="exam-select"> from the exam list (only when one
   // is present, so other sections don't pay for the fetch). Keeps multiple selects +
   // localStorage in sync and broadcasts changes.
+  // "Show archived" preference for the topbar selector. Default OFF — the
+  // selector stays focused on current exams (matches the legacy default) but a
+  // toggle lets you pull up an archived exam's live/results/questions view
+  // without unarchiving it first. Persisted so the choice follows you.
+  var ARCH_KEY = "procta_next_show_archived";
+  function showArchived() { try { return localStorage.getItem(ARCH_KEY) === "1"; } catch (_) { return false; } }
+
   function wireExamSelect() {
     var selects = document.querySelectorAll("#exam-select");
     if (!selects.length) return;
-    var stored = examId();
-    // Active exams only (no include_archived) — intentional, matching the legacy
-    // selector's default. Archived exams are still reachable from the Exams page
-    // (which requests include_archived=1) and can be unarchived. A future parity
-    // item is a "show archived" toggle here; until then the live/results/questions
-    // selectors stay focused on current exams.
-    authFetch("/api/v1/admin/exams").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
-      var exams = (d && d.exams) ? d.exams : [];
-      var opts = '<option value="">All exams</option>' + exams.map(function (e) {
-        var t = String(e.exam_title || "Exam").replace(/[<>&"]/g, "");
-        return '<option value="' + String(e.exam_id || "").replace(/"/g, "") + '">' + t + "</option>";
-      }).join("");
-      selects.forEach(function (sel) {
-        sel.innerHTML = opts; sel.value = stored;
-        sel.addEventListener("change", function () {
-          try { localStorage.setItem(EXAM_KEY, sel.value); } catch (_) {}
-          selects.forEach(function (s2) { if (s2 !== sel) s2.value = sel.value; });
-          window.dispatchEvent(new CustomEvent("procta:examchange", { detail: { examId: sel.value } }));
+    var esc = function (s) { return String(s == null ? "" : s).replace(/[<>&"]/g, ""); };
+
+    function buildOptions(exams) {
+      // Active first, archived last (suffixed) so the common case stays on top.
+      var active = [], archived = [];
+      exams.forEach(function (e) { (e.archived_at ? archived : active).push(e); });
+      var opt = function (e, arch) {
+        return '<option value="' + esc(e.exam_id || "") + '">' + esc(e.exam_title || "Exam") + (arch ? " (archived)" : "") + "</option>";
+      };
+      return '<option value="">All exams</option>' +
+        active.map(function (e) { return opt(e, false); }).join("") +
+        archived.map(function (e) { return opt(e, true); }).join("");
+    }
+
+    function load() {
+      var url = "/api/v1/admin/exams" + (showArchived() ? "?include_archived=1" : "");
+      authFetch(url).then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+        var exams = (d && d.exams) ? d.exams : [];
+        var opts = buildOptions(exams);
+        var stored = examId();
+        selects.forEach(function (sel) {
+          sel.innerHTML = opts;
+          // If the stored exam is archived and we're now hiding archived, it
+          // won't be an option — fall back to "All exams" so we don't show a
+          // blank selection.
+          sel.value = stored;
+          if (sel.value !== stored) { sel.value = ""; }
+          if (!sel._wired) {
+            sel._wired = true;
+            sel.addEventListener("change", function () {
+              try { localStorage.setItem(EXAM_KEY, sel.value); } catch (_) {}
+              selects.forEach(function (s2) { if (s2 !== sel) s2.value = sel.value; });
+              window.dispatchEvent(new CustomEvent("procta:examchange", { detail: { examId: sel.value } }));
+            });
+          }
         });
+      }).catch(function () {});
+    }
+
+    // Inject a compact "Show archived" checkbox right after the first selector.
+    var first = selects[0];
+    if (first && first.parentNode && !document.getElementById("exam-archived-toggle")) {
+      var wrap = document.createElement("label");
+      wrap.id = "exam-archived-toggle";
+      wrap.style.cssText = "display:inline-flex;align-items:center;gap:6px;margin-left:10px;font-size:12px;color:var(--md-sys-color-on-surface-variant,#c7c4d7);cursor:pointer;white-space:nowrap";
+      var cb = document.createElement("input");
+      cb.type = "checkbox"; cb.style.cssText = "accent-color:var(--md-sys-color-primary,#c0c1ff);cursor:pointer";
+      cb.checked = showArchived();
+      cb.addEventListener("change", function () {
+        try { localStorage.setItem(ARCH_KEY, cb.checked ? "1" : ""); } catch (_) {}
+        load();
       });
-    }).catch(function () {});
+      wrap.appendChild(cb);
+      wrap.appendChild(document.createTextNode("Show archived"));
+      first.parentNode.insertBefore(wrap, first.nextSibling);
+    }
+
+    load();
   }
 
   // Sidebar nav routing — every screen's sidebar ships `<a href="#">` placeholders.

@@ -72,7 +72,7 @@
 <p class="font-body-base text-body-base text-on-surface-variant">Manage organization subscription and monitor resource consumption.</p>
 </div>
 <div class="hidden md:flex gap-4 items-center">
-<button class="px-4 py-2 border border-outline-variant text-on-surface rounded font-label-caps text-label-caps hover:bg-surface-container-highest transition">Update Payment Method</button>
+<button data-action="blPortal" class="px-4 py-2 border border-outline-variant text-on-surface rounded font-label-caps text-label-caps hover:bg-surface-container-highest transition">Manage Subscription</button>
 </div>
 </header>
 <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -86,13 +86,13 @@
 <div>
 <div class="flex items-center gap-2 mb-2">
 <span class="material-symbols-outlined text-primary">verified</span>
-<h3 class="font-headline-md text-headline-md text-on-surface">Pro Plan</h3>
-<span class="px-2 py-1 bg-surface-container-highest rounded text-xs text-on-surface-variant uppercase tracking-wider ml-2">Active</span>
+<h3 id="bl-plan" class="font-headline-md text-headline-md text-on-surface">—</h3>
+<span id="bl-status" class="px-2 py-1 bg-surface-container-highest rounded text-xs text-on-surface-variant uppercase tracking-wider ml-2">—</span>
 </div>
-<p class="font-body-sm text-body-sm text-on-surface-variant">Renews on October 1st, 2024</p>
+<p id="bl-renew" class="font-body-sm text-body-sm text-on-surface-variant">&nbsp;</p>
 </div>
 <div class="text-right">
-<div class="font-display-lg text-display-lg text-primary">$499<span class="text-xl text-on-surface-variant font-normal">/mo</span></div>
+<div class="font-display-lg text-display-lg text-primary"><span id="bl-price">—</span><span class="text-xl text-on-surface-variant font-normal">/mo</span></div>
 </div>
 </div>
 </div>
@@ -101,32 +101,32 @@
 <!-- Exams Usage -->
 <div class="glass-panel rounded-xl p-6">
 <div class="flex justify-between items-center mb-4">
-<h4 class="font-body-base text-body-base font-semibold">Exam Sessions</h4>
-<span class="material-symbols-outlined text-on-surface-variant">assignment</span>
+<h4 class="font-body-base text-body-base font-semibold">Students This Period</h4>
+<span class="material-symbols-outlined text-on-surface-variant">group</span>
 </div>
 <div class="mb-2 flex justify-between font-data-mono text-data-mono">
-<span class="text-on-surface">8,420</span>
-<span class="text-on-surface-variant">/ 10,000 limit</span>
+<span id="bl-used" class="text-on-surface">—</span>
+<span id="bl-limit" class="text-on-surface-variant">/ — limit</span>
 </div>
 <div class="h-2 w-full bg-surface-container-highest rounded-full overflow-hidden">
-<div class="h-full bg-secondary rounded-full" style="width: 84%;"></div>
+<div id="bl-bar" class="h-full bg-secondary rounded-full" style="width: 0%;"></div>
 </div>
-<p class="mt-4 font-body-sm text-body-sm text-on-surface-variant">84% of monthly allocation used</p>
+<p id="bl-cap" class="mt-4 font-body-sm text-body-sm text-on-surface-variant">&nbsp;</p>
 </div>
 <!-- Storage Usage -->
 <div class="glass-panel rounded-xl p-6">
 <div class="flex justify-between items-center mb-4">
-<h4 class="font-body-base text-body-base font-semibold">Video Storage</h4>
-<span class="material-symbols-outlined text-on-surface-variant">cloud</span>
+<h4 class="font-body-base text-body-base font-semibold">Exam Attempts</h4>
+<span class="material-symbols-outlined text-on-surface-variant">assignment</span>
 </div>
 <div class="mb-2 flex justify-between font-data-mono text-data-mono">
-<span class="text-on-surface">1.2 TB</span>
-<span class="text-on-surface-variant">/ 2.0 TB limit</span>
+<span id="bl-attempts" class="text-on-surface">—</span>
+<span class="text-on-surface-variant">this period</span>
 </div>
 <div class="h-2 w-full bg-surface-container-highest rounded-full overflow-hidden">
-<div class="h-full bg-tertiary rounded-full" style="width: 60%;"></div>
+<div class="h-full bg-tertiary rounded-full" style="width: 0%;"></div>
 </div>
-<p class="mt-4 font-body-sm text-body-sm text-on-surface-variant">60% of secure storage utilized</p>
+<p id="bl-overage" class="mt-4 font-body-sm text-body-sm text-on-surface-variant">&nbsp;</p>
 </div>
 </div>
 <!-- Invoice History Table -->
@@ -144,37 +144,8 @@
 <th class="p-4 font-label-caps text-label-caps text-on-surface-variant text-right">Action</th>
 </tr>
 </thead>
-<tbody class="font-data-mono text-data-mono divide-y divide-outline-variant/50">
-<tr class="hover:bg-surface-container-highest transition-colors group cursor-default">
-<td class="p-4 text-on-surface">2024-09-01</td>
-<td class="p-4 text-on-surface">$499.00</td>
-<td class="p-4"><span class="text-secondary flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">check_circle</span> Paid</span></td>
-<td class="p-4 text-right">
-<button class="text-on-surface-variant hover:text-primary transition-colors" title="Download PDF">
-<span class="material-symbols-outlined">download</span>
-</button>
-</td>
-</tr>
-<tr class="hover:bg-surface-container-highest transition-colors group cursor-default">
-<td class="p-4 text-on-surface">2024-08-01</td>
-<td class="p-4 text-on-surface">$499.00</td>
-<td class="p-4"><span class="text-secondary flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">check_circle</span> Paid</span></td>
-<td class="p-4 text-right">
-<button class="text-on-surface-variant hover:text-primary transition-colors" title="Download PDF">
-<span class="material-symbols-outlined">download</span>
-</button>
-</td>
-</tr>
-<tr class="hover:bg-surface-container-highest transition-colors group cursor-default">
-<td class="p-4 text-on-surface">2024-07-01</td>
-<td class="p-4 text-on-surface">$499.00</td>
-<td class="p-4"><span class="text-secondary flex items-center gap-1"><span class="material-symbols-outlined text-[16px]">check_circle</span> Paid</span></td>
-<td class="p-4 text-right">
-<button class="text-on-surface-variant hover:text-primary transition-colors" title="Download PDF">
-<span class="material-symbols-outlined">download</span>
-</button>
-</td>
-</tr>
+<tbody id="bl-invoices" class="font-data-mono text-data-mono divide-y divide-outline-variant/50">
+<tr><td colspan="4" class="p-4 text-on-surface-variant text-center">Loading…</td></tr>
 </tbody>
 </table>
 </div>
@@ -193,7 +164,7 @@
 <div class="text-on-surface-variant text-xs mt-1">Expires 12/25</div>
 </div>
 </div>
-<button class="w-full py-2 bg-transparent border border-outline-variant text-on-surface rounded font-label-caps text-label-caps hover:bg-surface-container-highest transition">Edit Method</button>
+<button data-action="blPortal" class="w-full py-2 bg-transparent border border-outline-variant text-on-surface rounded font-label-caps text-label-caps hover:bg-surface-container-highest transition">Manage in Razorpay</button>
 </div>
 <div class="glass-panel rounded-xl p-6">
 <h4 class="font-headline-md text-headline-md text-on-surface text-lg mb-4">Support</h4>
@@ -206,4 +177,5 @@
 </div>
 </main>
 <script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/billing.js" defer></script>
 </body></html>

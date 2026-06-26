@@ -17,31 +17,39 @@ module.exports = {
   ],
   theme: {
     extend: {
+      // Procta brand palette — Stitch's Material-3 token NAMES kept (so the
+      // design maps 1:1) but VALUES remapped to the canonical procta.net brand
+      // (navy surfaces, periwinkle-blue #5b8af0 accent, slate text, emerald/amber
+      // semantics). The Stitch purple (#c0c1ff) was off-brand; this is the fix.
       colors: {
-        "tertiary-fixed": "#ffdeaa", "secondary-fixed": "#83fc89",
-        "primary-container": "#8083ff", "on-primary-container": "#0d0096",
-        "on-background": "#e4e1ed", "inverse-surface": "#e4e1ed",
-        "surface-container": "#1f1f27", "tertiary-container": "#bd8708",
-        "on-tertiary": "#422c00", "on-primary": "#1000a9",
-        "surface-container-high": "#292932", "surface-container-lowest": "#0d0d15",
-        "inverse-primary": "#494bd6", "error-container": "#93000a",
-        "inverse-on-surface": "#303038", "surface": "#13131b",
-        "surface-tint": "#c0c1ff", "primary-fixed": "#e1e0ff",
-        "error": "#ffb4ab", "on-tertiary-container": "#392600",
-        "surface-dim": "#13131b", "outline-variant": "#464554",
-        "on-surface": "#e4e1ed", "on-secondary": "#00390d",
-        "surface-container-low": "#1b1b23", "on-primary-fixed-variant": "#2f2ebe",
-        "primary-fixed-dim": "#c0c1ff", "secondary-fixed-dim": "#67df70",
-        "on-secondary-fixed": "#002105", "primary": "#c0c1ff",
-        "surface-bright": "#393841", "tertiary": "#fabc45",
-        "secondary": "#67df70", "on-error": "#690005",
-        "tertiary-fixed-dim": "#fabc45", "surface-variant": "#34343d",
-        "on-surface-variant": "#c7c4d7", "on-secondary-container": "#00320a",
-        "secondary-container": "#27a640", "background": "#13131b",
-        "surface-container-highest": "#34343d", "on-secondary-fixed-variant": "#005317",
-        "on-tertiary-fixed": "#271900", "on-primary-fixed": "#07006c",
-        "on-tertiary-fixed-variant": "#5f4100", "on-error-container": "#ffdad6",
-        "outline": "#908fa0"
+        // surfaces — marketing navy tiers (#06080d..#243044)
+        "background": "#06080d", "surface": "#06080d", "surface-dim": "#06080d",
+        "surface-container-lowest": "#0a0d14", "surface-container-low": "#0c1018",
+        "surface-container": "#121824", "surface-container-high": "#1a2233",
+        "surface-container-highest": "#243044", "surface-bright": "#243044",
+        "surface-variant": "#1a2233", "surface-tint": "#5b8af0",
+        // text / outline — slate
+        "on-surface": "#e2e8f0", "on-background": "#e2e8f0", "inverse-surface": "#e2e8f0",
+        "on-surface-variant": "#94a3b8", "outline": "#94a3b8", "outline-variant": "#243044",
+        "inverse-on-surface": "#0c1018",
+        // primary — periwinkle blue accent
+        "primary": "#5b8af0", "primary-fixed": "#7ba1f5", "primary-fixed-dim": "#5b8af0",
+        "primary-container": "#4a78dc", "inverse-primary": "#4a78dc",
+        "on-primary": "#ffffff", "on-primary-container": "#dbe7ff",
+        "on-primary-fixed": "#06080d", "on-primary-fixed-variant": "#06080d",
+        // secondary — emerald (success)
+        "secondary": "#3fb950", "secondary-fixed": "#4ade80", "secondary-fixed-dim": "#3fb950",
+        "secondary-container": "#1a7a32", "on-secondary": "#06080d",
+        "on-secondary-container": "#d1fadf", "on-secondary-fixed": "#06080d",
+        "on-secondary-fixed-variant": "#16602a",
+        // tertiary — amber (warning)
+        "tertiary": "#f59e0b", "tertiary-fixed": "#fcd34d", "tertiary-fixed-dim": "#f59e0b",
+        "tertiary-container": "#92610a", "on-tertiary": "#06080d",
+        "on-tertiary-container": "#ffedc2", "on-tertiary-fixed": "#06080d",
+        "on-tertiary-fixed-variant": "#5f4100",
+        // error — red
+        "error": "#ff6b6b", "error-container": "#7a1216", "on-error": "#06080d",
+        "on-error-container": "#ffdad6"
       },
       borderRadius: { DEFAULT: "0.25rem", lg: "0.5rem", xl: "0.75rem", full: "9999px" },
       spacing: {
@@ -49,10 +57,10 @@ module.exports = {
         xl: "32px", md: "16px", base: "4px", sm: "12px", gutter: "20px"
       },
       fontFamily: {
-        "data-mono": ["JetBrains Mono"], "headline-md": ["Inter"],
-        "body-base": ["Inter"], "body-sm": ["Inter"],
-        "display-lg": ["Inter"], "label-caps": ["Inter"],
-        "headline-md-mobile": ["Inter"]
+        "data-mono": ["IBM Plex Mono", "monospace"], "headline-md": ["IBM Plex Sans", "sans-serif"],
+        "body-base": ["IBM Plex Sans", "sans-serif"], "body-sm": ["IBM Plex Sans", "sans-serif"],
+        "display-lg": ["IBM Plex Sans", "sans-serif"], "label-caps": ["IBM Plex Sans", "sans-serif"],
+        "headline-md-mobile": ["IBM Plex Sans", "sans-serif"]
       },
       fontSize: {
         "data-mono": ["13px", { lineHeight: "18px", letterSpacing: "0.02em", fontWeight: "500" }],

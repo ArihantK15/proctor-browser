@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <title>Proctorly | Integrations</title>
-<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
@@ -52,95 +52,12 @@
         ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #464554; }
     </style>
-<script id="tailwind-config">
-        tailwind.config = {
-            darkMode: "class",
-            theme: {
-                extend: {
-                    "colors": {
-                        "tertiary-container": "#bd8708",
-                        "on-tertiary": "#422c00",
-                        "surface-container-high": "#292932",
-                        "primary-container": "#8083ff",
-                        "surface-container-highest": "#34343d",
-                        "on-error-container": "#ffdad6",
-                        "surface-container": "#1f1f27",
-                        "on-secondary-fixed": "#002105",
-                        "inverse-surface": "#e4e1ed",
-                        "on-surface-variant": "#c7c4d7",
-                        "on-tertiary-container": "#392600",
-                        "error": "#ffb4ab",
-                        "background": "#13131b",
-                        "on-primary": "#1000a9",
-                        "on-secondary-fixed-variant": "#005317",
-                        "tertiary-fixed-dim": "#fabc45",
-                        "outline": "#908fa0",
-                        "secondary-fixed-dim": "#67df70",
-                        "surface-variant": "#34343d",
-                        "tertiary": "#fabc45",
-                        "surface-bright": "#393841",
-                        "primary-fixed-dim": "#c0c1ff",
-                        "on-secondary": "#00390d",
-                        "on-primary-container": "#0d0096",
-                        "on-tertiary-fixed-variant": "#5f4100",
-                        "on-secondary-container": "#00320a",
-                        "surface-container-low": "#1b1b23",
-                        "secondary": "#67df70",
-                        "on-surface": "#e4e1ed",
-                        "surface": "#13131b",
-                        "on-background": "#e4e1ed",
-                        "inverse-primary": "#494bd6",
-                        "on-error": "#690005",
-                        "on-tertiary-fixed": "#271900",
-                        "surface-tint": "#c0c1ff",
-                        "surface-dim": "#13131b",
-                        "secondary-fixed": "#83fc89",
-                        "on-primary-fixed": "#07006c",
-                        "primary": "#c0c1ff",
-                        "outline-variant": "#464554",
-                        "secondary-container": "#27a640",
-                        "inverse-on-surface": "#303038",
-                        "tertiary-fixed": "#ffdeaa",
-                        "primary-fixed": "#e1e0ff",
-                        "surface-container-lowest": "#0d0d15",
-                        "on-primary-fixed-variant": "#2f2ebe",
-                        "error-container": "#93000a"
-                    },
-                    "borderRadius": {
-                        "DEFAULT": "0.25rem",
-                        "lg": "0.5rem",
-                        "xl": "0.75rem",
-                        "full": "9999px"
-                    },
-                    "spacing": {
-                        "xs": "8px",
-                        "lg": "24px",
-                        "sm": "12px",
-                        "margin-desktop": "32px",
-                        "xl": "32px",
-                        "margin-mobile": "16px",
-                        "md": "16px",
-                        "gutter": "20px",
-                        "base": "4px"
-                    },
-                    "fontFamily": {
-                        "label-caps": ["Inter"],
-                        "display-lg": ["Inter"],
-                        "headline-md": ["Inter"],
-                        "data-mono": ["JetBrains Mono"],
-                        "body-base": ["Inter"],
-                        "body-sm": ["Inter"]
-                    }
-                }
-            }
-        }
-    </script>
 </head>
 <body class="bg-background text-on-surface">
 <!-- SideNavBar (Execution from JSON) -->
 <aside class="fixed left-0 top-0 h-full w-[260px] bg-surface-container border-r border-outline-variant flex flex-col py-lg z-50">
 <div class="px-lg mb-xl flex items-center gap-sm">
-<img class="w-10 h-10 object-contain rounded-lg" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDD6XYQtZ7OnSG_k3s2kk3bs9huvgI9uyt3b0CmIPbnNwSL_5hx1NmswTBHGqaJ4M23yEsRsxN15fVBOUs6uo4BFRMNJS0VzNIrxLWELw9shREeiGbGIZDRVdsGsxusaJ-ZbpJ3hjquEHORT5s6A20F2OqZ3YZGP6XpHOitGOzkef5dciE7L5MDL7X7w5YHUMWm_1liW9H6TZ7rw9ERSx9sQNQ0AqCYnvuJP0_kYCrkhVWEgNlwvPAqv2e2W3XX_ElNzLXGKnKqZuzm"/>
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
 <div>
 <h1 class="font-headline-md text-headline-md font-bold text-primary">Proctorly</h1>
 <p class="text-[10px] uppercase tracking-widest text-on-surface-variant font-bold">Mission Control</p>
@@ -201,7 +118,7 @@
 <button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors">notifications</button>
 <button class="material-symbols-outlined text-on-surface-variant hover:text-primary transition-colors">help_outline</button>
 <div class="w-8 h-8 rounded-full bg-surface-container-high border border-outline-variant flex items-center justify-center overflow-hidden">
-<img class="w-full h-full object-cover" data-alt="A professional headshot of a corporate administrator, female, wearing glasses and a smart dark blazer, in a soft-lit modern office environment. High resolution, professional profile style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBa2mM9mMoEcuqRO36wxTWyWr454ypHqZLDcaotYONpdm5uomhEkHe9Xnok6LRnzwLnMAmB2Ag4k929RFgfBz4-IqRQjQnXfC2ptlDxrEH7O-g7Y_hVoIjsjijvDUI4JIJQGOMRTKFBmz14VByCL9JTmGgVfwMAqdJCtPfYjDoTdjOaxVgAuE1r27RxD06fKT63QWlp6i0GZEv0uM-gw9-_4EQ4xk249aUodmyoeouVfq7e9sUyzhQbTZqgSAoaTVL_br-3cPZ1YMPu"/>
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
 </div>
 </div>
 </header>
@@ -230,35 +147,30 @@
 <div class="flex justify-between items-start mb-lg relative z-10">
 <div class="flex items-center gap-md">
 <div class="w-14 h-14 bg-white rounded-xl flex items-center justify-center p-2 shadow-lg">
-<img class="w-full h-full object-contain" data-alt="Official Google Classroom logo icon, high-quality vector flat design on pure white background, vibrant greens and yellows." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBGC9XECEtZuGgixDMSRomBimGLECX8tc7HUXYQtZdK0o0mcEhzmI2C6QFjXtOO2LMZ87VYZ9PTULUWYvB9ZC6TFJ4xDKwcMvhQSn4p-ehWSwEDXb0sx7jUF5s0odhxTQKArkMBgp02_7iEDljLdVoff8SPAtjBTNdf9GTZg5zMSPt88Zm7WIOdtkbG3RPUhDMmL60E2FzXs7kx9Xx7CaKS_bg94BU3CN7TRJbGDIxFKt36oBMJsw6lvxvec8NSOS0WNuGU_7gu1_5O"/>
+<span class="material-symbols-outlined text-[#1a73e8]" style="font-size:36px">school</span>
 </div>
 <div>
 <div class="flex items-center gap-2">
 <h3 class="font-headline-md text-body-base font-bold">Google Classroom</h3>
-<span class="status-pill bg-secondary/10 text-secondary border border-secondary/20">Connected</span>
+<span id="gc-status" class="status-pill bg-outline-variant/20 text-on-surface-variant border border-outline-variant">Checking…</span>
 </div>
 <p class="text-body-sm text-on-surface-variant">Sync rosters, assignments, and grades directly.</p>
 </div>
 </div>
-<button class="text-on-surface-variant hover:text-error transition-colors">
-<span class="material-symbols-outlined">settings</span>
-</button>
+<button data-action="gcDisconnect" title="Disconnect" class="text-on-surface-variant hover:text-error transition-colors"><span class="material-symbols-outlined">link_off</span></button>
 </div>
 <div class="grid grid-cols-2 gap-lg mb-lg relative z-10">
 <div class="bg-surface-container-low p-md rounded-lg border border-outline-variant/50">
 <p class="text-[10px] uppercase font-bold text-on-surface-variant mb-1">Last Sync</p>
-<p class="font-data-mono text-primary">2 hours ago</p>
+<p id="gc-lastsync" class="font-data-mono text-primary">—</p>
 </div>
 <div class="bg-surface-container-low p-md rounded-lg border border-outline-variant/50">
 <p class="text-[10px] uppercase font-bold text-on-surface-variant mb-1">Synced Courses</p>
-<p class="font-data-mono text-primary">14 Active</p>
+<p id="gc-courses" class="font-data-mono text-primary">—</p>
 </div>
 </div>
 <div class="flex gap-md mt-auto relative z-10">
-<button class="bg-primary text-on-primary font-bold px-6 py-2.5 rounded-lg text-body-sm flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all">
-<span class="material-symbols-outlined text-[20px]">sync</span>
-                            Sync Roster
-                        </button>
+<button id="gc-primary" data-action="gcPrimary" class="bg-primary text-on-primary font-bold px-6 py-2.5 rounded-lg text-body-sm flex items-center gap-2 hover:opacity-90 active:scale-95 transition-all"><span class="material-symbols-outlined text-[20px]" id="gc-primary-icon">sync</span><span id="gc-primary-label">Sync Roster</span></button>
 <button class="text-on-surface-variant font-medium px-4 py-2.5 rounded-lg text-body-sm hover:bg-surface-variant transition-all">View Details</button>
 </div>
 </div>
@@ -269,13 +181,13 @@
 <p class="text-[10px] font-bold text-on-surface-variant uppercase tracking-tighter mb-4">Supported Platforms</p>
 <div class="flex justify-center gap-lg items-center">
 <div class="w-12 h-12 bg-white/10 rounded-lg p-2 filter grayscale hover:grayscale-0 transition-all opacity-60 hover:opacity-100">
-<img class="w-full h-full object-contain" data-alt="The Canvas LMS logo icon, bold red circular shape with a stylized 'C' design, modern minimalist vector." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBZdePZB6Fn1AYaUCfkhhpS4TN48_Zvv9HzxF9IdJJZQB8DD_N6HP9Jv_JVr0qgt1jYfWExJrjgZl-PTwuoI-Z__6XJJMU343H6KDRHcw3LTaDGM3-clsQdFmCN1P_xfQ2JEYRqhwpbdTu0EYW70MonWJWPPoBhCx-MWhckxyg1L_Gi7kd1GSUGzrEw2A2MGjid2MH0hyPhZJzUQ6m_CZqtWYnhBJLXBj-QAJG3Uh9YzdPT0gugKxqavHqSX1-gdIN-TKDzOC-bCPJL"/>
+<span class="material-symbols-outlined text-on-surface-variant" style="font-size:28px">extension</span>
 </div>
 <div class="w-12 h-12 bg-white/10 rounded-lg p-2 filter grayscale hover:grayscale-0 transition-all opacity-60 hover:opacity-100">
-<img class="w-full h-full object-contain" data-alt="Moodle LMS logo, iconic orange 'm' with a graduation cap on top, flat design, modern educational tech icon." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBdig-hiooOJByxxmnTFFssSlq1e5dy-u_vP-OyZFuN-eWyxk0FY05balZBqi-t1Ys_UxIpLLXbnQ-zU6DPAEirBAT4OnwIEomTtGaWXzPYICqghzoLeOdbOBGWKj9z72iNNIFDKQio4Aj587ToNJRknjl0fVIo2G3kSnNXq8sl1whEcHUTz8eFsypWz6iftenysnemm2MSVCRazu_IlTwe42_H-FivSwK4_OV5uPWMvWQRlURKrbWVe1X-B7JEmgHd_HP_g4viEiKg"/>
+<span class="material-symbols-outlined text-on-surface-variant" style="font-size:28px">extension</span>
 </div>
 <div class="w-12 h-12 bg-white/10 rounded-lg p-2 filter grayscale hover:grayscale-0 transition-all opacity-60 hover:opacity-100">
-<img class="w-full h-full object-contain" data-alt="Blackboard LMS logo, bold yellow and dark gray typography style icon, minimalist corporate vector." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD6nEQRH7ZEpPoRRVNiCxcvXlfjbdQkGgzxpyYYrw9Pxe6B7xzj_V5z8LIYWT8CrBFaAzun05VoBYxs76yGvya4GL_4mKWzZ8NfAMy4p1CBPh8W7VvpgSHmTsAasNoQHXh17NXl1hSAH2YkR9XLzPALQqPb4K6L-Tsn_XBf2ZNx1UfNylKlGmxnAvd2ntfqnf2Ye6If2FKYOzUbbN0TzUUKH3vDgv8lfgJnPeKpJARmTzuXheHs9okhbj-D7JaV1wl7KgRf6U3xU_5x"/>
+<span class="material-symbols-outlined text-on-surface-variant" style="font-size:28px">extension</span>
 </div>
 </div>
 </div>
@@ -316,14 +228,14 @@
 <label class="text-[11px] text-on-surface-variant font-bold">Client ID</label>
 <div class="flex gap-2">
 <div class="copy-chip flex-1 truncate">7382-9401-PRCTR-LTI-X92</div>
-<button class="p-1.5 hover:bg-surface-variant rounded transition-all material-symbols-outlined text-[18px]" onclick="this.innerText='check'; setTimeout(()=&gt;this.innerText='content_copy', 2000)">content_copy</button>
+<button data-action="copyChip" class="p-1.5 hover:bg-surface-variant rounded transition-all material-symbols-outlined text-[18px]">content_copy</button>
 </div>
 </div>
 <div class="flex flex-col gap-1">
 <label class="text-[11px] text-on-surface-variant font-bold">Deployment ID</label>
 <div class="flex gap-2">
 <div class="copy-chip flex-1 truncate">dep_proctorly_v3_prod_9921</div>
-<button class="p-1.5 hover:bg-surface-variant rounded transition-all material-symbols-outlined text-[18px]" onclick="this.innerText='check'; setTimeout(()=&gt;this.innerText='content_copy', 2000)">content_copy</button>
+<button data-action="copyChip" class="p-1.5 hover:bg-surface-variant rounded transition-all material-symbols-outlined text-[18px]">content_copy</button>
 </div>
 </div>
 </div>
@@ -363,22 +275,6 @@
 </div>
 </div>
 </main>
-<!-- Micro-interaction Script -->
-<script>
-        document.addEventListener('DOMContentLoaded', () => {
-            console.log('Integrations module initialized.');
-            // Add subtle pulse to sync button
-            const syncBtn = document.querySelector('button:has(span:contains("sync"))');
-            if(syncBtn) {
-                syncBtn.addEventListener('click', function() {
-                    const icon = this.querySelector('.material-symbols-outlined');
-                    icon.classList.add('animate-spin');
-                    setTimeout(() => {
-                        icon.classList.remove('animate-spin');
-                        alert('Syncing Google Classroom roster...');
-                    }, 1500);
-                });
-            }
-        });
-    </script>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/integrations.js" defer></script>
 </body></html>

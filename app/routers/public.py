@@ -790,6 +790,13 @@ def admin_dashboard_next_results():
         "Dashboard (next) results not found")
 
 
+@router.get("/dashboard-next/integrations")
+def admin_dashboard_next_integrations():
+    return _static_html_response(
+        "dashboard_next/proctorly_integrations/code.html",
+        "Dashboard (next) integrations not found")
+
+
 @router.get("/dashboard-legacy")
 def admin_dashboard_legacy():
     # Back-compat alias for the legacy dashboard, now identical to /dashboard.

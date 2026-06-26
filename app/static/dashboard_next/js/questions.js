@@ -62,7 +62,8 @@
   async function load() {
     if (!list) return;
     try {
-      const r = await authFetch("/api/v1/admin/questions");
+      const ex = api.examId ? api.examId() : "";
+      const r = await authFetch("/api/v1/admin/questions" + (ex ? `?exam_id=${encodeURIComponent(ex)}` : ""));
       if (!r.ok) return;
       const d = await r.json().catch(() => ({}));
       const qs = Array.isArray(d) ? d : (Array.isArray(d.questions) ? d.questions : []);
@@ -74,6 +75,7 @@
 
   onAction("editQuestion", () => { /* TODO: MCQ/numeric inline editor (next increment) */ });
   onAction("deleteQuestion", () => { /* TODO: confirm + DELETE (next increment) */ });
+  if (api.onExamChange) api.onExamChange(() => load());
 
   load();
 })();

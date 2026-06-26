@@ -8,7 +8,7 @@
   const api = window.ProctaAPI; if (!api) return;
   const { BASE, authFetch, onAction } = api;
 
-  let currentExamId = null;     // set once the exam selector is wired (topbar)
+  let currentExamId = (api.examId && api.examId()) || null;  // topbar exam selector
   let _sseExamId = null, _sse = null, _poll = null, _debounce = null;
   let allSessions = [], filter = "all";
 
@@ -95,7 +95,8 @@
 
   // ---- data: SSE with exam-switch reconnect + poll fallback ----
   async function refreshLive() {
-    try { const r = await authFetch("/api/v1/admin/live-monitor"); if (r.ok) apply(await r.json().catch(() => ({}))); } catch (_) {}
+    const ex = currentExamId ? `?exam_id=${encodeURIComponent(currentExamId)}` : "";
+    try { const r = await authFetch("/api/v1/admin/live-monitor" + ex); if (r.ok) apply(await r.json().catch(() => ({}))); } catch (_) {}
   }
   function debouncedRefresh() { clearTimeout(_debounce); _debounce = setTimeout(refreshLive, 400); }
 
@@ -169,6 +170,9 @@
     if (d && d.classList.contains("translate-x-0")) closeDrawer(); else openDrawer(el);
   });
   onAction("historicalLog", () => { /* TODO: open full violations history view */ });
+
+  // topbar exam selector → re-scope the live feed (reuses the _sseExamId reconnect guard)
+  if (api.onExamChange) api.onExamChange((id) => { currentExamId = id || null; refreshLive(); connectSSE(); });
 
   refreshLive();   // initial paint
   connectSSE();    // then live

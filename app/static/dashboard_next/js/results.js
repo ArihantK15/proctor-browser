@@ -72,12 +72,15 @@
   }
 
   async function load() {
-    const an = await getJSON("/api/v1/admin/analytics");
+    const ex = api.examId ? api.examId() : "";
+    const q = ex ? `?exam_id=${encodeURIComponent(ex)}` : "";
+    const an = await getJSON("/api/v1/admin/analytics" + q);
     dist = an && Array.isArray(an.score_distribution) ? an.score_distribution : [];
-    const res = await getJSON("/api/v1/results?page=1&page_size=500");
+    const res = await getJSON("/api/v1/results?page=1&page_size=500" + (ex ? `&exam_id=${encodeURIComponent(ex)}` : ""));
     results = res && Array.isArray(res.results) ? res.results : [];
     histogram(); stats(an && an.exam_overview); render();
   }
+  if (api.onExamChange) api.onExamChange(() => load());
 
   // filter tabs
   onAction("filterResults", (el) => {

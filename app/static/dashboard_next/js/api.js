@@ -32,7 +32,38 @@
     const fn = _actions[el.getAttribute("data-action")];
     if (fn) { e.preventDefault(); fn(el, e); }
   });
-  window.ProctaAPI = { BASE, authFetch, onAction };
+  // Shared selected-exam state (topbar selector). Persisted in localStorage so the
+  // choice follows you across sections; consumers (live/results/questions) read
+  // examId() and re-fetch on the "procta:examchange" event. "" = all exams.
+  var EXAM_KEY = "procta_next_exam_id";
+  function examId() { try { return localStorage.getItem(EXAM_KEY) || ""; } catch (_) { return ""; } }
+  function onExamChange(cb) { window.addEventListener("procta:examchange", function (e) { cb(e.detail && e.detail.examId); }); }
+
+  window.ProctaAPI = { BASE, authFetch, onAction, examId: examId, onExamChange: onExamChange };
+
+  // Populate every topbar <select id="exam-select"> from the exam list (only when one
+  // is present, so other sections don't pay for the fetch). Keeps multiple selects +
+  // localStorage in sync and broadcasts changes.
+  function wireExamSelect() {
+    var selects = document.querySelectorAll("#exam-select");
+    if (!selects.length) return;
+    var stored = examId();
+    authFetch("/api/v1/admin/exams").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
+      var exams = (d && d.exams) ? d.exams : [];
+      var opts = '<option value="">All exams</option>' + exams.map(function (e) {
+        var t = String(e.exam_title || "Exam").replace(/[<>&"]/g, "");
+        return '<option value="' + String(e.exam_id || "").replace(/"/g, "") + '">' + t + "</option>";
+      }).join("");
+      selects.forEach(function (sel) {
+        sel.innerHTML = opts; sel.value = stored;
+        sel.addEventListener("change", function () {
+          try { localStorage.setItem(EXAM_KEY, sel.value); } catch (_) {}
+          selects.forEach(function (s2) { if (s2 !== sel) s2.value = sel.value; });
+          window.dispatchEvent(new CustomEvent("procta:examchange", { detail: { examId: sel.value } }));
+        });
+      });
+    }).catch(function () {});
+  }
 
   // Sidebar nav routing — every screen's sidebar ships `<a href="#">` placeholders.
   // Match each item by its `span.font-body-base` label and point it at the real
@@ -65,6 +96,7 @@
       }
     }
   }
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wireNav);
-  else wireNav();
+  function initShared() { wireNav(); wireExamSelect(); }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initShared);
+  else initShared();
 })();

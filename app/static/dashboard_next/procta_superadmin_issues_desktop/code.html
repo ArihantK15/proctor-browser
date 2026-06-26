@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Procta - Support Issues</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary-container": "#27a640",
+                        "inverse-primary": "#494bd6",
+                        "secondary": "#67df70",
+                        "primary": "#c0c1ff",
+                        "inverse-on-surface": "#303038",
+                        "primary-container": "#8083ff",
+                        "on-primary": "#1000a9",
+                        "surface-bright": "#393841",
+                        "surface-container-highest": "#34343d",
+                        "on-secondary-fixed": "#002105",
+                        "on-tertiary-fixed-variant": "#5f4100",
+                        "on-primary-fixed-variant": "#2f2ebe",
+                        "outline-variant": "#464554",
+                        "secondary-fixed": "#83fc89",
+                        "on-surface-variant": "#c7c4d7",
+                        "surface": "#13131b",
+                        "error-container": "#93000a",
+                        "tertiary-fixed": "#ffdeaa",
+                        "primary-fixed": "#e1e0ff",
+                        "surface-variant": "#34343d",
+                        "surface-container-high": "#292932",
+                        "inverse-surface": "#e4e1ed",
+                        "tertiary-fixed-dim": "#fabc45",
+                        "on-tertiary-container": "#392600",
+                        "outline": "#908fa0",
+                        "surface-dim": "#13131b",
+                        "on-primary-fixed": "#07006c",
+                        "on-tertiary-fixed": "#271900",
+                        "on-secondary": "#00390d",
+                        "tertiary-container": "#bd8708",
+                        "surface-tint": "#c0c1ff",
+                        "on-tertiary": "#422c00",
+                        "on-secondary-container": "#00320a",
+                        "on-error": "#690005",
+                        "primary-fixed-dim": "#c0c1ff",
+                        "on-error-container": "#ffdad6",
+                        "background": "#13131b",
+                        "on-primary-container": "#0d0096",
+                        "tertiary": "#fabc45",
+                        "surface-container-low": "#1b1b23",
+                        "secondary-fixed-dim": "#67df70",
+                        "error": "#ffb4ab",
+                        "on-secondary-fixed-variant": "#005317",
+                        "surface-container": "#1f1f27",
+                        "on-surface": "#e4e1ed",
+                        "surface-container-lowest": "#0d0d15",
+                        "on-background": "#e4e1ed"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "xs": "8px",
+                        "xl": "32px",
+                        "base": "4px",
+                        "gutter": "20px",
+                        "margin-desktop": "32px",
+                        "margin-mobile": "16px",
+                        "md": "16px",
+                        "sm": "12px",
+                        "lg": "24px"
+                    },
+                    "fontFamily": {
+                        "headline-md-mobile": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "body-base": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "display-lg": ["Inter"],
+                        "data-mono": ["JetBrains Mono"]
+                    },
+                    "fontSize": {
+                        "headline-md-mobile": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-sm": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                        "body-base": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "data-mono": ["13px", { "lineHeight": "18px", "letterSpacing": "0.02em", "fontWeight": "500" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #34343d; /* surface-container-highest */
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background-color: #464554; /* outline-variant */
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-base antialiased h-screen flex overflow-hidden">
+<!-- SideNavBar -->
+<nav class="bg-surface-container fixed left-0 top-0 h-full w-[260px] hidden md:flex flex-col border-r border-outline-variant py-lg gap-xs z-30 flex-shrink-0">
+<div class="px-gutter mb-xl">
+<div class="flex items-center gap-sm">
+<img class="w-8 h-8 object-contain rounded-md" data-alt="A minimalist, geometric logo mark for a high-security proctoring application. The logo features sharp angles, executed in a glowing, luminous indigo and pristine white against a deep, dark charcoal background. The mood is authoritative and precise." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBG9c6ZQd8idV6u-b6Kyrsxf6iYLk3tD-maVQ5tM3Rnjp8guyy_sIrG9tNBWwXLOnBr5qmFMbD_TYNY6LYDkn8E3KtdRKwBi5y1I5iEAHf9eA8i179_6N8RpjvT-l1wy6lPaCwoTMzdgeVnaxVtN4Dsoa7g5ELlF1R6YybbKPkWVdyAWLq6GV-G5rkTSimygke5rCLdxKCOTfsL3Pax73-nlM0QkGN95H9rJbORm0Mi7JfJ41mlf5lTNoFIuk2Jpp4b2sD0nLJAkQ1m"/>
+<div>
+<h1 class="font-headline-md text-headline-md font-black text-primary tracking-widest leading-none">PROCTA</h1>
+<p class="font-label-caps text-label-caps text-on-surface-variant leading-none mt-1">SUPERADMIN</p>
+</div>
+</div>
+<button class="w-full mt-lg bg-inverse-primary text-white font-body-sm py-2 px-4 rounded hover:bg-primary-container transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                New Organization
+            </button>
+</div>
+<div class="flex flex-col gap-xs flex-grow overflow-y-auto custom-scrollbar px-md">
+<a class="text-on-surface-variant font-medium flex items-center gap-md px-4 py-3 rounded-DEFAULT hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">dashboard</span>
+<span class="font-body-sm">Dashboard</span>
+</a>
+<a class="text-on-surface-variant font-medium flex items-center gap-md px-4 py-3 rounded-DEFAULT hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">corporate_fare</span>
+<span class="font-body-sm">Organizations</span>
+</a>
+<a class="text-on-surface-variant font-medium flex items-center gap-md px-4 py-3 rounded-DEFAULT hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">group</span>
+<span class="font-body-sm">Members</span>
+</a>
+<a class="text-on-surface-variant font-medium flex items-center gap-md px-4 py-3 rounded-DEFAULT hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">terminal</span>
+<span class="font-body-sm">Logs</span>
+</a>
+<a class="text-primary font-bold border-l-4 border-primary bg-primary/10 flex items-center gap-md px-4 py-3 rounded-r-DEFAULT hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">support_agent</span>
+<span class="font-body-sm">Issues / Support</span>
+</a>
+<a class="text-on-surface-variant font-medium flex items-center gap-md px-4 py-3 rounded-DEFAULT hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">monitor_heart</span>
+<span class="font-body-sm">Service Health</span>
+</a>
+<a class="text-on-surface-variant font-medium flex items-center gap-md px-4 py-3 rounded-DEFAULT hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings_applications</span>
+<span class="font-body-sm">System Settings</span>
+</a>
+</div>
+<div class="px-md mt-auto pt-4 border-t border-outline-variant">
+<a class="text-on-surface-variant font-medium flex items-center gap-md px-4 py-3 rounded-DEFAULT hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">logout</span>
+<span class="font-body-sm">Log Out</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 md:ml-[260px] flex flex-col h-full bg-surface-dim relative">
+<!-- TopNavBar (Mobile only for this layout intent) -->
+<header class="bg-surface/80 backdrop-blur-xl md:hidden fixed top-0 w-full z-40 border-b border-outline-variant shadow-sm flex justify-between items-center h-16 px-gutter w-full">
+<div class="font-headline-md-mobile text-headline-md-mobile font-bold text-on-surface tracking-tight">Procta</div>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer active:scale-95">notifications</span>
+<img class="w-8 h-8 rounded-full border border-outline-variant object-cover" data-alt="A small, circular avatar portrait of an administrator. The subject is well-lit, wearing professional attire against a neutral, dark gray background. High-quality corporate headshot style." src="https://lh3.googleusercontent.com/aida-public/AB6AXuApArc-Egnt7faXSjEmQB60EyqVf5bNVsUuvOljLg35mFwBtmFPOCfpe5S3f2R6NIXbmO3zjouFoQZgggr4G9HhA1LrqOf0dQKHDkB1v6m2p3j5863EV5Vgsv-TmZ-omAi0RXPUjTnGIZTVl-cHaHstKX3Y0mD4zwBHD8zTk5zIZ7jIdF4svoxENxrSPIc0iopH5NeeZ2YfptNi4x8jj_wE-DTGpRuyGnswjPGwvM5xWljb6xcW_nWh9w_mydVF_duwBdK8NHvEd32s"/>
+</div>
+</header>
+<!-- Content Canvas -->
+<div class="flex-1 flex overflow-hidden mt-16 md:mt-0 pt-margin-desktop px-margin-desktop pb-margin-desktop gap-margin-desktop">
+<!-- Issues Queue List (Left Side) -->
+<section class="flex-1 flex flex-col bg-surface rounded-xl border border-[#30363d] overflow-hidden flex-shrink min-w-[400px]">
+<!-- Queue Header & Filters -->
+<div class="p-lg border-b border-outline-variant bg-surface-container-low flex justify-between items-center z-10">
+<div>
+<h2 class="font-headline-md text-headline-md text-on-surface">Support Queue</h2>
+<p class="font-body-sm text-body-sm text-on-surface-variant mt-1">24 Active Tickets • 3 Critical</p>
+</div>
+<div class="flex items-center gap-sm">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">search</span>
+<input class="bg-[#161b22] border border-[#30363d] rounded text-on-surface font-body-sm py-2 pl-9 pr-3 w-64 focus:outline-none focus:border-inverse-primary focus:ring-1 focus:ring-inverse-primary transition-colors" placeholder="Search issues..." type="text"/>
+</div>
+<button class="p-2 rounded border border-[#30363d] text-on-surface-variant hover:bg-surface-container-high transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-[20px]">filter_list</span>
+</button>
+</div>
+</div>
+<!-- Table Header -->
+<div class="grid grid-cols-12 gap-4 px-lg py-sm border-b border-outline-variant bg-surface-container-highest text-on-surface-variant font-label-caps text-label-caps">
+<div class="col-span-1">SEV</div>
+<div class="col-span-3">ORGANIZATION</div>
+<div class="col-span-5">ISSUE TITLE</div>
+<div class="col-span-2">AGE</div>
+<div class="col-span-1 text-right">STATUS</div>
+</div>
+<!-- Issues List (Scrollable) -->
+<div class="flex-1 overflow-y-auto custom-scrollbar bg-surface">
+<!-- Issue Row (Active) -->
+<div class="grid grid-cols-12 gap-4 px-lg py-md border-b border-outline-variant cursor-pointer relative bg-surface-container-high group">
+<!-- Active indicator -->
+<div class="absolute left-0 top-0 bottom-0 w-1 bg-inverse-primary"></div>
+<div class="absolute inset-0 border border-inverse-primary rounded-[3px] pointer-events-none opacity-50"></div>
+<div class="col-span-1 flex items-center">
+<span class="inline-block px-2 py-0.5 rounded font-label-caps text-[10px] bg-error-container text-error border border-error/30">CRIT</span>
+</div>
+<div class="col-span-3 flex items-center">
+<span class="font-body-sm text-on-surface font-medium truncate">Stanford University</span>
+</div>
+<div class="col-span-5 flex flex-col justify-center">
+<span class="font-body-sm text-on-surface truncate">WebRTC Connection Failure during Final Exam</span>
+<span class="font-data-mono text-data-mono text-on-surface-variant mt-0.5 text-[11px]">TKT-8992</span>
+</div>
+<div class="col-span-2 flex items-center">
+<span class="font-data-mono text-data-mono text-on-surface-variant">14m</span>
+</div>
+<div class="col-span-1 flex items-center justify-end">
+<span class="material-symbols-outlined text-tertiary text-[18px]">pending</span>
+</div>
+</div>
+<!-- Issue Row -->
+<div class="grid grid-cols-12 gap-4 px-lg py-md border-b border-[#30363d] hover:bg-[#21262d] cursor-pointer transition-colors">
+<div class="col-span-1 flex items-center">
+<span class="inline-block px-2 py-0.5 rounded font-label-caps text-[10px] bg-tertiary-container/30 text-tertiary border border-tertiary/30">HIGH</span>
+</div>
+<div class="col-span-3 flex items-center">
+<span class="font-body-sm text-on-surface font-medium truncate">AWS Certification</span>
+</div>
+<div class="col-span-5 flex flex-col justify-center">
+<span class="font-body-sm text-on-surface truncate">Proctor Dashboard Latency Spike</span>
+<span class="font-data-mono text-data-mono text-on-surface-variant mt-0.5 text-[11px]">TKT-8991</span>
+</div>
+<div class="col-span-2 flex items-center">
+<span class="font-data-mono text-data-mono text-on-surface-variant">42m</span>
+</div>
+<div class="col-span-1 flex items-center justify-end">
+<span class="material-symbols-outlined text-tertiary text-[18px]">pending</span>
+</div>
+</div>
+<!-- Issue Row -->
+<div class="grid grid-cols-12 gap-4 px-lg py-md border-b border-[#30363d] hover:bg-[#21262d] cursor-pointer transition-colors">
+<div class="col-span-1 flex items-center">
+<span class="inline-block px-2 py-0.5 rounded font-label-caps text-[10px] bg-tertiary-container/30 text-tertiary border border-tertiary/30">HIGH</span>
+</div>
+<div class="col-span-3 flex items-center">
+<span class="font-body-sm text-on-surface font-medium truncate">NY Bar Association</span>
+</div>
+<div class="col-span-5 flex flex-col justify-center">
+<span class="font-body-sm text-on-surface truncate">Flagging Algorithm false positives</span>
+<span class="font-data-mono text-data-mono text-on-surface-variant mt-0.5 text-[11px]">TKT-8985</span>
+</div>
+<div class="col-span-2 flex items-center">
+<span class="font-data-mono text-data-mono text-on-surface-variant">2h 15m</span>
+</div>
+<div class="col-span-1 flex items-center justify-end">
+<span class="material-symbols-outlined text-inverse-primary text-[18px]">support_agent</span>
+</div>
+</div>
+<!-- Issue Row -->
+<div class="grid grid-cols-12 gap-4 px-lg py-md border-b border-[#30363d] hover:bg-[#21262d] cursor-pointer transition-colors opacity-70">
+<div class="col-span-1 flex items-center">
+<span class="inline-block px-2 py-0.5 rounded font-label-caps text-[10px] bg-surface-container-highest text-on-surface border border-[#30363d]">MED</span>
+</div>
+<div class="col-span-3 flex items-center">
+<span class="font-body-sm text-on-surface font-medium truncate">CompTIA</span>
+</div>
+<div class="col-span-5 flex flex-col justify-center">
+<span class="font-body-sm text-on-surface truncate">Custom report export failing (CSV)</span>
+<span class="font-data-mono text-data-mono text-on-surface-variant mt-0.5 text-[11px]">TKT-8970</span>
+</div>
+<div class="col-span-2 flex items-center">
+<span class="font-data-mono text-data-mono text-on-surface-variant">5h</span>
+</div>
+<div class="col-span-1 flex items-center justify-end">
+<span class="material-symbols-outlined text-secondary text-[18px]">check_circle</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Issue Detail Drawer (Right Side) -->
+<section class="w-[450px] bg-surface rounded-xl border border-[#30363d] flex flex-col overflow-hidden shadow-[0px_10px_30px_rgba(0,0,0,0.4)] flex-shrink-0">
+<!-- Drawer Header -->
+<div class="p-lg border-b border-outline-variant bg-surface-container-low">
+<div class="flex justify-between items-start mb-4">
+<div class="flex gap-2 items-center">
+<span class="inline-block px-2 py-0.5 rounded font-label-caps text-[12px] bg-error-container text-error border border-error/30">CRITICAL</span>
+<span class="font-data-mono text-data-mono text-on-surface-variant">TKT-8992</span>
+</div>
+<button class="text-on-surface-variant hover:text-on-surface">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<h3 class="font-headline-md text-[20px] leading-tight text-on-surface mb-2">WebRTC Connection Failure during Final Exam</h3>
+<div class="flex items-center gap-sm text-on-surface-variant font-body-sm">
+<span class="material-symbols-outlined text-[16px]">corporate_fare</span>
+<span>Stanford University</span>
+<span class="w-1 h-1 rounded-full bg-outline-variant"></span>
+<span class="font-data-mono text-data-mono text-[11px]">Reported: 14 mins ago</span>
+</div>
+</div>
+<!-- Drawer Content (Scrollable) -->
+<div class="flex-1 overflow-y-auto custom-scrollbar p-lg flex flex-col gap-lg bg-surface">
+<!-- Issue Metadata Grid -->
+<div class="grid grid-cols-2 gap-4 p-4 rounded-lg bg-[#161b22] border border-[#30363d]">
+<div>
+<p class="font-label-caps text-label-caps text-on-surface-variant mb-1">REPORTER</p>
+<p class="font-body-sm text-on-surface">Dr. A. Turing (Admin)</p>
+</div>
+<div>
+<p class="font-label-caps text-label-caps text-on-surface-variant mb-1">AFFECTED USERS</p>
+<p class="font-body-sm text-on-surface font-data-mono">~350 Students</p>
+</div>
+<div>
+<p class="font-label-caps text-label-caps text-on-surface-variant mb-1">ENVIRONMENT</p>
+<p class="font-body-sm text-on-surface">Production (US-West-2)</p>
+</div>
+<div>
+<p class="font-label-caps text-label-caps text-on-surface-variant mb-1">SESSION ID</p>
+<p class="font-data-mono text-data-mono text-primary text-[12px]">exam_CS101_final_v2</p>
+</div>
+</div>
+<!-- Description -->
+<div>
+<h4 class="font-label-caps text-label-caps text-on-surface-variant mb-2 border-b border-[#30363d] pb-1">DESCRIPTION</h4>
+<p class="font-body-sm text-on-surface leading-relaxed whitespace-pre-wrap">Multiple students are reporting black screens when attempting to connect to the proctoring video feed.
+Browser console shows ICE negotiation failures.
+
+Occurring across multiple browsers (Chrome, Safari). Exams are paused, need immediate resolution to avoid mass rescheduling.</p>
+</div>
+<!-- Activity Feed -->
+<div>
+<h4 class="font-label-caps text-label-caps text-on-surface-variant mb-4 border-b border-[#30363d] pb-1">ACTIVITY THREAD</h4>
+<div class="flex flex-col gap-4 relative">
+<!-- Line connecting events -->
+<div class="absolute left-[15px] top-4 bottom-4 w-px bg-[#30363d]"></div>
+<!-- System Log -->
+<div class="flex gap-4 relative z-10">
+<div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center border border-[#30363d] flex-shrink-0 mt-1">
+<span class="material-symbols-outlined text-[16px] text-tertiary">warning</span>
+</div>
+<div class="bg-[#161b22] p-3 rounded-lg border border-[#30363d] flex-1">
+<div class="flex justify-between items-start mb-1">
+<span class="font-body-sm font-semibold text-on-surface">System Alert</span>
+<span class="font-data-mono text-data-mono text-[10px] text-on-surface-variant">14m ago</span>
+</div>
+<p class="font-data-mono text-data-mono text-[12px] text-on-surface">Spike in WebRTC disconnects detected on ingress-node-us-west-2c.</p>
+</div>
+</div>
+<!-- Comment -->
+<div class="flex gap-4 relative z-10">
+<img class="w-8 h-8 rounded-full border border-outline-variant object-cover flex-shrink-0 mt-1" data-alt="Small circular avatar of a technical support engineer. Female, professional, neutral dark background. High-quality corporate headshot." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC2piHFKbjWzvQzfd_k05l-yUj9lFHu1xNhnV-eubn6suGoBE2xpS95ZHygL9g1uAG_ROSWFwB0smAD_bEB40QLMemFLw006ym__e2RUTIMk8ROLwC-ynCJjzHaI-gdkAhmGR6VSCou8rOMuP4Ciu2rjuXoLu5qMgja8elgHM3f4OrY-wHjneHsDbBcAg76SmmTd6Do-iilFpZpZxe-oaEm1brRiBT8jBcmSQCu-uqft2GKfyAnw7bpPuf_90E7aIJIOBmyPuzegsJH"/>
+<div>
+<div class="flex items-baseline gap-2 mb-1">
+<span class="font-body-sm font-semibold text-on-surface">Sarah J. (Tier 3)</span>
+<span class="font-data-mono text-data-mono text-[10px] text-on-surface-variant">10m ago</span>
+</div>
+<p class="font-body-sm text-on-surface">Investigating STUN/TURN server logs. Seeing packet loss on the primary interface. Attempting failover to secondary cluster.</p>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Drawer Actions -->
+<div class="p-4 border-t border-outline-variant bg-surface-container-low flex gap-3">
+<button class="flex-1 bg-surface-container hover:bg-surface-container-high text-on-surface font-body-sm py-2 px-4 rounded border border-[#30363d] transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">forum</span>
+                        Reply
+                    </button>
+<button class="flex-1 bg-inverse-primary hover:bg-primary-container text-white font-body-sm py-2 px-4 rounded transition-colors flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-[18px]">engineering</span>
+                        Take Ownership
+                    </button>
+</div>
+</section>
+</div>
+</main>
+</body></html>

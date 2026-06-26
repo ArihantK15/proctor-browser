@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Members - Procta</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/static/dashboard_next/css/tailwind.css"/>
+</head>
+<body class="bg-background text-on-background min-h-screen flex flex-col md:flex-row antialiased selection:bg-primary-container selection:text-on-primary-container">
+<nav class="bg-surface-container fixed left-0 top-0 h-full w-[260px] hidden md:flex flex-col border-r border-outline-variant flex flex-col gap-xs py-lg z-50">
+<div class="px-md mb-lg flex items-center gap-sm">
+<div class="w-8 h-8 rounded-DEFAULT bg-primary flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-on-primary text-xl" style="font-variation-settings: 'FILL' 1;">shield</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md font-black text-primary tracking-widest leading-none">PROCTA</span>
+<span class="font-label-caps text-label-caps text-on-surface-variant leading-tight">SUPERADMIN</span>
+</div>
+</div>
+<div class="px-md mb-md">
+<button class="w-full flex items-center justify-center gap-xs py-2 bg-inverse-on-surface hover:bg-surface-container-highest border border-outline-variant rounded-DEFAULT transition-colors font-label-caps text-label-caps text-on-surface">
+<span class="material-symbols-outlined text-[16px]">add</span>
+                New Organization
+            </button>
+</div>
+<div class="flex-1 flex flex-col gap-[2px] px-sm">
+<a class="flex items-center gap-md px-sm py-2 rounded-DEFAULT text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">dashboard</span>
+<span class="font-body-sm text-body-sm">Dashboard</span>
+</a>
+<a class="flex items-center gap-md px-sm py-2 rounded-DEFAULT text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">corporate_fare</span>
+<span class="font-body-sm text-body-sm">Organizations</span>
+</a>
+<a class="flex items-center gap-md px-sm py-2 rounded-DEFAULT text-primary font-bold border-l-4 border-primary bg-primary/10 transition-all duration-200 ease-in-out cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">group</span>
+<span class="font-body-sm text-body-sm">Members</span>
+</a>
+<a class="flex items-center gap-md px-sm py-2 rounded-DEFAULT text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+<span class="font-body-sm text-body-sm">Logs</span>
+</a>
+<a class="flex items-center gap-md px-sm py-2 rounded-DEFAULT text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">monitor_heart</span>
+<span class="font-body-sm text-body-sm">Service Health</span>
+</a>
+<a class="flex items-center gap-md px-sm py-2 rounded-DEFAULT text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">settings_applications</span>
+<span class="font-body-sm text-body-sm">System Settings</span>
+</a>
+</div>
+<div class="px-sm mt-auto">
+<a class="flex items-center gap-md px-sm py-2 rounded-DEFAULT text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out cursor-pointer active:scale-95" href="#">
+<span class="material-symbols-outlined text-[20px]">logout</span>
+<span class="font-body-sm text-body-sm">Log Out</span>
+</a>
+</div>
+</nav>
+<header class="bg-surface/80 backdrop-blur-xl border-b border-outline-variant shadow-sm fixed top-0 w-full z-40 flex justify-between items-center h-16 px-gutter md:hidden">
+<div class="flex items-center gap-sm">
+<span class="material-symbols-outlined text-primary text-2xl" style="font-variation-settings: 'FILL' 1;">shield</span>
+<span class="font-headline-md-mobile text-headline-md-mobile font-bold text-on-surface tracking-tight">Procta</span>
+</div>
+<div class="flex items-center gap-sm text-primary">
+<button class="p-2 hover:bg-surface-container-high transition-colors rounded-full cursor-pointer active:scale-95 flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">notifications</span>
+</button>
+<button class="p-2 hover:bg-surface-container-high transition-colors rounded-full cursor-pointer active:scale-95 flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">settings</span>
+</button>
+<button class="p-2 hover:bg-surface-container-high transition-colors rounded-full cursor-pointer active:scale-95 flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]">help</span>
+</button>
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+</div>
+</header>
+<main class="flex-1 w-full md:ml-[260px] pt-[80px] md:pt-margin-desktop p-margin-mobile md:p-margin-desktop flex flex-col gap-xl">
+<div class="flex flex-col sm:flex-row sm:items-end justify-between gap-md">
+<div>
+<h1 class="font-display-lg text-display-lg text-on-surface mb-xs">Members</h1>
+<div class="flex items-center gap-sm">
+<div class="flex items-center gap-xs px-2 py-1 bg-surface-container-highest rounded-DEFAULT border border-outline-variant">
+<span class="material-symbols-outlined text-[16px] text-secondary">group</span>
+<span class="font-body-sm text-body-sm text-on-surface"><span id="members-count" class="font-bold">—</span> members</span>
+</div>
+<div class="h-1 w-24 bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-[84%]"></div>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-sm">
+<div class="relative hidden sm:block">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-[18px]">search</span>
+<input id="members-search" class="bg-surface-container border border-outline-variant text-on-surface font-body-sm text-body-sm rounded-DEFAULT py-2 pl-10 pr-4 focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-shadow w-64 placeholder:text-on-surface-variant" placeholder="Search members..." type="text"/>
+</div>
+<button data-action="inviteMember" class="flex items-center gap-xs px-4 py-2 bg-primary text-on-primary rounded-DEFAULT font-label-caps text-label-caps hover:bg-primary-fixed transition-colors shadow-[0_0_10px_rgba(192,193,255,0.2)]">
+<span class="material-symbols-outlined text-[18px]">person_add</span>
+                    Invite member
+                </button>
+</div>
+</div>
+<div class="bg-surface-container border border-outline-variant rounded-xl overflow-hidden shadow-sm flex-1 flex flex-col">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse min-w-[800px]">
+<thead>
+<tr class="border-b border-outline-variant bg-surface-container-low">
+<th class="py-3 px-sm font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider w-[300px]">Member</th>
+<th class="py-3 px-sm font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Role</th>
+<th class="py-3 px-sm font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider">Status</th>
+<th class="py-3 px-sm font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider text-right">Last Active</th>
+<th class="py-3 px-sm font-label-caps text-label-caps text-on-surface-variant uppercase tracking-wider w-[64px]"></th>
+</tr>
+</thead>
+<tbody id="members-tbody" class="divide-y divide-outline-variant/50">
+<tr class="group hover:bg-surface-container-high transition-colors">
+<td class="py-sm px-sm">
+<div class="flex items-center gap-md">
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+<div class="flex flex-col">
+<span class="font-body-base text-body-base font-semibold text-on-surface">Sarah Jenkins</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">sarah.j@university.edu</span>
+</div>
+</div>
+</td>
+<td class="py-sm px-sm">
+<span class="inline-flex items-center gap-1 px-2 py-1 rounded-DEFAULT bg-inverse-primary/20 border border-inverse-primary/30 text-primary font-label-caps text-label-caps">
+<span class="material-symbols-outlined text-[14px]">admin_panel_settings</span>
+                                    Admin
+                                </span>
+</td>
+<td class="py-sm px-sm">
+<div class="flex items-center gap-xs">
+<div class="w-2 h-2 rounded-full bg-secondary shadow-[0_0_8px_rgba(103,223,112,0.6)]"></div>
+<span class="font-body-sm text-body-sm text-on-surface">Active</span>
+</div>
+</td>
+<td class="py-sm px-sm text-right">
+<span class="font-data-mono text-data-mono text-on-surface-variant">2023-10-24 14:32</span>
+</td>
+<td class="py-sm px-sm text-right">
+<button class="p-1 rounded-DEFAULT text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+</td>
+</tr>
+<tr class="group hover:bg-surface-container-high transition-colors">
+<td class="py-sm px-sm">
+<div class="flex items-center gap-md">
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+<div class="flex flex-col">
+<span class="font-body-base text-body-base font-semibold text-on-surface">Marcus Chen</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">m.chen@university.edu</span>
+</div>
+</div>
+</td>
+<td class="py-sm px-sm">
+<span class="inline-flex items-center gap-1 px-2 py-1 rounded-DEFAULT bg-surface-container-highest border border-outline-variant text-on-surface font-label-caps text-label-caps">
+<span class="material-symbols-outlined text-[14px]">school</span>
+                                    Teacher
+                                </span>
+</td>
+<td class="py-sm px-sm">
+<div class="flex items-center gap-xs">
+<div class="w-2 h-2 rounded-full bg-secondary shadow-[0_0_8px_rgba(103,223,112,0.6)]"></div>
+<span class="font-body-sm text-body-sm text-on-surface">Active</span>
+</div>
+</td>
+<td class="py-sm px-sm text-right">
+<span class="font-data-mono text-data-mono text-on-surface-variant">2023-10-24 09:15</span>
+</td>
+<td class="py-sm px-sm text-right">
+<button class="p-1 rounded-DEFAULT text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+</td>
+</tr>
+<tr class="group hover:bg-surface-container-high transition-colors bg-surface-container-highest/20">
+<td class="py-sm px-sm">
+<div class="flex items-center gap-md">
+<div class="w-10 h-10 rounded-full border border-outline-variant border-dashed flex items-center justify-center bg-surface-container text-on-surface-variant font-headline-md text-headline-md">
+                                        ER
+                                    </div>
+<div class="flex flex-col">
+<span class="font-body-base text-body-base font-semibold text-on-surface italic text-on-surface-variant">Elena Rodriguez</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">elena.r@university.edu</span>
+</div>
+</div>
+</td>
+<td class="py-sm px-sm">
+<span class="inline-flex items-center gap-1 px-2 py-1 rounded-DEFAULT bg-surface-container-highest border border-outline-variant text-on-surface font-label-caps text-label-caps">
+<span class="material-symbols-outlined text-[14px]">school</span>
+                                    Teacher
+                                </span>
+</td>
+<td class="py-sm px-sm">
+<div class="flex items-center gap-xs">
+<div class="w-2 h-2 rounded-full bg-tertiary shadow-[0_0_8px_rgba(250,188,69,0.4)]"></div>
+<span class="font-body-sm text-body-sm text-tertiary">Pending</span>
+</div>
+</td>
+<td class="py-sm px-sm text-right">
+<span class="font-data-mono text-data-mono text-outline">--</span>
+</td>
+<td class="py-sm px-sm text-right">
+<button class="p-1 rounded-DEFAULT text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+</td>
+</tr>
+<tr class="group hover:bg-surface-container-high transition-colors">
+<td class="py-sm px-sm">
+<div class="flex items-center gap-md">
+<span class="material-symbols-outlined text-on-surface-variant">account_circle</span>
+<div class="flex flex-col">
+<span class="font-body-base text-body-base font-semibold text-on-surface-variant line-through">Amanda Smith</span>
+<span class="font-body-sm text-body-sm text-on-surface-variant">a.smith@university.edu</span>
+</div>
+</div>
+</td>
+<td class="py-sm px-sm">
+<span class="inline-flex items-center gap-1 px-2 py-1 rounded-DEFAULT bg-surface-container-highest border border-outline-variant text-on-surface-variant font-label-caps text-label-caps opacity-50">
+<span class="material-symbols-outlined text-[14px]">school</span>
+                                    Teacher
+                                </span>
+</td>
+<td class="py-sm px-sm">
+<div class="flex items-center gap-xs">
+<div class="w-2 h-2 rounded-full bg-error shadow-[0_0_8px_rgba(255,180,171,0.4)]"></div>
+<span class="font-body-sm text-body-sm text-error">Suspended</span>
+</div>
+</td>
+<td class="py-sm px-sm text-right">
+<span class="font-data-mono text-data-mono text-on-surface-variant opacity-50">2023-09-12 11:05</span>
+</td>
+<td class="py-sm px-sm text-right">
+<button class="p-1 rounded-DEFAULT text-on-surface-variant hover:text-on-surface hover:bg-surface-container-highest transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
+<span class="material-symbols-outlined text-[20px]">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="border-t border-outline-variant p-sm flex items-center justify-between bg-surface-container-low mt-auto">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Showing 1-4 of 42 members</span>
+<div class="flex items-center gap-xs">
+<button class="p-1 rounded-DEFAULT text-on-surface-variant hover:bg-surface-container-highest disabled:opacity-50" disabled="">
+<span class="material-symbols-outlined">chevron_left</span>
+</button>
+<button class="p-1 rounded-DEFAULT text-on-surface hover:bg-surface-container-highest">
+<span class="material-symbols-outlined">chevron_right</span>
+</button>
+</div>
+</div>
+</div>
+</main>
+<script src="/static/dashboard_next/js/api.js" defer></script>
+<script src="/static/dashboard_next/js/members.js" defer></script>
+</body></html>

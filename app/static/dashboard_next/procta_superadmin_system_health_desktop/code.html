@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Procta - Superadmin: System Health &amp; Security</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&amp;family=JetBrains+Mono:wght@500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "secondary-container": "#27a640",
+                      "inverse-primary": "#494bd6",
+                      "secondary": "#67df70",
+                      "primary": "#c0c1ff",
+                      "inverse-on-surface": "#303038",
+                      "primary-container": "#8083ff",
+                      "on-primary": "#1000a9",
+                      "surface-bright": "#393841",
+                      "surface-container-highest": "#34343d",
+                      "on-secondary-fixed": "#002105",
+                      "on-tertiary-fixed-variant": "#5f4100",
+                      "on-primary-fixed-variant": "#2f2ebe",
+                      "outline-variant": "#464554",
+                      "secondary-fixed": "#83fc89",
+                      "on-surface-variant": "#c7c4d7",
+                      "surface": "#13131b",
+                      "error-container": "#93000a",
+                      "tertiary-fixed": "#ffdeaa",
+                      "primary-fixed": "#e1e0ff",
+                      "surface-variant": "#34343d",
+                      "surface-container-high": "#292932",
+                      "inverse-surface": "#e4e1ed",
+                      "tertiary-fixed-dim": "#fabc45",
+                      "on-tertiary-container": "#392600",
+                      "outline": "#908fa0",
+                      "surface-dim": "#13131b",
+                      "on-primary-fixed": "#07006c",
+                      "on-tertiary-fixed": "#271900",
+                      "on-secondary": "#00390d",
+                      "tertiary-container": "#bd8708",
+                      "surface-tint": "#c0c1ff",
+                      "on-tertiary": "#422c00",
+                      "on-secondary-container": "#00320a",
+                      "on-error": "#690005",
+                      "primary-fixed-dim": "#c0c1ff",
+                      "on-error-container": "#ffdad6",
+                      "background": "#13131b",
+                      "on-primary-container": "#0d0096",
+                      "tertiary": "#fabc45",
+                      "surface-container-low": "#1b1b23",
+                      "secondary-fixed-dim": "#67df70",
+                      "error": "#ffb4ab",
+                      "on-secondary-fixed-variant": "#005317",
+                      "surface-container": "#1f1f27",
+                      "on-surface": "#e4e1ed",
+                      "surface-container-lowest": "#0d0d15",
+                      "on-background": "#e4e1ed"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "xs": "8px",
+                      "xl": "32px",
+                      "base": "4px",
+                      "gutter": "20px",
+                      "margin-desktop": "32px",
+                      "margin-mobile": "16px",
+                      "md": "16px",
+                      "sm": "12px",
+                      "lg": "24px"
+              },
+              "fontFamily": {
+                      "headline-md-mobile": [
+                              "Inter"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ],
+                      "label-caps": [
+                              "Inter"
+                      ],
+                      "body-base": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "display-lg": [
+                              "Inter"
+                      ],
+                      "data-mono": [
+                              "JetBrains Mono"
+                      ]
+              },
+              "fontSize": {
+                      "headline-md-mobile": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-sm": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-caps": [
+                              "12px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "body-base": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-md": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "display-lg": [
+                              "48px",
+                              {
+                                      "lineHeight": "56px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "700"
+                              }
+                      ],
+                      "data-mono": [
+                              "13px",
+                              {
+                                      "lineHeight": "18px",
+                                      "letterSpacing": "0.02em",
+                                      "fontWeight": "500"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.on-background');
+        }
+        .border-system {
+            border-color: #30363d;
+        }
+        .glow-active {
+            box-shadow: inset 0 0 0 1px theme('colors.primary');
+        }
+        .glass-panel {
+            background-color: rgba(31, 31, 39, 0.7); /* surface-container */
+            backdrop-filter: blur(12px);
+        }
+    </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col md:flex-row overflow-x-hidden selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar (Mobile Only) -->
+<nav class="fixed top-0 w-full z-40 bg-surface/80 backdrop-blur-xl border-b border-system flex justify-between items-center h-16 px-margin-mobile md:hidden shadow-sm">
+<div class="flex items-center gap-sm">
+<div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold">P</div>
+<span class="font-headline-md-mobile text-headline-md-mobile text-primary tracking-tight">Procta</span>
+</div>
+<div class="flex items-center gap-sm text-on-surface-variant">
+<span class="material-symbols-outlined cursor-pointer hover:text-on-surface transition-colors" style="font-variation-settings: 'FILL' 0;">notifications</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-on-surface transition-colors" style="font-variation-settings: 'FILL' 0;">settings</span>
+</div>
+</nav>
+<!-- SideNavBar (Desktop) -->
+<aside class="fixed left-0 top-0 h-full w-[260px] hidden md:flex flex-col bg-surface-container border-r border-system py-lg z-50">
+<div class="px-gutter mb-lg flex items-center gap-sm">
+<div class="w-10 h-10 rounded-lg bg-primary-container flex items-center justify-center overflow-hidden shrink-0">
+<img class="w-full h-full object-cover" data-alt="A stylized geometric logo letter P in deep indigo and neon blue tones, representing a high-tech security platform. Abstract minimalist vector art style, dark background, sharp edges, luminous." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAQuQmy92qM-_laAEv0GQFOQdHeBsHrAIJnQB4DEHxuNtmsDR7jHQSkEs4tZJHKZMqPpgcr-Zfy-l4Xdh-Tw_lQEFXzk-zSP219PQT5WIM45EYh0DqXAl3w7nQSoHIcLbJZyaZY1SMirzv5pgXH0iwPofH0bRoEbl_WeDykDonPGyPgicM3Quct2XzPyzlpIVN_A52PSmKz9YlQrXEinPa0j2S2xBNIZXaEHXY5F9aEHdw1NWB7w1Cr7k1qy8f9ZejJDX9CY6voJAWR"/>
+</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-black text-primary tracking-widest leading-none">PROCTA</h1>
+<span class="font-label-caps text-label-caps text-on-surface-variant/70 tracking-widest">SUPERADMIN</span>
+</div>
+</div>
+<nav class="flex-1 flex flex-col gap-xs px-xs">
+<a class="flex items-center gap-sm px-sm py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">dashboard</span>
+<span class="font-body-base text-body-base">Dashboard</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">corporate_fare</span>
+<span class="font-body-base text-body-base">Organizations</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">group</span>
+<span class="font-body-base text-body-base">Members</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">terminal</span>
+<span class="font-body-base text-body-base">Logs</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-sm rounded-lg text-primary font-bold border-l-4 border-primary bg-primary/10 transition-all duration-200 ease-in-out relative left-[-4px] pl-[16px]" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">monitor_heart</span>
+<span class="font-body-base text-body-base">Service Health</span>
+</a>
+<a class="flex items-center gap-sm px-sm py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings_applications</span>
+<span class="font-body-base text-body-base">System Settings</span>
+</a>
+</nav>
+<div class="px-gutter mt-auto flex flex-col gap-sm">
+<button class="w-full bg-[#6366f1] hover:bg-[#4f46e5] text-white font-body-sm text-body-sm font-semibold py-sm rounded-DEFAULT transition-colors flex items-center justify-center gap-xs">
+<span class="material-symbols-outlined text-[18px]">add</span>
+                 New Organization
+             </button>
+<a class="flex items-center gap-sm px-sm py-sm rounded-lg text-on-surface-variant font-medium hover:bg-surface-container-highest hover:text-on-surface transition-all duration-200 ease-in-out mt-sm" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">logout</span>
+<span class="font-body-base text-body-base">Log Out</span>
+</a>
+</div>
+</aside>
+<!-- Main Canvas -->
+<main class="flex-1 md:ml-[260px] mt-16 md:mt-0 p-margin-mobile md:p-margin-desktop bg-surface-dim min-h-screen">
+<header class="mb-xl flex flex-col md:flex-row md:items-end justify-between gap-md">
+<div>
+<h2 class="font-display-lg text-display-lg md:text-[40px] text-on-surface mb-base">System Overview</h2>
+<p class="font-body-base text-body-base text-on-surface-variant">Real-time health telemetry and security monitoring across all clusters.</p>
+</div>
+<div class="flex items-center gap-sm">
+<div class="px-sm py-xs rounded border border-system bg-surface-container-low flex items-center gap-xs">
+<div class="w-2 h-2 rounded-full bg-secondary animate-pulse"></div>
+<span class="font-data-mono text-data-mono text-on-surface">ALL SYSTEMS NOMINAL</span>
+</div>
+<div class="px-sm py-xs rounded border border-system bg-surface-container-low flex items-center gap-xs">
+<span class="material-symbols-outlined text-on-surface-variant text-[16px]">schedule</span>
+<span class="font-data-mono text-data-mono text-on-surface-variant" id="utc-clock">14:22:05 UTC</span>
+</div>
+</div>
+</header>
+<!-- Bento Grid Layout -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-md md:gap-lg">
+<!-- Service Status Tiles (Top Row) -->
+<div class="md:col-span-8 grid grid-cols-1 sm:grid-cols-3 gap-md">
+<!-- Core API -->
+<div class="glass-panel border border-system rounded-lg p-sm relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-secondary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex justify-between items-start mb-lg relative z-10">
+<div class="flex items-center gap-xs text-on-surface">
+<span class="material-symbols-outlined">api</span>
+<h3 class="font-body-base text-body-base font-semibold">Core API</h3>
+</div>
+<span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="relative z-10">
+<div class="font-display-lg text-[32px] leading-tight text-on-surface mb-base">99.99%</div>
+<div class="flex justify-between items-end">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Uptime (7d)</span>
+<span class="font-data-mono text-data-mono text-secondary">12ms avg</span>
+</div>
+</div>
+</div>
+<!-- Database Cluster -->
+<div class="glass-panel border border-system rounded-lg p-sm relative overflow-hidden group">
+<div class="absolute inset-0 bg-gradient-to-br from-tertiary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex justify-between items-start mb-lg relative z-10">
+<div class="flex items-center gap-xs text-on-surface">
+<span class="material-symbols-outlined">database</span>
+<h3 class="font-body-base text-body-base font-semibold">DB Cluster</h3>
+</div>
+<span class="material-symbols-outlined text-tertiary" style="font-variation-settings: 'FILL' 1;">warning</span>
+</div>
+<div class="relative z-10">
+<div class="font-display-lg text-[32px] leading-tight text-on-surface mb-base">78%</div>
+<div class="flex justify-between items-end">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Load Capacity</span>
+<span class="font-data-mono text-data-mono text-tertiary">Spike Detected</span>
+</div>
+</div>
+<!-- Subtle progress bar -->
+<div class="absolute bottom-0 left-0 h-1 bg-surface w-full">
+<div class="h-full bg-tertiary w-[78%]"></div>
+</div>
+</div>
+<!-- Video Storage -->
+<div class="glass-panel border border-system rounded-lg p-sm relative overflow-hidden group glow-active">
+<div class="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex justify-between items-start mb-lg relative z-10">
+<div class="flex items-center gap-xs text-primary">
+<span class="material-symbols-outlined">cloud_done</span>
+<h3 class="font-body-base text-body-base font-semibold">Video Storage</h3>
+</div>
+<span class="material-symbols-outlined text-secondary" style="font-variation-settings: 'FILL' 1;">check_circle</span>
+</div>
+<div class="relative z-10">
+<div class="font-display-lg text-[32px] leading-tight text-primary mb-base">24.5 TB</div>
+<div class="flex justify-between items-end">
+<span class="font-body-sm text-body-sm text-on-surface-variant">Used (Region A)</span>
+<span class="font-data-mono text-data-mono text-on-surface-variant">+1.2TB/d</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Rate Limit Counters (Side) -->
+<div class="md:col-span-4 glass-panel border border-system rounded-lg p-sm flex flex-col">
+<div class="flex items-center justify-between mb-md">
+<h3 class="font-body-base text-body-base font-semibold text-on-surface flex items-center gap-xs">
+<span class="material-symbols-outlined text-[18px]">speed</span>
+                        Ingress Traffic
+                    </h3>
+<span class="font-label-caps text-label-caps text-on-surface-variant px-xs py-base border border-system rounded bg-surface">GLOBAL</span>
+</div>
+<div class="space-y-sm flex-1 flex flex-col justify-center">
+<div>
+<div class="flex justify-between font-data-mono text-data-mono text-on-surface mb-base">
+<span>Auth Requests</span>
+<span>4,210 / 5k</span>
+</div>
+<div class="h-2 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-primary w-[84%]"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between font-data-mono text-data-mono text-on-surface mb-base">
+<span>Video Streams</span>
+<span class="text-tertiary">9,800 / 10k</span>
+</div>
+<div class="h-2 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-tertiary w-[98%] animate-pulse"></div>
+</div>
+</div>
+<div>
+<div class="flex justify-between font-data-mono text-data-mono text-on-surface mb-base">
+<span>Webhook Dispatches</span>
+<span>1,204 / 10k</span>
+</div>
+<div class="h-2 w-full bg-surface-container-highest rounded-full overflow-hidden">
+<div class="h-full bg-secondary w-[12%]"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Live Audit Log Feed -->
+<div class="md:col-span-12 glass-panel border border-system rounded-lg flex flex-col min-h-[400px]">
+<div class="p-sm border-b border-system flex items-center justify-between bg-surface-container-low/50">
+<h3 class="font-body-base text-body-base font-semibold text-on-surface flex items-center gap-xs">
+<span class="material-symbols-outlined text-[18px]">terminal</span>
+                        Security Audit Logs
+                    </h3>
+<div class="flex items-center gap-sm">
+<div class="flex items-center gap-xs text-on-surface-variant">
+<span class="w-2 h-2 rounded-full bg-error"></span>
+<span class="font-label-caps text-label-caps">Critical</span>
+</div>
+<div class="flex items-center gap-xs text-on-surface-variant">
+<span class="w-2 h-2 rounded-full bg-tertiary"></span>
+<span class="font-label-caps text-label-caps">Warning</span>
+</div>
+<button class="font-label-caps text-label-caps text-primary hover:text-primary-fixed transition-colors flex items-center gap-base">
+                            PAUSE FEED
+                            <span class="material-symbols-outlined text-[14px]">pause</span>
+</button>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto p-sm font-data-mono text-data-mono space-y-base" id="audit-feed">
+<!-- Log Entries -->
+<div class="flex items-start gap-sm p-xs hover:bg-surface-container-highest rounded transition-colors group">
+<div class="w-1.5 h-1.5 rounded-full bg-secondary mt-1.5 shrink-0"></div>
+<div class="text-on-surface-variant shrink-0 w-[140px]">2023-10-27 14:21:05</div>
+<div class="text-primary shrink-0 w-[120px]">sys_admin_01</div>
+<div class="text-on-surface truncate flex-1">Configuration updated: [org_policy_id: 8492] - enforce_mfa=true</div>
+</div>
+<div class="flex items-start gap-sm p-xs hover:bg-surface-container-highest rounded transition-colors group bg-error/5 border border-error/20">
+<div class="w-1.5 h-1.5 rounded-full bg-error mt-1.5 shrink-0"></div>
+<div class="text-error shrink-0 w-[140px]">2023-10-27 14:20:12</div>
+<div class="text-primary shrink-0 w-[120px]">system</div>
+<div class="text-on-surface truncate flex-1">Multiple failed login attempts detected. IP: 192.168.1.105. Action: IP temporarily blocked.</div>
+</div>
+<div class="flex items-start gap-sm p-xs hover:bg-surface-container-highest rounded transition-colors group">
+<div class="w-1.5 h-1.5 rounded-full bg-secondary mt-1.5 shrink-0"></div>
+<div class="text-on-surface-variant shrink-0 w-[140px]">2023-10-27 14:18:44</div>
+<div class="text-primary shrink-0 w-[120px]">api_service</div>
+<div class="text-on-surface truncate flex-1">Session token refreshed for user_id: 99421.</div>
+</div>
+<div class="flex items-start gap-sm p-xs hover:bg-surface-container-highest rounded transition-colors group bg-tertiary/5 border border-tertiary/20">
+<div class="w-1.5 h-1.5 rounded-full bg-tertiary mt-1.5 shrink-0"></div>
+<div class="text-tertiary shrink-0 w-[140px]">2023-10-27 14:15:30</div>
+<div class="text-primary shrink-0 w-[120px]">storage_node_3</div>
+<div class="text-on-surface truncate flex-1">Latency spike detected in regional blob storage writing. Duration: 1.2s.</div>
+</div>
+<div class="flex items-start gap-sm p-xs hover:bg-surface-container-highest rounded transition-colors group">
+<div class="w-1.5 h-1.5 rounded-full bg-secondary mt-1.5 shrink-0"></div>
+<div class="text-on-surface-variant shrink-0 w-[140px]">2023-10-27 14:10:02</div>
+<div class="text-primary shrink-0 w-[120px]">sys_admin_02</div>
+<div class="text-on-surface truncate flex-1">New organization provisioned: "TechEd Certifications" (org_id: 9012).</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<script>
+        // Simple clock update
+        function updateClock() {
+            const now = new Date();
+            const timeString = now.toISOString().substring(11, 19) + ' UTC';
+            document.getElementById('utc-clock').textContent = timeString;
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+    </script>
+</body></html>

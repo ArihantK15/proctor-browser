@@ -812,6 +812,42 @@ def admin_dashboard_next_evidence():
         "Dashboard (next) evidence not found")
 
 
+@router.get("/dashboard-next/members")
+def admin_dashboard_next_members():
+    return _static_html_response(
+        "dashboard_next/procta_admin_members_desktop/code.html", "Members not found")
+
+
+@router.get("/dashboard-next/org-settings")
+def admin_dashboard_next_org_settings():
+    return _static_html_response(
+        "dashboard_next/procta_admin_org_settings_desktop/code.html", "Org settings not found")
+
+
+@router.get("/dashboard-next/billing")
+def admin_dashboard_next_billing():
+    return _static_html_response(
+        "dashboard_next/procta_admin_billing_desktop/code.html", "Billing not found")
+
+
+@router.get("/dashboard-next/all-orgs")
+def admin_dashboard_next_all_orgs():
+    return _static_html_response(
+        "dashboard_next/procta_superadmin_all_organizations_desktop/code.html", "All orgs not found")
+
+
+@router.get("/dashboard-next/system-health")
+def admin_dashboard_next_system_health():
+    return _static_html_response(
+        "dashboard_next/procta_superadmin_system_health_desktop/code.html", "System health not found")
+
+
+@router.get("/dashboard-next/issues")
+def admin_dashboard_next_issues():
+    return _static_html_response(
+        "dashboard_next/procta_superadmin_issues_desktop/code.html", "Issues not found")
+
+
 @router.get("/student-next")
 def student_dashboard_next():
     # Responsive student hub (schedule + results + scorecards). Student session;

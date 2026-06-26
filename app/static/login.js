@@ -193,8 +193,11 @@
       });
     } catch (_) {}
     setBusy(false); resetTurnstile();
-    // Neutral response regardless of account existence (no enumeration).
-    showOk("If an account exists for that email, we’ve sent password-reset instructions. Check your inbox.");
+    // Neutral response regardless of account existence (no enumeration). The
+    // Turnstile token was single-use and is now spent, so the widget reset above
+    // hands out a fresh challenge — flag that so signing in here doesn't feel
+    // broken when it asks for verification again.
+    showOk("If an account exists for that email, we’ve sent password-reset instructions — check your inbox. To sign in here, complete the verification again.");
   }
 
   // ---- Wire up -----------------------------------------------------------

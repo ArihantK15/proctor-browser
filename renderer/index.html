@@ -2,6 +2,15 @@
 <html>
 <head>
   <meta charset="utf-8">
+  <!-- CSP NOTE: script-src intentionally keeps 'unsafe-inline'. Unlike the
+       backend-served pages (script-src 'self', external JS only), this Electron
+       renderer uses inline on* handlers as its established pattern (~27 of them,
+       e.g. the login form's onclick/onkeydown/oninput and onload font swaps).
+       Deliberate trade-off — it's a local file:// kiosk with no third-party
+       injection surface. If this CSP is ever tightened to 'self', ALL inline
+       handlers must migrate to addEventListener together (a single tracked
+       refactor); a partial migration buys nothing since the rest would still
+       break. Do not "fix" individual handlers in isolation. -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob:; connect-src 'self' https: wss:; object-src 'none'; base-uri 'none'; frame-src 'none'; frame-ancestors 'none'; form-action 'self'">
   <title>Procta — Proctored Exam</title>
   <!-- Non-blocking font load — prevents white screen if Google Fonts is slow/blocked -->

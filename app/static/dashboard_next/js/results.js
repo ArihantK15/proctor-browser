@@ -10,6 +10,13 @@
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   let results = [], dist = [], filter = "all", threshold = 60;
+  // The table loads one page client-side (filter tabs + threshold recolor operate
+  // on the loaded set). PAGE_SIZE is generous enough for a single exam; the "all
+  // exams" view can exceed it, so we read `total` and surface an honest notice
+  // rather than silently dropping rows. The histogram/stats come from server-side
+  // /analytics, so the summary stays complete regardless of table paging.
+  const PAGE_SIZE = 500;
+  let total = 0;
 
   const initials = (name) => { const p = String(name || "").trim().split(/\s+/); return (((p[0] || "")[0] || "") + ((p[1] || "")[0] || "") || "?").toUpperCase(); };
   const pct = (r) => (r.percentage != null ? Math.round(r.percentage) : 0);
@@ -68,7 +75,12 @@
       return true;
     });
     if (!rows.length) { tb.innerHTML = '<tr><td colspan="6" class="px-lg py-xl text-center text-on-surface-variant text-body-sm">No results match.</td></tr>'; return; }
-    tb.innerHTML = rows.map((r, i) => row(r, i)).join("");
+    let html = rows.map((r, i) => row(r, i)).join("");
+    // Honest truncation notice — never silently hide rows past the page.
+    if (total > results.length) {
+      html += `<tr><td colspan="6" class="px-lg py-md text-center text-on-surface-variant text-body-sm bg-surface-container-low">Showing the first ${results.length} of ${total} results. Select a specific exam from the top bar to see its complete results.</td></tr>`;
+    }
+    tb.innerHTML = html;
   }
 
   async function load() {
@@ -76,8 +88,9 @@
     const q = ex ? `?exam_id=${encodeURIComponent(ex)}` : "";
     const an = await getJSON("/api/v1/admin/analytics" + q);
     dist = an && Array.isArray(an.score_distribution) ? an.score_distribution : [];
-    const res = await getJSON("/api/v1/results?page=1&page_size=500" + (ex ? `&exam_id=${encodeURIComponent(ex)}` : ""));
+    const res = await getJSON(`/api/v1/results?page=1&page_size=${PAGE_SIZE}` + (ex ? `&exam_id=${encodeURIComponent(ex)}` : ""));
     results = res && Array.isArray(res.results) ? res.results : [];
+    total = res && typeof res.total === "number" ? res.total : results.length;
     histogram(); stats(an && an.exam_overview); render();
   }
   if (api.onExamChange) api.onExamChange(() => load());

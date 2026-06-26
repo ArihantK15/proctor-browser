@@ -58,6 +58,11 @@
     var selects = document.querySelectorAll("#exam-select");
     if (!selects.length) return;
     var stored = examId();
+    // Active exams only (no include_archived) — intentional, matching the legacy
+    // selector's default. Archived exams are still reachable from the Exams page
+    // (which requests include_archived=1) and can be unarchived. A future parity
+    // item is a "show archived" toggle here; until then the live/results/questions
+    // selectors stay focused on current exams.
     authFetch("/api/v1/admin/exams").then(function (r) { return r.ok ? r.json() : null; }).then(function (d) {
       var exams = (d && d.exams) ? d.exams : [];
       var opts = '<option value="">All exams</option>' + exams.map(function (e) {

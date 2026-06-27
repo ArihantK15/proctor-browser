@@ -2360,3 +2360,45 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
 .appeal-evidence-row{display:flex;gap:6px;flex-wrap:wrap;align-items:flex-start}
 .appeal-thumb{max-width:104px;max-height:78px;border-radius:6px;cursor:pointer;
   border:1px solid var(--border)}
+
+/* ── Left sidebar nav (desktop ≥1025px) ───────────────────────────────
+   The section tabs ("section change" row) move to a collapsible left rail.
+   The topbar stays exactly as designed — only made sticky so it pins above
+   the rail. Below 1025px the original horizontal tabs are kept untouched. */
+@media (min-width: 1025px){
+  .topbar{position:sticky;top:0;z-index:60}
+  .tabs{
+    position:fixed; top:60px; left:0; bottom:0; width:216px;
+    flex-direction:column; align-items:stretch; gap:2px;
+    padding:12px 10px; overflow-y:auto; overflow-x:hidden;
+    border-bottom:none; border-right:1px solid var(--border);
+    background:var(--card); z-index:55; transition:transform .18s ease;
+  }
+  .tab{
+    display:flex; align-items:center; gap:8px; text-align:left;
+    padding:10px 14px; border-radius:8px; border-bottom:none;
+    border-left:3px solid transparent; white-space:nowrap;
+  }
+  .tab.active{
+    border-bottom-color:transparent; border-left-color:var(--accent);
+    color:var(--accent); background:rgba(91,138,240,.12);
+  }
+  .tab:hover{background:rgba(255,255,255,.04)}
+  .tab .tab-badge{margin-left:auto}
+  .exam-bar, .panel{ margin-left:216px; transition:margin-left .18s ease; }
+  .sidebar-collapse{ display:flex; }
+  body.sidebar-collapsed .tabs{ transform:translateX(-100%); }
+  body.sidebar-collapsed .exam-bar,
+  body.sidebar-collapsed .panel{ margin-left:0; }
+  body.sidebar-collapsed .sidebar-expand{ display:flex; }
+}
+/* collapse (in-rail) + expand (floating) toggles — desktop-only via the rules above */
+.sidebar-collapse{ display:none; align-self:flex-end; align-items:center; justify-content:center;
+  width:30px; height:30px; margin-bottom:6px; background:none; border:1px solid var(--border);
+  border-radius:6px; color:var(--text-muted); cursor:pointer; font-size:15px; line-height:1; flex-shrink:0; }
+.sidebar-collapse:hover{ color:var(--text-high); border-color:var(--accent); }
+.sidebar-expand{ display:none; position:fixed; top:70px; left:8px; z-index:58;
+  width:34px; height:34px; align-items:center; justify-content:center; background:var(--card);
+  border:1px solid var(--border); border-radius:8px; color:var(--text-high); cursor:pointer;
+  font-size:16px; box-shadow:0 2px 10px rgba(0,0,0,.35); }
+.sidebar-expand:hover{ border-color:var(--accent); }

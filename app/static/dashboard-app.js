@@ -1998,6 +1998,14 @@ async function profileChangePassword(){
   if(res) res.textContent = '✅ Check your email for a secure reset link.';
 }
 
+// ── Left sidebar collapse/expand (desktop) ─────────────────────────
+function toggleSidebar(){
+  const collapsed = document.body.classList.toggle('sidebar-collapsed');
+  try{ localStorage.setItem('procta_sidebar_collapsed', collapsed ? '1' : ''); }catch(e){}
+}
+// Restore the collapsed preference on load (runs as the script parses).
+try{ if(localStorage.getItem('procta_sidebar_collapsed')==='1') document.body.classList.add('sidebar-collapsed'); }catch(e){}
+
 // Registration QR — show/hide a scannable QR of the self-registration link.
 // The PNG is served by /api/v1/admin/qr (same-origin, cookie-auth, CSP-safe).
 function toggleRegQR(){

@@ -32,7 +32,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
-from ..auth import require_auth
+from ..auth import require_auth, require_admin
 from ..database import async_table as _atable
 from ..db_context import system_context
 from ..limiter import limiter
@@ -181,6 +181,67 @@ async def coding_run(body: dict, request: Request):
             "status": status,
             "time_ms": result.time_ms,
             "error": err,
+        })
+
+    return {"cases": cases, "passed": passed, "total": len(sample)}
+
+
+@router.post("/api/v1/admin/coding-question/preview-run")
+@limiter.limit("30/minute")
+async def admin_coding_preview_run(body: dict, request: Request):
+    """Teacher-facing preview: run author-supplied source against a coding
+    question's SAMPLE cases so the author can verify the question (statement,
+    starter code, expected outputs) before publishing. Teacher-scoped to their
+    own questions; mirrors /coding/run's execution but auth'd as admin."""
+    teacher = await require_admin(request)
+    tid = str(teacher["id"])
+    question_id = (body.get("question_id") or "").strip()
+    language = (body.get("language") or "").strip()
+    source = body.get("source") or ""
+    if not question_id:
+        raise HTTPException(status_code=400, detail="question_id required")
+    # Ownership: the question must belong to the calling teacher.
+    owns = (await _atable("questions").select("question_id")
+            .eq("teacher_id", tid).eq("question_id", question_id).limit(1).execute()).data
+    if not owns:
+        raise HTTPException(status_code=404, detail="Question not found")
+
+    with system_context():
+        sample = (await _atable("coding_test_cases")
+                  .select("idx,input,expected_output,float_tolerance")
+                  .eq("question_id", question_id).eq("visibility", "sample")
+                  .order("idx").execute()).data or []
+
+    time_limit_ms = await _question_time_limit_ms(question_id)
+    limits = _limits_for(time_limit_ms)
+
+    cases = []
+    passed = 0
+    for row in sample:
+        expected = secrets_crypto.decrypt(row.get("expected_output") or "")
+        try:
+            result = run_one(language, source, row.get("input") or "", limits)
+        except ExecUnavailable:
+            raise HTTPException(status_code=503, detail={"retryable": True,
+                                "error": "execution service unavailable"})
+        if result.compile_error:
+            status, ok, err = "error", False, result.compile_error
+        elif result.timed_out:
+            status, ok, err = "timeout", False, None
+        else:
+            tol = row.get("float_tolerance")
+            if tol is not None:
+                ok = _float_match(result.stdout, expected, float(tol))
+            else:
+                ok = normalize_output(result.stdout) == normalize_output(expected)
+            status = "passed" if ok else "failed"
+            err = result.stderr or None
+        if ok:
+            passed += 1
+        cases.append({
+            "input": row.get("input"), "expected_output": expected,
+            "output": result.stdout, "status": status,
+            "time_ms": result.time_ms, "error": err,
         })
 
     return {"cases": cases, "passed": passed, "total": len(sample)}

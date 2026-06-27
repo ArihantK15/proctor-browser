@@ -599,6 +599,14 @@
         <tbody id="live-body"></tbody>
       </table>
     </div>
+    <!-- Recent Activity (Historical Log) — recently ENDED sessions, newest first.
+         Live shows in-progress only; this fills the "what just happened" gap. -->
+    <div style="margin-top:16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,.08));padding-top:12px">
+      <button data-action="toggleRecentActivity" style="display:flex;align-items:center;gap:8px;background:none;border:none;color:var(--text);cursor:pointer;font-size:13px;font-weight:600;padding:4px 0">
+        <span id="recent-activity-caret">▸</span> Recent Activity
+      </button>
+      <div id="recent-activity-list" style="display:none;margin-top:10px"></div>
+    </div>
   </div>
 
   <!-- RESULTS — Phase 2.10: same shell as Live Sessions tab.

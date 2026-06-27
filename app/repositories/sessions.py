@@ -172,7 +172,7 @@ async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: 
     from ..services.risk import _risk_label, compute_risk_score
     from ..utils import fmt_ist
 
-    query = _atable("exam_sessions").select("session_key,roll_number,full_name,email,score,total,percentage,time_taken_secs,submitted_at,risk_score").in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+    query = _atable("exam_sessions").select("session_key,roll_number,full_name,email,score,total,percentage,time_taken_secs,submitted_at,risk_score,status").in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
     if teacher_ids is not None:
         # Empty list → match nothing (defensive: empty org). Single-element
         # list collapses to `.eq()` for test-stub compatibility (stubs
@@ -204,6 +204,7 @@ async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: 
         "percentage": s.get("percentage") or 0.0,
         "time_taken_secs": s.get("time_taken_secs") or 0,
         "submitted_at": fmt_ist(s.get("submitted_at") or ""),
+        "status": s.get("status", ""),
         "violation_count": vcounts.get(s["session_key"], 0),
         "risk_score": s.get("risk_score"),
         "risk_label": _risk_label(s["risk_score"]) if s.get("risk_score") is not None else None,
@@ -223,7 +224,7 @@ async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_ro
         header_written = False
         total_yielded = 0
         while total_yielded < max_rows:
-            query = _atable("exam_sessions").select("session_key,roll_number,full_name,email,score,total,percentage,time_taken_secs,submitted_at,risk_score").in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
+            query = _atable("exam_sessions").select("session_key,roll_number,full_name,email,score,total,percentage,time_taken_secs,submitted_at,risk_score,status").in_("status", [SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED])
             if teacher_ids is not None:
                 if not teacher_ids:
                     query = query.eq("teacher_id", "__none__")

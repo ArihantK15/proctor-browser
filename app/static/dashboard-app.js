@@ -2011,6 +2011,42 @@ function toggleRegQR(){
   } else { box.style.display = 'none'; }
 }
 
+// ── Recent Activity (Historical Log) — recently ENDED sessions in the Live tab ──
+async function renderRecentActivity(){
+  const el = document.getElementById('recent-activity-list'); if(!el) return;
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:8px 0">Loading…</div>';
+  try{
+    const ex = currentExamId ? `&exam_id=${encodeURIComponent(currentExamId)}` : '';
+    const r = await authFetch(`${BASE}/api/v1/results?page=1&page_size=15${ex}`);
+    if(!r.ok){ el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Could not load recent activity.</div>'; return; }
+    const d = await r.json();
+    const rows = d.results || [];
+    if(!rows.length){ el.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:8px 0">No completed sessions yet.</div>'; return; }
+    el.innerHTML = rows.map(s => {
+      const name = _escHtml(s.full_name || s.email || ('#'+(s.roll_number||'')) || 'Unnamed');
+      const when = _escHtml((s.submitted_at||'').split(',').slice(0,2).join(',')) || '—';
+      const ended = (String(s.status||'').toLowerCase() === 'force_submitted') ? 'Force-ended' : 'Submitted';
+      const vc = s.violation_count || 0;
+      const flags = vc ? (vc + ' flag' + (vc>1?'s':'')) : 'clean';
+      const flagColor = vc ? 'var(--amber)' : 'var(--text-muted)';
+      return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border-subtle);font-size:12px">
+        <span style="color:var(--text-muted);font-family:monospace;white-space:nowrap">${when}</span>
+        <span style="flex:1;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name} <span style="color:var(--muted)">#${_escHtml(s.roll_number||'')}</span></span>
+        <span style="color:var(--text-muted);white-space:nowrap">${ended} · <span style="color:${flagColor}">${flags}</span></span>
+      </div>`;
+    }).join('');
+  }catch(e){ el.innerHTML = '<div style="color:var(--text-muted);font-size:12px">Could not load recent activity.</div>'; }
+}
+function toggleRecentActivity(){
+  const el = document.getElementById('recent-activity-list');
+  const caret = document.getElementById('recent-activity-caret');
+  if(!el) return;
+  const open = (el.style.display === 'none' || !el.style.display);
+  el.style.display = open ? '' : 'none';
+  if(caret) caret.textContent = open ? '▾' : '▸';
+  if(open) renderRecentActivity();
+}
+
 async function revokeSession(jti){
   if(!(await appConfirm('Revoke this session? The device will be signed out immediately.', 'Revoke session', {okText:'Revoke'}))) return;
   try{

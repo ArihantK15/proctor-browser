@@ -2,7 +2,7 @@
 *,*::before,*::after{box-sizing:border-box}
 img,video,canvas,svg{max-width:100%;height:auto}
 button,input,select,textarea{font:inherit}
-body{min-width:0}
+body{min-width:0;padding-top:60px}
 
 /* Updated 2026-05-24: redesigned to match procta.net marketing
    surface — split layout with brand-pitch aside on the left and
@@ -174,7 +174,7 @@ body.auth-active > :not(#auth-overlay):not(script):not(style){display:none !impo
   padding:14px 24px;display:flex;align-items:center;justify-content:space-between;
   gap:16px;min-height:60px;box-sizing:border-box;
   background-image:var(--grain);background-size:200px 200px;
-  position:sticky;top:0;z-index:60}
+  position:fixed;top:0;left:0;right:0;z-index:60}
 .topbar-brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
 .brand-icon{width:32px;height:32px;border-radius:var(--radius-sm);
   background:linear-gradient(135deg,var(--accent-dark),var(--accent));
@@ -729,7 +729,6 @@ tr:hover td{background:rgba(61,217,168,.04)}
 /* Phone demo hardening for the legacy /dashboard route. Keep the
    primary controls reachable while the teacher scrolls long tables. */
 @media(max-width:768px){
-  .topbar{position:sticky;top:0;z-index:50}
   .tabs{position:sticky;top:calc(60px + env(safe-area-inset-top));z-index:45;background:var(--bg)}
   .exam-bar{position:sticky;top:calc(104px + env(safe-area-inset-top));z-index:40;background:var(--card)}
   .table-wrap table{min-width:720px}

@@ -384,7 +384,7 @@
            show a meaningless "--" placeholder on first paint. -->
       <span id="last-refresh"></span>
     </div>
-    <span id="teacher-name" class="topbar-teacher"></span>
+    <span id="teacher-name" class="topbar-teacher" data-action="switchTab" data-args='["profile"]' title="View your profile" style="cursor:pointer"></span>
     <!-- Role badge — shows whether you're operating as Teacher, Admin,
          or Super Admin so the "what dashboard is this?" confusion is
          answered at a glance. Populated by applyOrgRole(). Hidden until
@@ -446,6 +446,7 @@
   <button type="button" class="tab"        data-tab="all-orgs"   role="tab" aria-selected="false" data-action="switchTab" data-args='["all-orgs"]' data-roles="superadmin" style="display:none">All Orgs</button>
   <button type="button" class="tab"        data-tab="issues"     role="tab" aria-selected="false" data-action="switchTab" data-args='["issues"]'   data-roles="superadmin" style="display:none">Issues<span class="tab-badge" id="issues-open-badge" style="display:none;background:var(--amber);color:#000">0</span></button>
   <button type="button" class="tab"        data-tab="debug"      role="tab" aria-selected="false" data-action="switchTab" data-args='["debug"]'    data-roles="superadmin" style="display:none">Flags</button>
+  <button type="button" class="tab"        data-tab="profile"    role="tab" aria-selected="false" data-action="switchTab" data-args='["profile"]'  data-roles="teacher admin superadmin">Profile</button>
 </div>
 
 <!-- EXAM SELECTOR -->
@@ -1212,6 +1213,14 @@
                 <input type="text" id="share-register-link" readonly
                   style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
                 <button class="btn btn-primary btn-sm" data-action="copyLink" data-args='["share-register-link"]' style="white-space:nowrap;padding:10px 16px">Copy</button>
+                <button class="btn btn-secondary btn-sm" data-action="toggleRegQR" style="white-space:nowrap;padding:10px 16px">QR</button>
+              </div>
+              <!-- Registration QR — students scan to open the self-registration link.
+                   PNG served by /api/v1/admin/qr (self-hosted; CSP img-src 'self'). -->
+              <div id="reg-qr-box" style="display:none;margin-top:12px;text-align:center">
+                <img id="reg-qr-img" alt="Registration QR code" width="180" height="180"
+                     style="background:#fff;border-radius:8px;padding:8px;border:1px solid var(--border)">
+                <p style="font-size:11px;color:var(--muted);margin-top:6px">Students can scan this to open the registration page.</p>
               </div>
             </div>
             <div>
@@ -2236,6 +2245,57 @@
 </div>
 
 <!-- SECURITY PANEL (2FA + sessions) -->
+<div class="panel" id="panel-profile">
+  <div style="max-width:800px;margin:0 auto;padding:20px 0">
+    <div class="panel-header">
+      <div class="panel-glow" aria-hidden="true"></div>
+      <div class="panel-header-text">
+        <h1 class="panel-title">Profile</h1>
+        <p class="panel-lede">Your account — name, email, role, and security.</p>
+      </div>
+    </div>
+    <div class="tool-card" style="margin-bottom:20px">
+      <div class="tool-card-body">
+        <h3>Account</h3>
+        <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:14px 0 4px">Display name</label>
+        <input id="profile-name" type="text" maxlength="120" autocomplete="name"
+               style="width:100%;max-width:380px;background:var(--surface-1,#161a22);border:1px solid var(--border-subtle,rgba(255,255,255,.12));border-radius:8px;padding:9px 12px;color:var(--text-high,#fff);font-size:14px;outline:none"/>
+        <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:16px 0 4px">Email</label>
+        <div id="profile-email" style="font-size:14px;color:var(--text-high,#e6edf3)">—</div>
+        <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:16px 0 4px">Role</label>
+        <div id="profile-role" style="font-size:14px;color:var(--text-high,#e6edf3)">—</div>
+      </div>
+      <div class="tool-card-actions">
+        <button class="btn btn-primary btn-sm" data-action="saveProfileName">Save name</button>
+        <span id="profile-name-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div class="tool-card">
+        <div class="tool-card-body">
+          <h3>Password</h3>
+          <p>We'll email you a secure link to set a new password.</p>
+        </div>
+        <div class="tool-card-actions">
+          <button class="btn btn-secondary btn-sm" data-action="profileChangePassword">Change password</button>
+          <span id="profile-pwd-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+        </div>
+      </div>
+      <div class="tool-card">
+        <div class="tool-card-body">
+          <h3>Active Sessions</h3>
+          <p>Devices currently signed into your account.</p>
+          <div id="profile-sessions" style="margin-top:10px;max-height:240px;overflow-y:auto"></div>
+        </div>
+        <div class="tool-card-actions">
+          <button class="btn btn-secondary btn-sm" data-action="revokeOtherSessions">Sign out other devices</button>
+          <button class="btn btn-ghost btn-sm" data-action="doLogout" style="color:var(--red)">Log out</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <div class="panel" id="panel-security">
   <div style="max-width:800px;margin:0 auto;padding:20px 0">
     <div class="panel-header">

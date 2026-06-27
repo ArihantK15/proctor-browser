@@ -1202,6 +1202,7 @@ function _dispatchTabLoad(tab){
    }
   if(tab==='org') loadOrgOverview();
   if(tab==='security') loadSecurity();
+  if(tab==='profile') loadProfile();
   if(tab==='members') loadMembers();
   if(tab==='billing') loadBilling();
   if(tab==='org-settings') loadOrgSettings();
@@ -1942,19 +1943,72 @@ async function loadSessions(){
     const r = await authFetch(`${BASE}/api/v1/auth/sessions`);
     if(!r.ok) return;
     const d = await r.json();
-    const el = document.getElementById('security-sessions');
-    if(!(d.sessions||[]).length){
-      el.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px">No active sessions</div>';
-      return;
-    }
-    el.innerHTML = (d.sessions||[]).map(s => `
+    const sessions = d.sessions || [];
+    const html = sessions.length ? sessions.map(s => `
       <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle)">
         <div style="font-size:12px;color:var(--text)">${_escHtml(s.user_agent||'Unknown browser')}</div>
         <div style="font-size:11px;color:var(--muted);font-family:monospace">${s.ip||''}</div>
         <button class="btn btn-ghost btn-sm" data-action="revokeSession" data-args='${_jsonArgsForAttr(s.jti)}' style="font-size:10px;color:var(--red);padding:2px 6px">Revoke</button>
       </div>
-    `).join('');
+    `).join('') : '<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:12px">No active sessions</div>';
+    // Fill whichever session containers are present (Security and/or Profile tab).
+    ['security-sessions','profile-sessions'].forEach(id => { const el = document.getElementById(id); if(el) el.innerHTML = html; });
   }catch(_){}
+}
+
+// ── PROFILE tab ─────────────────────────────────────────────────────
+async function loadProfile(){
+  let t = currentTeacherProfile;
+  if(!t){ try{ const r = await authFetch(`${BASE}/api/v1/auth/me`); if(r.ok) t = await r.json(); }catch(_){ } }
+  if(t){
+    const nameEl = document.getElementById('profile-name'); if(nameEl) nameEl.value = t.full_name || '';
+    const emEl = document.getElementById('profile-email'); if(emEl) emEl.textContent = t.email || '—';
+    const roleEl = document.getElementById('profile-role');
+    if(roleEl){
+      const role = (t.org_role || 'teacher'); const cap = role.charAt(0).toUpperCase() + role.slice(1);
+      roleEl.textContent = cap;
+      if(!t.is_solo){ try{ const o = await authFetch(`${BASE}/api/v1/org`); if(o.ok){ const od = await o.json(); if(od && od.name) roleEl.textContent = cap + ' · ' + od.name; } }catch(_){ } }
+    }
+  }
+  loadSessions();
+}
+async function saveProfileName(){
+  const el = document.getElementById('profile-name'); const res = document.getElementById('profile-name-result');
+  const name = ((el && el.value) || '').trim();
+  if(!name){ if(res) res.textContent = 'Name cannot be empty.'; return; }
+  if(res) res.textContent = 'Saving…';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/auth/me`, { method:'PATCH', body: JSON.stringify({full_name:name}) });
+    if(r.ok){
+      if(res) res.textContent = '✅ Saved';
+      const tn = document.getElementById('teacher-name'); if(tn) tn.textContent = name;
+      if(currentTeacherProfile) currentTeacherProfile.full_name = name;
+    } else { const d = await r.json().catch(()=>({})); if(res) res.textContent = d.detail || 'Save failed'; }
+  }catch(_){ if(res) res.textContent = 'Save failed'; }
+}
+async function profileChangePassword(){
+  const res = document.getElementById('profile-pwd-result');
+  const email = (currentTeacherProfile && currentTeacherProfile.email) || '';
+  if(!email){ if(res) res.textContent = 'No email on file.'; return; }
+  if(res) res.textContent = 'Sending…';
+  try{
+    const body = { email }; if(typeof _turnstileToken !== 'undefined' && _turnstileToken) body.captcha_token = _turnstileToken;
+    await authFetch(`${BASE}/api/v1/auth/password-reset`, { method:'POST', body: JSON.stringify(body) });
+  }catch(_){ }
+  if(res) res.textContent = '✅ Check your email for a secure reset link.';
+}
+
+// Registration QR — show/hide a scannable QR of the self-registration link.
+// The PNG is served by /api/v1/admin/qr (same-origin, cookie-auth, CSP-safe).
+function toggleRegQR(){
+  const box = document.getElementById('reg-qr-box');
+  if(!box) return;
+  if(box.style.display === 'none' || !box.style.display){
+    const link = (document.getElementById('share-register-link')||{}).value || '';
+    const img = document.getElementById('reg-qr-img');
+    if(link && img) img.src = `${BASE}/api/v1/admin/qr?data=${encodeURIComponent(link)}`;
+    box.style.display = '';
+  } else { box.style.display = 'none'; }
 }
 
 async function revokeSession(jti){
@@ -1968,11 +2022,12 @@ async function revokeSession(jti){
 
 async function revokeOtherSessions(){
   if(!(await appConfirm('Sign out all other devices? You will stay signed in on this device.', 'Sign out other devices', {okText:'Sign out'}))) return;
-  const resultEl = document.getElementById('security-sessions-result');
-  resultEl.textContent = 'Revoking...';
+  const resultEl = document.getElementById('security-sessions-result'); // only on Security tab
+  const say = (m) => { if(resultEl) resultEl.textContent = m; };
+  say('Revoking...');
   let reauth_token;
   try { reauth_token = await _getReauthToken('sign out other devices'); }
-  catch(e){ resultEl.textContent = e.message || 'Re-authentication failed'; return; }
+  catch(e){ say(e.message || 'Re-authentication failed'); return; }
   if(!reauth_token) return;
   try{
     const r = await authFetch(`${BASE}/api/v1/auth/sessions/revoke-others`, {
@@ -1980,9 +2035,9 @@ async function revokeOtherSessions(){
       body: JSON.stringify({reauth_token})
     });
     if(!r.ok) throw new Error();
-    resultEl.textContent = '✅ Other sessions revoked.';
+    say('✅ Other sessions revoked.');
     loadSessions();
-  }catch(e){ resultEl.textContent = 'Failed: '+e.message; }
+  }catch(e){ say('Failed: '+e.message); }
 }
 
 

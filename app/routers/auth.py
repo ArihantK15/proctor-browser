@@ -1067,6 +1067,22 @@ async def teacher_me(request: Request):
     }
 
 
+@router.patch("/api/v1/auth/me")
+@limiter.limit("10/minute")
+async def update_teacher_me(request: Request, body: dict = Body(default_factory=dict)):
+    """Update the current teacher's display name (Profile section)."""
+    teacher = await require_admin(request)
+    name = str((body or {}).get("full_name") or "").strip()
+    if not name or len(name) > 120:
+        raise HTTPException(status_code=400, detail="Name must be 1–120 characters.")
+    await _atable("teachers").update({"full_name": name}).eq("id", str(teacher["id"])).execute()
+    try:
+        clear_teacher_cache(str(teacher["id"]))
+    except Exception:
+        pass
+    return {"ok": True, "full_name": name}
+
+
 @router.get("/api/v1/auth/csrf")
 @limiter.limit("60/minute")
 async def issue_csrf(request: Request):

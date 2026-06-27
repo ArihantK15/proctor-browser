@@ -895,6 +895,28 @@ async def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
     return {"access_code": new_code, "enabled": bool(new_code)}
 
 
+@router.get("/api/v1/admin/qr")
+@limiter.limit("60/minute")
+async def admin_qr(request: Request):
+    """Render auth-supplied text (the teacher's own registration link) as a QR
+    PNG. Self-hosted so the image stays within the dashboard CSP (img-src 'self')
+    — external QR-image APIs are blocked."""
+    await require_admin(request)
+    data = (request.query_params.get("data") or "").strip()
+    if not data or len(data) > 512:
+        raise HTTPException(status_code=400, detail="data must be 1–512 characters")
+    import qrcode
+    qr = qrcode.QRCode(border=2, box_size=8)
+    qr.add_data(data)
+    qr.make(fit=True)
+    img = qr.make_image(fill_color="black", back_color="white")
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    from fastapi.responses import Response as _Resp
+    return _Resp(content=buf.getvalue(), media_type="image/png",
+                 headers={"Cache-Control": "private, max-age=300"})
+
+
 @router.get("/api/v1/admin/registered-count")
 @limiter.limit("60/minute")
 async def registered_count(request: Request, exam_id: str | None = None):

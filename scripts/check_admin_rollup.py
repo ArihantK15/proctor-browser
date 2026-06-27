@@ -107,6 +107,7 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     # ── coding-question authoring (own content, same as the question bank) ──
     ("admin_coding.py", "get_coding_question"):    "loads own coding question for the authoring form — private library",
     ("admin_coding.py", "upsert_coding_question"): "creates/edits own coding question — owner-only mutation",
+    ("coding.py", "admin_coding_preview_run"):     "runs own coding question's sample cases for the author preview — owner-only",
 }
 
 

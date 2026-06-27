@@ -420,7 +420,10 @@
 <!-- TABS — buttons (not <div onclick>) so keyboard users can reach them.
      role="tab" + aria-selected lets assistive tech announce active state.
      Arrow-key navigation wired up in dashboard JS (see _initTabKeyboard). -->
+<!-- Floating expand button — only visible (desktop) when the sidebar is collapsed. -->
+<button class="sidebar-expand" data-action="toggleSidebar" title="Show menu" aria-label="Show menu">☰</button>
 <div class="tabs" role="tablist" aria-label="Dashboard sections">
+  <button class="sidebar-collapse" data-action="toggleSidebar" title="Collapse menu" aria-label="Collapse menu">«</button>
   <!-- Teacher + Admin tabs — operational exam visibility.
        data-roles makes them hide from super admin (super admin is
        maintenance-only, doesn't run exams). -->

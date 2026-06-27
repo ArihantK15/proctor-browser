@@ -93,7 +93,7 @@ export default function Signup() {
         // Refresh the Turnstile widget on any failure — the token is
         // single-use, so a retry needs a fresh one.
         turnstile.refresh()
-        throw new Error(data.detail || 'Something went wrong. Please try again.')
+        throw new Error(typeof data.detail === 'string' ? data.detail : (data.detail?.message || 'Something went wrong. Please try again.'))
       }
       setSubmitted(true)  // Show "Check your inbox" instead of redirecting
     } catch (err) {
@@ -120,7 +120,7 @@ export default function Signup() {
         // bogus "captcha required" 403 from the reused stale token.
         turnstile.refresh()
         const data = await res.json().catch(() => ({}))
-        throw new Error(data.detail || 'Something went wrong.')
+        throw new Error(typeof data.detail === 'string' ? data.detail : (data.detail?.message || 'Something went wrong.'))
       }
       setDemoSubmitted(true)
     } catch (err) {

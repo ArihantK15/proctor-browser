@@ -783,6 +783,7 @@ async def _http_exception_handler(request: StarletteRequest, exc: HTTPException)
     request_id = getattr(request.state, "request_id", "") if hasattr(request, "state") else ""
     return JSONResponse(status_code=exc.status_code, content={
         "error": code_map.get(exc.status_code, "HTTP_ERROR"),
+        "code": exc.detail.get("error") if isinstance(exc.detail, dict) else None,
         "detail": exc.detail,
         "path": request.url.path,
         "request_id": request_id,

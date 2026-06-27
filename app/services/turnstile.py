@@ -116,8 +116,5 @@ async def verify_or_403(request: Request, token: Optional[str]) -> None:
     if not await verify(token, remote_ip=ip):
         raise HTTPException(
             status_code=403,
-            detail={
-                "error":   "BOT_CHECK_FAILED",
-                "message": "We couldn't verify you're human. Refresh and try again.",
-            },
+            detail="We couldn't verify you're human. Refresh and try again.",
         )

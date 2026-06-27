@@ -247,8 +247,11 @@ function LoginForm() {
                 {/* Cloudflare Turnstile (Managed mode) — invisible 99% of
                     the time. ref=null in dev makes this a harmless no-op. */}
                 <div ref={turnstile.ref} style={{ margin: '4px 0' }} />
-                <button type="submit" id="login-btn" disabled={loading}>
-                  {loading ? 'Signing in...' : (awaiting2FA ? 'Verify & Log In' : 'Log In')}
+                {/* Cloudflare Turnstile (Managed mode) — invisible 99% of
+                    the time. ref=null in dev makes this a harmless no-op. */}
+                <div ref={turnstile.ref} style={{ margin: '4px 0' }} />
+                <button type="submit" id="login-btn" disabled={loading || turnstile.loading}>
+                  {loading ? 'Signing in...' : turnstile.loading ? 'Verifying...' : (awaiting2FA ? 'Verify & Log In' : 'Log In')}
                 </button>
               </form>
               {error && <div className="auth-err">{error}</div>}
@@ -278,8 +281,8 @@ function LoginForm() {
                   onChange={(e) => setResetEmail(e.target.value)}
                   autoComplete="email" required
                 />
-                <button type="submit" id="reset-btn" disabled={resetLoading}>
-                  {resetLoading ? 'Sending...' : 'Send Reset Link'}
+                <button type="submit" id="reset-btn" disabled={resetLoading || turnstile.loading}>
+                  {resetLoading ? 'Sending...' : turnstile.loading ? 'Verifying...' : 'Send Reset Link'}
                 </button>
               </form>
               {resetErr && <div className="auth-err">{resetErr}</div>}

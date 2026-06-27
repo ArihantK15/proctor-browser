@@ -41,9 +41,13 @@ export default function useTurnstile() {
   const ref = useRef(null)
   const widgetIdRef = useRef(null)
   const [token, setToken] = useState(null)
+  const [loading, setLoading] = useState(!!SITE_KEY) // true while widget loads (only when key is set)
 
   const render = useCallback(() => {
-    if (!SITE_KEY) return // no site key → backend sandbox mode
+    if (!SITE_KEY) {
+      setLoading(false)
+      return // no site key → backend sandbox mode
+    }
     if (!ref.current || !window.turnstile) return
     // Remove any prior widget on this element before re-rendering
     if (widgetIdRef.current != null) {
@@ -55,9 +59,18 @@ export default function useTurnstile() {
       // Managed mode = invisible unless bot signal is high
       appearance: 'interaction-only',
       theme: 'dark',
-      callback: (tok) => setToken(tok),
-      'expired-callback': () => setToken(null),
-      'error-callback': () => setToken(null),
+      callback: (tok) => {
+        setToken(tok)
+        setLoading(false)
+      },
+      'expired-callback': () => {
+        setToken(null)
+        setLoading(false)
+      },
+      'error-callback': () => {
+        setToken(null)
+        setLoading(false)
+      },
     })
   }, [])
 
@@ -80,10 +93,11 @@ export default function useTurnstile() {
   // the next try (Turnstile tokens are single-use).
   const refresh = useCallback(() => {
     setToken(null)
+    setLoading(true)
     if (widgetIdRef.current != null && window.turnstile) {
       try { window.turnstile.reset(widgetIdRef.current) } catch (e) { /* noop */ }
     }
   }, [])
 
-  return { token, ref, refresh, enabled: !!SITE_KEY }
+  return { token, ref, refresh, enabled: !!SITE_KEY, loading }
 }

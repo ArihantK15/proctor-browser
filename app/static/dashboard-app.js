@@ -2047,6 +2047,63 @@ function toggleRecentActivity(){
   if(open) renderRecentActivity();
 }
 
+// ── Coding "Preview as student" — see the question as students do + run samples ──
+let _cpvQid = null;
+function codingPreviewAsStudent(){
+  const msg = document.getElementById('coding-save-msg');
+  if(typeof _editingCodingId === 'undefined' || !_editingCodingId){ if(msg) msg.textContent = 'Save the question first, then preview it.'; return; }
+  const statement = (document.getElementById('coding-statement')||{}).value || '';
+  let langs = ['python']; try{ langs = JSON.parse((document.getElementById('coding-langs')||{}).value || '["python"]'); }catch(e){}
+  const starter = (document.getElementById('coding-starter-code')||{}).value || '';
+  _cpvEnsure(); _cpvQid = _editingCodingId;
+  document.getElementById('cpv-statement').textContent = statement || '(no statement)';
+  const sel = document.getElementById('cpv-lang');
+  sel.innerHTML = (langs.length?langs:['python']).map(l => `<option value="${_escHtml(l)}">${_escHtml(l)}</option>`).join('');
+  document.getElementById('cpv-code').value = starter || '';
+  document.getElementById('cpv-results').innerHTML = '';
+  document.getElementById('cpv-overlay').style.display = 'flex';
+}
+function _cpvEnsure(){
+  if(document.getElementById('cpv-overlay')) return;
+  const ov = document.createElement('div');
+  ov.id = 'cpv-overlay'; ov.className = 'modal-overlay coding-modal'; ov.style.display = 'none';
+  ov.setAttribute('role','dialog'); ov.setAttribute('aria-modal','true');
+  ov.setAttribute('data-action','codingPreviewClose'); ov.setAttribute('data-guard-self','');
+  ov.innerHTML = '<div class="modal-box"><div class="modal-title">Preview — as students see it</div>'
+    + '<div class="coding-form">'
+    + '<div><label>Problem</label><div id="cpv-statement" style="white-space:pre-wrap;font-size:13px;color:var(--text);background:var(--surface-1,#161a22);border:1px solid var(--border-subtle,rgba(255,255,255,.1));border-radius:8px;padding:10px 12px;max-height:160px;overflow:auto"></div></div>'
+    + '<div class="field-row-2"><div><label for="cpv-lang">Language</label><select id="cpv-lang"></select></div>'
+    + '<div style="display:flex;align-items:flex-end"><button class="modal-btn" data-action="codingPreviewRun" style="width:100%">Run sample tests</button></div></div>'
+    + '<div><label for="cpv-code">Your code</label><textarea id="cpv-code" rows="10" style="font-family:var(--font-mono);font-size:12px;width:100%"></textarea></div>'
+    + '<div id="cpv-results"></div></div>'
+    + '<div class="coding-form-actions" style="margin-top:12px"><span style="flex:1"></span><button class="modal-btn modal-btn-secondary" data-action="codingPreviewClose">Close</button></div></div>';
+  document.body.appendChild(ov);
+}
+function codingPreviewClose(){ const o=document.getElementById('cpv-overlay'); if(o) o.style.display='none'; }
+async function codingPreviewRun(){
+  const res = document.getElementById('cpv-results'); if(!res) return;
+  const language = (document.getElementById('cpv-lang')||{}).value || '';
+  const source = (document.getElementById('cpv-code')||{}).value || '';
+  res.innerHTML = '<div style="color:var(--text-muted);font-size:12px;padding:6px 0">Running…</div>';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/coding-question/preview-run`, { method:'POST', body: JSON.stringify({question_id:_cpvQid, language, source}) });
+    const d = await r.json().catch(()=>({}));
+    if(!r.ok){ const e=(d.detail&&d.detail.error)||d.detail||'Run failed'; res.innerHTML = `<div style="color:var(--red);font-size:12px">${_escHtml(String(e))}</div>`; return; }
+    const cases = d.cases||[];
+    if(!cases.length){ res.innerHTML = '<div style="color:var(--text-muted);font-size:12px">This question has no sample test cases.</div>'; return; }
+    res.innerHTML = `<div style="font-size:13px;font-weight:600;margin:8px 0">${d.passed}/${d.total} sample tests passed</div>` + cases.map((c,i)=>{
+      const pass = c.status==='passed';
+      return `<div style="border:1px solid var(--border-subtle);border-radius:8px;padding:8px;margin-bottom:6px;font-size:12px">
+        <div style="font-weight:600;color:${pass?'var(--green,#3fb950)':'var(--red)'}">Sample ${i+1}: ${_escHtml(c.status)}</div>
+        <div style="color:var(--text-muted);margin-top:4px">Input: <code>${_escHtml(c.input||'')}</code></div>
+        <div style="color:var(--text-muted)">Expected: <code>${_escHtml(c.expected_output||'')}</code></div>
+        <div style="color:var(--text-muted)">Got: <code>${_escHtml(c.output||'')}</code></div>
+        ${c.error?`<div style="color:var(--red);margin-top:4px">${_escHtml(String(c.error))}</div>`:''}
+      </div>`;
+    }).join('');
+  }catch(e){ res.innerHTML = '<div style="color:var(--red);font-size:12px">Run failed.</div>'; }
+}
+
 async function revokeSession(jti){
   if(!(await appConfirm('Revoke this session? The device will be signed out immediately.', 'Revoke session', {okText:'Revoke'}))) return;
   try{

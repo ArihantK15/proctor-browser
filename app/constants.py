@@ -240,6 +240,11 @@ PLANS = {
     "enterprise": {"name": "Enterprise", "students": 999999, "price_inr": 0, "overage_price_inr": 0,   "desc": "Custom pricing — contact sales"},
 }
 TRIAL_DAYS = 14
+
+# ─── Exam settings ───────────────────────────────────────────────────
+# Maximum extra minutes a teacher can grant per student for an exam.
+# 600 min = 10 hours (covers extreme accessibility accommodations).
+MAX_TIME_EXTENSION_MINUTES = 600
 # Card-on-signup enforcement (flag-gated rollout, same pattern as
 # RLS_SESSION_CONTEXT). When ON: teacher signup creates the subscription in
 # 'created' state (no entitlement) and _check_subscription_active blocks usage

@@ -11,6 +11,7 @@ from .. import cache as _cache
 from ..repositories.questions import load_questions as _load_questions
 from ..models import SessionStatus, RESULT_STATUSES
 from ..limiter import limiter
+from ..constants import MAX_TIME_EXTENSION_MINUTES
 from ..models import (
     CreateExamIn, CreateGroupIn, RenameGroupIn,
     GroupMembersIn, ExamGroupAssignIn, DuplicateExamIn, PassMarkIn,
@@ -77,8 +78,23 @@ async def list_exams(request: Request):
         except Exception as e:
             logger.debug("Failed to batch-count sessions for exams: %s", e)
     out = []
+    now = datetime.now(timezone.utc)
     for ex in exams:
         eid = ex.get("exam_id")
+        archived_at = ex.get("archived_at")
+        starts_at = ex.get("starts_at")
+        ends_at = ex.get("ends_at")
+        is_active = not archived_at
+        if is_active and starts_at:
+            try:
+                is_active = datetime.fromisoformat(starts_at.replace("Z", "+00:00")) <= now
+            except Exception:
+                pass
+        if is_active and ends_at:
+            try:
+                is_active = datetime.fromisoformat(ends_at.replace("Z", "+00:00")) >= now
+            except Exception:
+                pass
         out.append({
             "exam_id":          eid,
             "exam_title":       ex.get("exam_title", "Exam"),
@@ -94,6 +110,7 @@ async def list_exams(request: Request):
             "created_at":       ex.get("created_at", ""),
             "teacher_id":       str(ex.get("teacher_id") or ""),
             "archived_at":      ex.get("archived_at"),
+            "is_active":        is_active,
         })
     return {"exams": out, "limit": limit, "offset": offset, "count": len(out)}
 
@@ -142,7 +159,9 @@ async def set_phone_camera_config(body: dict, request: Request):
     """Enable/disable phone camera requirement for an exam."""
     teacher = await require_admin(request)
     exam_id = (body.get("exam_id") or "").strip()
-    enabled = bool(body.get("enabled", False))
+    enabled = body.get("enabled")
+    if not isinstance(enabled, bool):
+        raise HTTPException(status_code=400, detail="enabled must be a boolean")
     if not exam_id:
         raise HTTPException(status_code=400, detail="exam_id is required")
     await _atable("exam_config").update({"phone_camera_enabled": enabled})\
@@ -794,6 +813,17 @@ async def assign_exam_batches(exam_id: str, request: Request, body: dict = Body(
         raise HTTPException(status_code=400, detail="'batches' must be a list")
     clean = sorted({str(b).strip()[:120] for b in raw if str(b).strip()})
 
+    # Validate batches exist in this teacher's student roster
+    if clean:
+        existing_batches = (await _atable("students")
+                            .select("batch")
+                            .eq("teacher_id", tid)
+                            .execute()).data or []
+        valid_batches = {(s.get("batch") or "").strip() for s in existing_batches if (s.get("batch") or "").strip()}
+        invalid = [b for b in clean if b not in valid_batches]
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"Batches not found in roster: {', '.join(invalid[:5])}")
+
     # Diff-based replace: add the new batches FIRST, then remove only the ones
     # that are gone. This never leaves the exam momentarily unrestricted (the
     # fail-open window a blind delete-then-insert would create on a mid-op
@@ -846,8 +876,8 @@ async def set_time_extension(exam_id: str, request: Request):
         raise HTTPException(status_code=400, detail="extra_minutes must be an integer")
     if not roll_number:
         raise HTTPException(status_code=400, detail="roll_number is required")
-    if not (0 <= extra_minutes <= 600):
-        raise HTTPException(status_code=400, detail="extra_minutes must be between 0 and 600")
+    if not (0 <= extra_minutes <= MAX_TIME_EXTENSION_MINUTES):
+        raise HTTPException(status_code=400, detail=f"extra_minutes must be between 0 and {MAX_TIME_EXTENSION_MINUTES}")
 
     exam_check = await _atable("exam_config").select("exam_id")\
         .eq("exam_id", exam_id).eq("teacher_id", tid).limit(1).execute()

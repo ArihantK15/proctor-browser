@@ -267,11 +267,11 @@ async def _create_teacher_signup_postgres_tx(
                 """
                 INSERT INTO teachers (
                     id, email, full_name, supabase_uid, org_id, org_role,
-                    password_hash, auth_provider, password_changed_at
+                    password_hash, auth_provider, password_changed_at, status
                 )
-                VALUES ($1, $2, $3, $4, $5, $8, $6, 'local', $7)
+                VALUES ($1, $2, $3, $4, $5, $8, $6, 'local', $7, 'pending_verification')
                 RETURNING id, email, full_name, supabase_uid, org_id, org_role,
-                          password_hash, auth_provider, password_changed_at
+                          password_hash, auth_provider, password_changed_at, status
                 """,
                 teacher_id,
                 email,
@@ -691,6 +691,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             "supabase_uid": str(supabase_uid),
             "org_id": str(org_id),
             "org_role": _signup_org_role,
+            "status": "pending_verification",
         }
         if local_password_auth_enabled():
             teacher_row.update({

@@ -247,10 +247,7 @@ function LoginForm() {
                 {/* Cloudflare Turnstile (Managed mode) — invisible 99% of
                     the time. ref=null in dev makes this a harmless no-op. */}
                 <div ref={turnstile.ref} style={{ margin: '4px 0' }} />
-                {/* Cloudflare Turnstile (Managed mode) — invisible 99% of
-                    the time. ref=null in dev makes this a harmless no-op. */}
-                <div ref={turnstile.ref} style={{ margin: '4px 0' }} />
-                <button type="submit" id="login-btn" disabled={loading || turnstile.loading}>
+                <button type="submit" id="login-btn" disabled={loading || turnstile.loading || (turnstile.enabled && !turnstile.token)}>
                   {loading ? 'Signing in...' : turnstile.loading ? 'Verifying...' : (awaiting2FA ? 'Verify & Log In' : 'Log In')}
                 </button>
               </form>
@@ -281,7 +278,7 @@ function LoginForm() {
                   onChange={(e) => setResetEmail(e.target.value)}
                   autoComplete="email" required
                 />
-                <button type="submit" id="reset-btn" disabled={resetLoading || turnstile.loading}>
+                <button type="submit" id="reset-btn" disabled={resetLoading || turnstile.loading || (turnstile.enabled && !turnstile.token)}>
                   {resetLoading ? 'Sending...' : turnstile.loading ? 'Verifying...' : 'Send Reset Link'}
                 </button>
               </form>

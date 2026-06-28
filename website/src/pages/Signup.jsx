@@ -389,7 +389,7 @@ export default function Signup() {
 
             <motion.button
               type="submit"
-              disabled={loading || turnstile.loading}
+              disabled={loading || turnstile.loading || (turnstile.enabled && !turnstile.token)}
               whileHover={(loading || turnstile.loading) ? undefined : hoverLift}
               whileTap={(loading || turnstile.loading) ? undefined : tap}
               className="w-full rounded-lg bg-accent-dark px-4 py-3 text-sm font-semibold text-white glow-btn disabled:opacity-50 disabled:cursor-not-allowed border-none cursor-pointer"
@@ -520,12 +520,12 @@ export default function Signup() {
 
               <motion.button
                 type="submit"
-                disabled={demoLoading || turnstile.loading}
+                disabled={demoLoading || turnstile.loading || (turnstile.enabled && !turnstile.token)}
                 whileHover={(demoLoading || turnstile.loading) ? undefined : hoverLift}
                 whileTap={(demoLoading || turnstile.loading) ? undefined : tap}
                 className="w-full rounded-lg border border-amber/30 bg-amber/5 px-4 py-3 text-sm font-semibold text-amber transition-colors hover:bg-amber/10 disabled:opacity-50 cursor-pointer"
               >
-                {demoLoading ? 'Submitting...' : turnstile.loading ? 'Verifying...' : 'Request Demo'}
+                {demoLoading ? 'Verifying...' : 'Request Demo'}
               </motion.button>
             </form>
           )}

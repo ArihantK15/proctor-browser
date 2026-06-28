@@ -41,44 +41,56 @@ export default function useTurnstile() {
   const ref = useRef(null)
   const widgetIdRef = useRef(null)
   const [token, setToken] = useState(null)
-  const [loading, setLoading] = useState(!!SITE_KEY) // true while widget loads (only when key is set)
+  const [loading, setLoading] = useState(!!SITE_KEY)
+  const [error, setError] = useState(null)
 
   const render = useCallback(() => {
     if (!SITE_KEY) {
       setLoading(false)
-      return // no site key → backend sandbox mode
+      return
     }
-    if (!ref.current || !window.turnstile) return
-    // Remove any prior widget on this element before re-rendering
+    if (!ref.current || !window.turnstile) {
+      console.warn('[turnstile] ref.current or window.turnstile not ready', { ref: ref.current, turnstile: !!window.turnstile })
+      return
+    }
     if (widgetIdRef.current != null) {
       try { window.turnstile.remove(widgetIdRef.current) } catch (e) { /* noop */ }
       widgetIdRef.current = null
     }
-    widgetIdRef.current = window.turnstile.render(ref.current, {
-      sitekey: SITE_KEY,
-      // Managed mode = invisible unless bot signal is high
-      appearance: 'interaction-only',
-      theme: 'dark',
-      callback: (tok) => {
-        setToken(tok)
-        setLoading(false)
-      },
-      'expired-callback': () => {
-        setToken(null)
-        setLoading(false)
-      },
-      'error-callback': () => {
-        setToken(null)
-        setLoading(false)
-      },
-    })
+    try {
+      widgetIdRef.current = window.turnstile.render(ref.current, {
+        sitekey: SITE_KEY,
+        appearance: 'interaction-only',
+        theme: 'dark',
+        callback: (tok) => {
+          console.log('[turnstile] callback, token received')
+          setToken(tok)
+          setLoading(false)
+        },
+        'expired-callback': () => {
+          console.log('[turnstile] expired-callback')
+          setToken(null)
+          setLoading(false)
+        },
+        'error-callback': (err) => {
+          console.error('[turnstile] error-callback', err)
+          setError(err)
+          setToken(null)
+          setLoading(false)
+        },
+      })
+      console.log('[turnstile] widget rendered, id:', widgetIdRef.current)
+    } catch (e) {
+      console.error('[turnstile] render failed', e)
+      setError(e)
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
     let cancelled = false
     _loadScript().then(() => {
       if (cancelled) return
-      // Defer to next tick so the ref is attached
       requestAnimationFrame(render)
     })
     return () => {
@@ -89,15 +101,14 @@ export default function useTurnstile() {
     }
   }, [render])
 
-  // After a failed submit, call refresh() to get a fresh token before
-  // the next try (Turnstile tokens are single-use).
   const refresh = useCallback(() => {
     setToken(null)
     setLoading(true)
+    setError(null)
     if (widgetIdRef.current != null && window.turnstile) {
       try { window.turnstile.reset(widgetIdRef.current) } catch (e) { /* noop */ }
     }
   }, [])
 
-  return { token, ref, refresh, enabled: !!SITE_KEY, loading }
+  return { token, ref, refresh, enabled: !!SITE_KEY, loading, error }
 }

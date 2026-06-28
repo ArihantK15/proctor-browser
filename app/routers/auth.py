@@ -652,6 +652,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             "org_name":      org_name,
             "org_role":      teacher.get("org_role", "teacher"),
             "status":        "pending_verification",
+            "card_on_signup_enforced": CARD_ON_SIGNUP_ENFORCED,
         }
 
     # Create org, subscription, teacher — transactional rollback
@@ -785,6 +786,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         "org_name":      org_name,
         "org_role":      teacher.get("org_role", "teacher"),
         "status":        "pending_verification",
+        "card_on_signup_enforced": CARD_ON_SIGNUP_ENFORCED,
     }
 
 

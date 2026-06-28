@@ -15,6 +15,7 @@ export default function Signup() {
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState({})
   const [accountType, setAccountType] = useState('solo')
+  const [cardOnSignupEnforced, setCardOnSignupEnforced] = useState(false)
 
   const [demoForm, setDemoForm] = useState({ name: '', email: '', institution: '', role: '', message: '' })
   const [demoLoading, setDemoLoading] = useState(false)
@@ -95,6 +96,8 @@ export default function Signup() {
         turnstile.refresh()
         throw new Error(typeof data.detail === 'string' ? data.detail : (data.detail?.message || 'Something went wrong. Please try again.'))
       }
+      const data = await res.json()
+      if (data.card_on_signup_enforced) setCardOnSignupEnforced(true)
       setSubmitted(true)  // Show "Check your inbox" instead of redirecting
     } catch (err) {
       setError(err.message || 'Failed to sign up. Please try again.')
@@ -171,6 +174,42 @@ export default function Signup() {
               We sent a verification link to <strong className="text-white">{form.email}</strong>.
               Click the link to activate your account, then log in.
             </p>
+            <p className="mt-4 text-xs text-slate-500">The link expires in 24 hours. Check your spam folder if you don't see it.</p>
+            {cardOnSignupEnforced && (
+              <div className="mt-6 p-4 rounded-lg border border-amber/30 bg-amber/5 text-left">
+                <div className="flex items-center gap-2 text-amber mb-2">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  <span className="font-semibold">Payment method required to start trial</span>
+                </div>
+                <p className="text-xs text-slate-400 mb-4">
+                  Your 14-day free trial starts after you add a payment method. Once verified, go to the Billing tab in your dashboard to add a card.
+                </p>
+                <a href={`${APP_URL}/dashboard#tab-billing`} target="_blank" rel="noopener noreferrer" className="btn btn-secondary btn-sm">
+                  Go to Billing
+                </a>
+              </div>
+            )}
+            <div className="mt-6">
+              <button
+                onClick={async () => {
+                  const res = await fetch(`${APP_URL}/api/v1/auth/resend-verification`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: form.email, captcha_token: turnstile.token }),
+                  })
+                  if (res.ok) {
+                    alert('Verification email resent! Check your inbox.')
+                  } else {
+                    const data = await res.json().catch(() => ({}))
+                    alert(data.detail?.message || 'Failed to resend')
+                  }
+                  turnstile.refresh()
+                }}
+                className="btn btn-secondary btn-sm"
+              >
+                Resend verification email
+              </button>
+            </div>
             <p className="mt-4 text-xs text-slate-500">The link expires in 24 hours. Check your spam folder if you don't see it.</p>
           </div>
         </motion.div>

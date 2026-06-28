@@ -74,7 +74,7 @@ export default function useTurnstile() {
     try {
       widgetIdRef.current = window.turnstile.render(ref.current, {
         sitekey: SITE_KEY,
-        appearance: 'interaction-only',
+        appearance: 'always',
         theme: 'dark',
         callback: (tok) => {
           console.log('[turnstile] callback fired, token:', tok ? tok.slice(0, 20) + '...' : 'empty')

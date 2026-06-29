@@ -10,6 +10,7 @@ import logging
 import random
 
 from ..repositories.questions import load_questions, load_exam_config
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def get_shuffle_flags(config: dict) -> tuple[bool, bool]:
 # ─── ANSWER/SCORING HELPERS ────────────────────────────────────────
 
 def normalise_answer_set(ans: str) -> set[str]:
-    if ans is None:
+    if not ans:
         return set()
     return {s.strip().upper() for s in str(ans).split(",") if s.strip()}
 
@@ -95,7 +96,7 @@ def answers_match(student_ans: str, correct_ans: str) -> bool:
     return normalise_answer_set(student_ans) == normalise_answer_set(correct_ans)
 
 
-async def translate_student_answer(session_id: str, teacher_id: str, question_id: str, student_label: str, exam_id: str = None) -> str:
+async def translate_student_answer(session_id: str, teacher_id: str, question_id: str, student_label: str, exam_id: Optional[str] = None) -> str:
     try:
         if not student_label:
             return student_label
@@ -116,7 +117,7 @@ async def translate_student_answer(session_id: str, teacher_id: str, question_id
         return student_label
 
 
-async def canonicalise_student_answer(session_id: str, teacher_id: str, question_id: str, raw: str, exam_id: str = None) -> str:
+async def canonicalise_student_answer(session_id: str, teacher_id: str, question_id: str, raw: str, exam_id: Optional[str] = None) -> str:
     if not str(raw or ""):
         return ""
     try:
@@ -133,7 +134,7 @@ async def canonicalise_student_answer(session_id: str, teacher_id: str, question
     return ",".join(sorted(translated))
 
 
-async def recalculate_score(session_id: str, payload_answers: dict, teacher_id: str = None, exam_id: str = None) -> tuple[int, int]:
+async def recalculate_score(session_id: str, payload_answers: dict, teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> tuple[int, int]:
     from ..database import async_table as _atable
     last_err = None
     for attempt in range(2):
@@ -162,7 +163,7 @@ async def recalculate_score(session_id: str, payload_answers: dict, teacher_id: 
             mcq_score = sum(1 for q in mcq_qs if answers_match(ans_map.get(str(q["id"]), ""), str(q["correct"])))
 
             # ── Coding scoring ─────────────────────────────────────────
-            coding_score = 0
+            coding_score: float = 0
             coding_total = 0
             if coding_qs:
                 # ORDER BY submitted_at so the "last wins" loop below truly keeps

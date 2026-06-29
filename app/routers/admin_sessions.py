@@ -32,6 +32,7 @@ from ..models import (
     SESSION_END_REASON_CODES, TEACHER_WARN_CHIP_CODES,
     TeacherWarnIn, SessionTerminateIn,
 )
+from typing import Optional
 
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
@@ -54,7 +55,7 @@ router = APIRouter(prefix="")
 
 @router.get("/api/v1/admin/sessions")
 @limiter.limit("60/minute")
-async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50):
+async def get_all_sessions(request: Request, exam_id: Optional[str] = None, page: int = 1, page_size: int = 50):
     teacher = await require_admin(request)
     from ..auth.scope import resolve_scope, scope_to_teacher_ids
     scope = await resolve_scope(teacher, request)
@@ -82,8 +83,8 @@ async def get_all_sessions(request: Request, exam_id: str = None, page: int = 1,
 
 @router.get("/api/v1/results")
 @limiter.limit("60/minute")
-async def get_all_results(request: Request, exam_id: str = None, page: int = 1, page_size: int = 50,
-                          group_id: str = None, batch: str = None):
+async def get_all_results(request: Request, exam_id: Optional[str] = None, page: int = 1, page_size: int = 50,
+                          group_id: Optional[str] = None, batch: Optional[str] = None):
     teacher = await require_admin(request)
     from ..auth.scope import resolve_scope, scope_to_teacher_ids
     scope = await resolve_scope(teacher, request)

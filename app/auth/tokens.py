@@ -44,11 +44,11 @@ class AuthCtx:
     """
     teacher_id: str
     roll_number: str
-    exam_id: Optional[str] = None
-    email: Optional[str] = None
-    org_id: Optional[str] = None
-    org_role: Optional[str] = None
-    sid: Optional[str] = None  # student_account id (for student-auth tokens)
+    exam_id: str | None = None
+    email: str | None = None
+    org_id: str | None = None
+    org_role: str | None = None
+    sid: str | None = None  # student_account id (for student-auth tokens)
 
     @classmethod
     def from_claims(cls, claims: dict) -> AuthCtx:
@@ -177,16 +177,18 @@ def verify_csrf(claims: dict, header_value: str) -> bool:
     expected = None
     try:
         from .. import cache as _cache
-        expected = _cache.get(key)
+        cached = _cache.get(key)
+        if isinstance(cached, str):
+            expected = cached
     except Exception:
-        expected = None
-    if not isinstance(expected, str) or not expected:
-        return _verify_stateless_csrf(claims, header_value)
-    return secrets.compare_digest(header_value, expected)
+        pass
+    if expected:
+        return secrets.compare_digest(header_value, expected)
+    return _verify_stateless_csrf(claims, header_value)
 
 
-def create_token(roll_number: str, teacher_id: str = None, exam_id: str = None,
-                 student_id: str = None) -> str:
+def create_token(roll_number: str, teacher_id: Optional[str] = None, exam_id: Optional[str] = None,
+                 student_id: Optional[str] = None) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "roll": roll_number, "jti": str(uuid.uuid4()),

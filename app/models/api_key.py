@@ -14,8 +14,8 @@ class ApiKeyOut(BaseModel):
     id: str
     name: str
     key_prefix: str
-    created_at: Optional[str] = None
-    last_used_at: Optional[str] = None
+    created_at: str | None = None
+    last_used_at: str | None = None
     is_active: bool = True
 
 

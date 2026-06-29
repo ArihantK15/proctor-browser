@@ -8,7 +8,7 @@ log = logging.getLogger("idempotency")
 _IDEM_TTL = 300  # 5 minutes — key lives long enough for any retry window
 
 
-async def check_idempotency(key: str) -> Optional[dict]:
+async def check_idempotency(key: str) -> dict | None:
     """Check if an idempotency key has already been processed.
     Returns the cached response dict if found, None otherwise.
     """

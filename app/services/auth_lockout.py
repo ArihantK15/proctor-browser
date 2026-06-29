@@ -106,7 +106,7 @@ async def record_failure(kind: str, identifier: str) -> int:
         r = _client()
         if r is None:
             raise RuntimeError("Redis client unavailable")
-        count = r.incr(key)
+        count: int = r.incr(key)  # type: ignore[assignment, union-attr]
         r.expire(key, _LOCKOUT_WINDOW)
         return count
     except Exception as e:

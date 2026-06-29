@@ -57,6 +57,32 @@ class TestReassignServiceClassification:
         for table in _MOVE_TABLES:
             assert counts[table] == 42, f"Expected 42 for {table}, got {counts[table]}"
 
+    def test_all_teacher_id_tables_are_categorized(self):
+        """Every table with a teacher_id column must be in MOVE or KEEP.
+
+        Guards the offboarding footgun: a NEW teacher_id table added to
+        neither list would silently leave rows pointing at the offboarded
+        teacher (orphaned data). Driven off schema/columns.json so CI fails
+        until the new table is explicitly categorized as move-with-teacher
+        or keep-with-identity.
+        """
+        import json
+        import os
+        cols_path = os.path.join(os.path.dirname(__file__), "..", "schema", "columns.json")
+        with open(cols_path) as fh:
+            cols = json.load(fh)
+        teacher_id_tables = {
+            t for t, c in cols.items()
+            if isinstance(c, list) and "teacher_id" in c
+        }
+        categorized = set(_MOVE_TABLES) | set(_KEEP_TABLES)
+        uncategorized = teacher_id_tables - categorized
+        assert not uncategorized, (
+            "tables with a teacher_id column are in neither _MOVE_TABLES nor "
+            f"_KEEP_TABLES (add each to exactly one): {sorted(uncategorized)}")
+        both = set(_MOVE_TABLES) & set(_KEEP_TABLES)
+        assert not both, f"tables in BOTH move and keep lists (ambiguous): {sorted(both)}"
+
 
 # ─── Phase 2 / Task 2: endpoint authz + validation ──────────────────
 

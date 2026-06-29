@@ -39,10 +39,13 @@ _lti_contexts: dict[str, dict] = {}
 _nonces: dict[str, dict] = {}
 _states: dict[str, dict] = {}
 
+from typing import Any
+_cache: Any = None
 try:
-    from .. import cache as _cache
+    from .. import cache as _cache_src
+    _cache = _cache_src
 except Exception:
-    _cache = None
+    pass
 
 _NONCE_TTL = 3600  # 1 hour
 _STATE_TTL = 600   # 10 minutes
@@ -130,7 +133,7 @@ def _store_state(state: str, data: dict):
     _states[state] = payload
 
 
-def _consume_state(state: str) -> Optional[dict]:
+def _consume_state(state: str) -> dict | None:
     """Atomically consume an OIDC state value — returns the stored
     data exactly once per state, or None if missing/already consumed.
 
@@ -187,7 +190,7 @@ _jwks_cache_ttl: dict[str, float] = {}
 _HTTP_TIMEOUT = 15
 
 
-async def _fetch_platform_jwks(key_set_url: str) -> Optional[dict]:
+async def _fetch_platform_jwks(key_set_url: str) -> dict | None:
     now = time.time()
     if key_set_url in _jwks_cache and _jwks_cache_ttl.get(key_set_url, 0) > now:
         return _jwks_cache[key_set_url]
@@ -485,36 +488,39 @@ async def _store_ags_nrps_context(claims: dict):
     )
 
 
-def get_ags_context(iss: str, deployment_id: str) -> Optional[dict]:
+def get_ags_context(iss: str, deployment_id: str) -> dict | None:
     """Retrieve stored AGS context for a deployment."""
     key = _get_ctx_key(iss, deployment_id)
     if _cache:
-        return _cache.get(key)
+        from typing import cast
+        return cast("dict | None", _cache.get(key))
     entry = _lti_contexts.get(key)
     if entry and entry.get("expires", 0) > time.time():
         return entry
     return None
 
 
-def get_nrps_context(iss: str, deployment_id: str) -> Optional[dict]:
+def get_nrps_context(iss: str, deployment_id: str) -> dict | None:
     """Retrieve stored NRPS context for a deployment."""
     key = _get_ctx_key(iss, deployment_id)
     if _cache:
-        return _cache.get(key)
+        from typing import cast
+        return cast("dict | None", _cache.get(key))
     entry = _lti_contexts.get(key)
     if entry and entry.get("expires", 0) > time.time():
         return entry
     return None
 
 
-def get_lti_student_context(lti_user_id: str) -> Optional[dict]:
+def get_lti_student_context(lti_user_id: str) -> dict | None:
     """Retrieve stored LTI context for a specific student.
 
     Returns {iss, deployment_id, sub} if found, or None.
     """
     key = f"lti_student:{lti_user_id}"
     if _cache:
-        return _cache.get(key)
+        from typing import cast
+        return cast("dict | None", _cache.get(key))
     entry = _lti_contexts.get(key)
     if entry and entry.get("expires", 0) > time.time():
         return entry

@@ -145,7 +145,7 @@ def _select_list(cols: str) -> str:
 
 
 class _SQL:
-    def __init__(self):
+    def __init__(self) -> None:
         self.params: list[Any] = []
 
     def add(self, value: Any) -> str:
@@ -207,41 +207,41 @@ def _row_dict(row: Any) -> dict:
 class _NotFilter:
     """Small PostgREST `.not_` proxy used by Supabase-shaped callers."""
 
-    def __init__(self, table: "PostgresTable"):
+    def __init__(self, table: PostgresTable):
         self._table = table
 
-    def _add(self, col: str, op: str, val) -> "PostgresTable":
+    def _add(self, col: str, op: str, val) -> PostgresTable:
         self._table._filters.append((col, f"not:{op}", val))
         return self._table
 
-    def is_(self, col: str, val) -> "PostgresTable":
+    def is_(self, col: str, val) -> PostgresTable:
         return self._add(col, "is", val)
 
-    def eq(self, col: str, val) -> "PostgresTable":
+    def eq(self, col: str, val) -> PostgresTable:
         return self._add(col, "=", val)
 
-    def neq(self, col: str, val) -> "PostgresTable":
+    def neq(self, col: str, val) -> PostgresTable:
         return self._add(col, "!=", val)
 
-    def in_(self, col: str, values) -> "PostgresTable":
+    def in_(self, col: str, values) -> PostgresTable:
         return self._add(col, "in", list(values))
 
-    def like(self, col: str, pattern: str) -> "PostgresTable":
+    def like(self, col: str, pattern: str) -> PostgresTable:
         return self._add(col, "like", pattern)
 
-    def ilike(self, col: str, pattern: str) -> "PostgresTable":
+    def ilike(self, col: str, pattern: str) -> PostgresTable:
         return self._add(col, "ilike", pattern)
 
-    def gt(self, col: str, val) -> "PostgresTable":
+    def gt(self, col: str, val) -> PostgresTable:
         return self._add(col, ">", val)
 
-    def gte(self, col: str, val) -> "PostgresTable":
+    def gte(self, col: str, val) -> PostgresTable:
         return self._add(col, ">=", val)
 
-    def lt(self, col: str, val) -> "PostgresTable":
+    def lt(self, col: str, val) -> PostgresTable:
         return self._add(col, "<", val)
 
-    def lte(self, col: str, val) -> "PostgresTable":
+    def lte(self, col: str, val) -> PostgresTable:
         return self._add(col, "<=", val)
 
 
@@ -258,7 +258,7 @@ class PostgresTable:
         self._offset_val: int | None = None
         self._on_conflict: str | None = None
         self._op: str | None = None
-        self._payload = None
+        self._payload: list | dict | None = None
         self._single = False
 
     @property
@@ -272,7 +272,7 @@ class PostgresTable:
         count: str | None = None,
         distinct_on: str | None = None,
         distinct: str | None = None,
-    ) -> "PostgresTable":
+    ) -> PostgresTable:
         """Configure a SELECT.
 
         ``distinct_on`` emits ``SELECT DISTINCT ON ({col}) ...``: returns one
@@ -293,47 +293,47 @@ class PostgresTable:
         self._op = "select"
         return self
 
-    def eq(self, col: str, val) -> "PostgresTable":
+    def eq(self, col: str, val) -> PostgresTable:
         self._filters.append((col, "=", val))
         return self
 
-    def neq(self, col: str, val) -> "PostgresTable":
+    def neq(self, col: str, val) -> PostgresTable:
         self._filters.append((col, "!=", val))
         return self
 
-    def is_(self, col: str, val) -> "PostgresTable":
+    def is_(self, col: str, val) -> PostgresTable:
         self._filters.append((col, "is", val))
         return self
 
-    def in_(self, col: str, values) -> "PostgresTable":
+    def in_(self, col: str, values) -> PostgresTable:
         self._filters.append((col, "in", list(values)))
         return self
 
-    def gte(self, col: str, val) -> "PostgresTable":
+    def gte(self, col: str, val) -> PostgresTable:
         self._filters.append((col, ">=", val))
         return self
 
-    def lte(self, col: str, val) -> "PostgresTable":
+    def lte(self, col: str, val) -> PostgresTable:
         self._filters.append((col, "<=", val))
         return self
 
-    def gt(self, col: str, val) -> "PostgresTable":
+    def gt(self, col: str, val) -> PostgresTable:
         self._filters.append((col, ">", val))
         return self
 
-    def lt(self, col: str, val) -> "PostgresTable":
+    def lt(self, col: str, val) -> PostgresTable:
         self._filters.append((col, "<", val))
         return self
 
-    def like(self, col: str, pattern: str) -> "PostgresTable":
+    def like(self, col: str, pattern: str) -> PostgresTable:
         self._filters.append((col, "like", pattern))
         return self
 
-    def ilike(self, col: str, pattern: str) -> "PostgresTable":
+    def ilike(self, col: str, pattern: str) -> PostgresTable:
         self._filters.append((col, "ilike", pattern))
         return self
 
-    def contains(self, col: str, val) -> "PostgresTable":
+    def contains(self, col: str, val) -> PostgresTable:
         """Array/JSONB containment: `col @> val`. For a text[] column pass a
         list (e.g. .contains("tags", ["math"])) — asyncpg infers the array type
         from the operator. Lets callers push membership filters into the DB
@@ -341,7 +341,7 @@ class PostgresTable:
         self._filters.append((col, "contains", val))
         return self
 
-    def or_(self, expr: str) -> "PostgresTable":
+    def or_(self, expr: str) -> PostgresTable:
         """Stash a PostgREST-style or() expression. Compiled at execute() time.
 
         Accepts the same `col.op.value,col.op.value,...` mini-grammar
@@ -352,41 +352,41 @@ class PostgresTable:
         self._filters.append(("__or__", "or", expr))
         return self
 
-    def order(self, col: str, *, desc: bool = False) -> "PostgresTable":
+    def order(self, col: str, *, desc: bool = False) -> PostgresTable:
         self._order_col = col
         self._order_desc = desc
         return self
 
-    def limit(self, n: int) -> "PostgresTable":
+    def limit(self, n: int) -> PostgresTable:
         self._limit_val = n
         return self
 
-    def range(self, start: int, end: int) -> "PostgresTable":
+    def range(self, start: int, end: int) -> PostgresTable:
         self._offset_val = start
         self._limit_val = end - start + 1
         return self
 
-    def single(self) -> "PostgresTable":
+    def single(self) -> PostgresTable:
         self._single = True
         return self
 
-    def insert(self, rows) -> "PostgresTable":
+    def insert(self, rows) -> PostgresTable:
         self._op = "insert"
         self._payload = rows if isinstance(rows, list) else [rows]
         return self
 
-    def upsert(self, rows, on_conflict: str | None = None) -> "PostgresTable":
+    def upsert(self, rows, on_conflict: str | None = None) -> PostgresTable:
         self._op = "upsert"
         self._payload = rows if isinstance(rows, list) else [rows]
         self._on_conflict = on_conflict
         return self
 
-    def update(self, fields: dict) -> "PostgresTable":
+    def update(self, fields: dict) -> PostgresTable:
         self._op = "update"
         self._payload = fields
         return self
 
-    def delete(self) -> "PostgresTable":
+    def delete(self) -> PostgresTable:
         self._op = "delete"
         return self
 
@@ -459,7 +459,7 @@ class PostgresTable:
             raise ValueError("or_() compiled to zero clauses")
         return f"({' OR '.join(parts)})"
 
-    async def execute(self) -> "_PostgresResult":
+    async def execute(self) -> _PostgresResult:
         pool = await get_pool()
         async with pool.acquire() as conn:
             # phase124 RLS (step B): when enabled, run each query inside ONE
@@ -477,7 +477,7 @@ class PostgresTable:
                     return await self._run_op(conn)
             return await self._run_op(conn)
 
-    async def _run_op(self, conn) -> "_PostgresResult":
+    async def _run_op(self, conn) -> _PostgresResult:
         op = self._op or "select"
         if op == "select":
             sql = _SQL()
@@ -520,6 +520,7 @@ class PostgresTable:
             return _PostgresResult(data=data, count=count)
 
         if op == "insert":
+            assert isinstance(self._payload, list)
             data = []
             for row in self._payload:
                 cols = list(row.keys())
@@ -534,6 +535,7 @@ class PostgresTable:
             return _PostgresResult(data=data)
 
         if op == "upsert":
+            assert isinstance(self._payload, list)
             data = []
             # Resolve conflict column: explicit override wins, otherwise
             # use the per-table default registry, otherwise fall back to
@@ -561,6 +563,7 @@ class PostgresTable:
         if op == "update":
             if not self._filters:
                 raise ValueError("update() requires at least one filter")
+            assert isinstance(self._payload, dict)
             sql = _SQL()
             sets = ", ".join(f"{_ident(k)} = {sql.add(v)}" for k, v in self._payload.items())
             rows = await conn.fetch(  # nosemgrep: python.lang.security.audit.sqli.asyncpg-sqli.asyncpg-sqli

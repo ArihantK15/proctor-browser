@@ -38,7 +38,7 @@ def _issuer_slug(iss: str) -> str:
 async def fetch_membership(
     context_memberships_url: str,
     access_token: str,
-    role_filter: Optional[str] = None,
+    role_filter: str | None = None,
 ) -> list[dict]:
     """Fetch the course membership roster from the LMS via NRPS.
 

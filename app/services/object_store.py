@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import re
-from typing import Optional
+from typing import Any, Optional
 
 _log = logging.getLogger("object_store")
 
@@ -39,11 +39,11 @@ def _kms_key_id_is_valid(key: str) -> bool:
 _client = None
 
 
-def _make_client():
+def _make_client() -> Any:
     """Build and return the boto3 S3 client. Idempotent via module cache."""
     global _client
     if _client is not None:
-        return _client
+        return _client  # type: ignore[unreachable]
     if not is_enabled():
         _client = False
         return _client
@@ -140,7 +140,7 @@ def upload_screenshot(s3_key: str, data: bytes, content_type: str = "image/jpeg"
         return False
 
 
-def fetch_screenshot(s3_key: str) -> Optional[bytes]:
+def fetch_screenshot(s3_key: str) -> bytes | None:
     """Fetch *s3_key* from S3. Returns bytes or None on failure.
 
     Used as fallback when a screenshot is not found on local disk (S3 is

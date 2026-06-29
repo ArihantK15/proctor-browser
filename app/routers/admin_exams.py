@@ -491,7 +491,7 @@ async def get_analytics(request: Request):
     q_analysis = []
     if questions:
         skeys = [s["session_key"] for s in sessions]
-        all_answers = {sk: {} for sk in skeys}
+        all_answers: dict[str, dict] = {sk: {} for sk in skeys}
         for i in range(0, len(skeys), 50):
             chunk = skeys[i:i+50]
             ans_q = (_atable("answers")
@@ -507,8 +507,8 @@ async def get_analytics(request: Request):
 
         sorted_sess = sorted(sessions, key=lambda s: s.get("percentage") or 0)
         q1_cutoff = max(1, count // 4)
-        bottom_keys = set(s["session_key"] for s in sorted_sess[:q1_cutoff])
-        top_keys = set(s["session_key"] for s in sorted_sess[-q1_cutoff:])
+        bottom_keys = {s["session_key"] for s in sorted_sess[:q1_cutoff]}
+        top_keys = {s["session_key"] for s in sorted_sess[-q1_cutoff:]}
 
         for q in questions:
             qid = str(q.get("question_id") or q.get("id", ""))
@@ -553,7 +553,7 @@ async def get_analytics(request: Request):
     viols = (await viol_q.execute()).data or []
     scored_viols = [v for v in viols if v.get("severity") in ("high", "medium")]
 
-    type_counts = {}
+    type_counts: dict[str, int] = {}
     for v in scored_viols:
         vt = v["violation_type"]
         type_counts[vt] = type_counts.get(vt, 0) + 1

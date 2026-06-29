@@ -118,7 +118,7 @@ def _rate_limit_key(request: Request) -> str:
     return get_remote_address(request)
 
 
-def _custom_rate_limit_handler(request: Request, exc: RateLimitExceeded):
+def _custom_rate_limit_handler(request: Request, exc: Exception) -> JSONResponse:
     _log.warning("[rate-limit] %s %s from %s", request.method, request.url.path, get_remote_address(request))
     return JSONResponse(
         status_code=429,

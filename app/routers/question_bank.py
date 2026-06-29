@@ -731,8 +731,6 @@ async def lint_questions_endpoint(request: Request, body: LintQuestionsIn = Body
 
     cleaned = []
     for i, q in enumerate(questions):
-        if not isinstance(q, dict):
-            continue
         cleaned.append({
             "idx": q.get("idx", i),
             "question": str(q.get("question") or "")[:1500],
@@ -861,14 +859,10 @@ async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
                 "image_url": bq.get("image_url") or "",
             })
         if bad and not new_rows:
-            raise HTTPException(status_code=422, detail={
-                "message": "All selected bank rows are missing required fields. "
-                           "Edit them in the bank list (pencil icon) before adding.",
-                "rows": bad,
-            })
+            raise HTTPException(status_code=422, detail="All selected bank rows are missing required fields. Edit them in the bank list (pencil icon) before adding.")
         if new_rows:
             optional_cols = {"image_url", "question_type", "tags"}
-            attempted_drops = []
+            attempted_drops: list[str] = []
             for _attempt in range(len(optional_cols) + 1):
                 try:
                     await _atable("questions").insert(new_rows).execute()
@@ -1133,7 +1127,8 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
 
     exam_id = body.exam_id
     if tid and exam_id:
-        update_fields = {}
+        from typing import Any
+        update_fields: dict[str, Any] = {}
         if body.exam_title is not None:
             update_fields["exam_title"] = body.exam_title
         if body.duration_minutes is not None:

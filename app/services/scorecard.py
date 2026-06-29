@@ -214,7 +214,8 @@ def _build_violation_table(viol_counts: dict):
 
     vt = Table(vdata, colWidths=[370, 100])
     row_count = len(vdata)
-    s = [
+    from typing import Any
+    s: list[Any] = [
         ("BACKGROUND", (0, 0), (-1, 0), _c.HexColor("#1a1a2e")),
         ("TEXTCOLOR", (0, 0), (-1, 0), _c.white),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -336,7 +337,7 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
         pct = round(score / total * 100, 1)
     pct = pct or 0
     risk = await compute_risk_score(session_id, teacher_id=tid)
-    passed = pct >= (config.get("pass_mark") or 40)
+    passed = pct >= ((config or {}).get("pass_mark") or 40)
 
     viol_rows = (await _atable("violations")
                  .select("id, violation_type, severity, details, created_at")
@@ -438,7 +439,7 @@ async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str,
 
     doc.build(story)
     buf.seek(0)
-    roll = _safe_filename(exam.get("roll_number"), "unknown")
+    roll = _safe_filename(exam.get("roll_number") or "unknown", "unknown")
     fname = f"scorecard_{roll}_{now_ist().strftime('%Y%m%d')}.pdf"
     summary = {
         "exam": exam, "exam_title": exam_title,

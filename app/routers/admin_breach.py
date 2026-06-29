@@ -88,7 +88,7 @@ async def _write_audit_log(
     """
     user = getattr(request.state, "user", {}) or {}
     await log_admin_action(
-        teacher_id=user.get("id"),
+        teacher_id=str(user.get("id") or ""),
         action=f"breach.{action}",
         target_type="breach_incident",
         target_id=breach_id,

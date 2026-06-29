@@ -57,7 +57,7 @@ async def violation_counts_by_session(session_keys: list[str]) -> dict[str, int]
     return counts
 
 
-async def calibration_tiers_by_session(session_keys: list[str], teacher_id: Optional[str] = None,
+async def calibration_tiers_by_session(session_keys: list[str], teacher_id: str | None = None,
                                        teacher_ids: list[str] | None = None) -> dict[str, dict]:
     """Calibration tier per session. Scope filter precedence mirrors
     fetch_all_results: teacher_ids (org multi) > teacher_id (single) >
@@ -126,7 +126,7 @@ async def check_group_access(roll_number: str, teacher_id: str, exam_id: str) ->
     return False
 
 
-async def cohort_roll_numbers(teacher_ids: list[str], group_id: str | None = None,
+async def cohort_roll_numbers(teacher_ids: list[str] | None, group_id: str | None = None,
                               batch: str | None = None) -> set[str] | None:
     """Resolve a group_id and/or batch label to matching roll_numbers.
 
@@ -143,18 +143,17 @@ async def cohort_roll_numbers(teacher_ids: list[str], group_id: str | None = Non
         return None
     result: set[str] = set()
     if group_id:
-        rows = (await _atable("student_group_members")
-                .select("roll_number")
-                .eq("group_id", group_id)
-                .in_("teacher_id", teacher_ids)
-                .execute()).data or []
+        query = _atable("student_group_members").select("roll_number").eq("group_id", group_id)
+        if teacher_ids is not None:
+            query = query.in_("teacher_id", teacher_ids)
+        rows = (await query.execute()).data or []
         result.update(r["roll_number"] for r in rows if r.get("roll_number"))
     if batch:
         folded = batch.strip().casefold()
-        rows = (await _atable("students")
-                .select("roll_number")
-                .in_("teacher_id", teacher_ids)
-                .execute()).data or []
+        query = _atable("students").select("roll_number")
+        if teacher_ids is not None:
+            query = query.in_("teacher_id", teacher_ids)
+        rows = (await query.execute()).data or []
         result.update(
             r["roll_number"] for r in rows
             if r.get("roll_number") and (r.get("batch") or "").strip().casefold() == folded
@@ -162,7 +161,7 @@ async def cohort_roll_numbers(teacher_ids: list[str], group_id: str | None = Non
     return result if result else {"__none__"}
 
 
-async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: int = 5000,
+async def fetch_all_results(teacher_id: Optional[str] = None, exam_id: Optional[str] = None, limit: int = 5000,
                             teacher_ids: list[str] | None = None,
                             roll_numbers: set[str] | None = None) -> list[dict]:
     """Fetch completed-session results. Filter precedence:
@@ -212,7 +211,7 @@ async def fetch_all_results(teacher_id: str = None, exam_id: str = None, limit: 
     } for s in sessions]
 
 
-async def stream_csv_results(teacher_id: str = None, exam_id: str = None, max_rows: int = 5000,
+async def stream_csv_results(teacher_id: Optional[str] = None, exam_id: Optional[str] = None, max_rows: int = 5000,
                              teacher_ids: list[str] | None = None,
                              roll_numbers: set[str] | None = None):
     from ..utils import fmt_ist

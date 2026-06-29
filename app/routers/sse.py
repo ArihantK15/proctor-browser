@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import time
+from typing import Any, AsyncGenerator, cast
 from PIL import Image
 from fastapi import APIRouter, Request, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse, Response
@@ -122,7 +123,7 @@ async def _consume_connect_token(token: str) -> str | None:
                 # would rather than returning the quoted string.
                 try:
                     import json as _json
-                    return str(_json.loads(raw))
+                    return str(_json.loads(cast(str, raw)))
                 except (ValueError, TypeError):
                     return str(raw)
             except Exception:
@@ -168,10 +169,10 @@ def _recompress_jpeg(jpeg_bytes: bytes) -> bytes:
 def _evict_live_frame_ts(now: float | None = None) -> None:
     now = now or time.time()
     if not hasattr(_evict_live_frame_ts, "_last_cleanup"):
-        _evict_live_frame_ts._last_cleanup = 0
-    if now - _evict_live_frame_ts._last_cleanup < 60 and len(_last_live_frame_ts) < 1000:
+        setattr(_evict_live_frame_ts, "_last_cleanup", 0)
+    if now - getattr(_evict_live_frame_ts, "_last_cleanup") < 60 and len(_last_live_frame_ts) < 1000:
         return
-    _evict_live_frame_ts._last_cleanup = now
+    setattr(_evict_live_frame_ts, "_last_cleanup", now)
     cutoff = now - 300
     for sid, last in list(_last_live_frame_ts.items()):
         if last < cutoff:
@@ -529,7 +530,7 @@ async def ws_live_frame(websocket: WebSocket, session_id: str):
         data = json.loads(auth_msg)
         token = data.get("token", "")
         claims = _decode_token(token, EXAM_TOKEN_SIGNING_KEYS)
-    except (asyncio.TimeoutError, json.JSONDecodeError, JWTError, KeyError):
+    except (TimeoutError, json.JSONDecodeError, JWTError, KeyError):
         await ws_rate_limiter.decrement(client_ip)
         await websocket.close(code=4001, reason="auth_failed")
         return
@@ -744,17 +745,18 @@ async def _store_room_frame(session_id: str, jpeg_bytes: bytes):
 
     # Track per-session frame count for debugging (cleaned up on disconnect)
     if not hasattr(_store_room_frame, "_frame_meta"):
-        _store_room_frame._frame_meta: dict[str, dict] = {}
-    meta = _store_room_frame._frame_meta.setdefault(session_id, {"count": 0})
+        setattr(_store_room_frame, "_frame_meta", {})
+    meta = cast(dict, getattr(_store_room_frame, "_frame_meta")).setdefault(session_id, {"count": 0})
     meta["count"] += 1
 
     # Rate limit: max 2 FPS per session
     if not hasattr(_store_room_frame, "_last_ts"):
-        _store_room_frame._last_ts: dict[str, float] = {}
+        setattr(_store_room_frame, "_last_ts", {})
     now = time.time()
-    if now - _store_room_frame._last_ts.get(session_id, 0) < 0.5:
+    last_ts = cast(dict, getattr(_store_room_frame, "_last_ts"))
+    if now - last_ts.get(session_id, 0) < 0.5:
         return
-    _store_room_frame._last_ts[session_id] = now
+    last_ts[session_id] = now
 
     # Match the live-frame recompress pipeline (perf audit #2): mobile
     # phone-cam uploads can be 200-500 KB raw; recompressing to JPEG
@@ -852,7 +854,7 @@ async def sse_sessions(request: Request):
         max_seconds = 0
     exam_id = request.query_params.get("exam_id") or None
 
-    async def event_stream():
+    async def event_stream() -> AsyncGenerator[str, None]:
         alert_channel = f"alerts:{teacher_id}"
         events_channel = f"sessions:{teacher_id}"
         stream_started = time.time()
@@ -903,7 +905,7 @@ async def sse_sessions(request: Request):
                         wait_timeout = min(wait_timeout, max(0.1, max_seconds - elapsed))
                     evt_type, data = await asyncio.wait_for(queue.get(), timeout=wait_timeout)
                     yield f"event: {evt_type}\ndata: {json.dumps(data)}\n\n"
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # No pub/sub event for `wait_timeout`s → emit a FULL snapshot,
                     # not a bare ping. The dashboard's 'refresh' handler renders
                     # straight from data.sessions / data.all_sessions, so a

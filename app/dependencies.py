@@ -18,10 +18,9 @@ Migration guide:
   _assert_session_owned     → from .repositories.sessions import ...
   compute_risk_score, etc.  → from .services.risk import ...
   _recalculate_score, etc.  → from .services.scoring import ...
-  _build_sessions_payload   → from .services.sessions import ...
-  _cache                    → from . import cache
-  _bus_publish, etc.        → from .event_bus import ...
+
 """
+from typing import Any, AsyncGenerator
 
 # ─── Auth ──────────────────────────────────────────────────────────
 from .auth import (
@@ -83,14 +82,16 @@ try:
 except Exception as _e:
     _HAS_REDIS = False
     _boot_log.warning("event_bus import failed (%s) — falling back to in-memory pub/sub.", _e)
-    def _bus_publish(*a, **kw): pass
-    async def _bus_async_publish(*a, **kw): pass
-    async def _bus_subscribe(*a, **kw): pass
+    def _bus_publish(channel: str, payload: dict) -> None: pass
+    async def _bus_async_publish(channel: str, payload: dict) -> None: pass
+    async def _bus_subscribe(channel: str, keepalive_sec: int = 15) -> AsyncGenerator[dict[Any, Any], None]:
+        return
+        yield  # pragma: no cover, unreachable -- makes this an async generator
 
 try:
     from . import cache as _cache
 except Exception as _e:
-    _cache = None
+    _cache = None  # type: ignore[assignment]
     _boot_log.warning("cache import failed (%s) — running without Redis cache.", _e)
 
 # ─── Practice mode ─────────────────────────────────────────────────

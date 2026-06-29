@@ -169,7 +169,7 @@ async def lti_launch(request: Request):
 
     # Validate the id_token
     try:
-        claims = await validate_id_token(id_token, state)
+        claims = await validate_id_token(str(id_token), str(state))
     except ValueError as e:
         logger.warning("LTI launch validation failed: %s", e)
         raise HTTPException(status_code=401, detail=str(e))
@@ -241,7 +241,7 @@ async def lti_deeplink(request: Request):
 
     # Validate the deep linking request JWT
     try:
-        claims = await validate_deep_linking_request(jwt_token)
+        claims = await validate_deep_linking_request(str(jwt_token))
     except ValueError as e:
         logger.warning("Deep linking validation failed: %s", e)
         raise HTTPException(status_code=401, detail=str(e))

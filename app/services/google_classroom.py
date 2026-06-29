@@ -74,7 +74,7 @@ def get_authorization_url(state: str) -> tuple[str, str]:
     return auth_url, flow.code_verifier
 
 
-def exchange_code(code: str, code_verifier: Optional[str] = None) -> Optional[dict]:
+def exchange_code(code: str, code_verifier: str | None = None) -> dict | None:
     """Exchange the OAuth code for tokens. Returns token dict or None.
 
     code_verifier is the PKCE verifier captured at get_authorization_url time
@@ -119,7 +119,7 @@ def exchange_code(code: str, code_verifier: Optional[str] = None) -> Optional[di
         return None
 
 
-def _build_credentials(token_dict: dict) -> Optional[Credentials]:
+def _build_credentials(token_dict: dict) -> Credentials | None:
     """Build Google Credentials from a stored token dict, refreshing if needed."""
     try:
         creds = Credentials(
@@ -201,7 +201,7 @@ async def list_students(creds: Credentials, course_id: str) -> list[dict]:
 
 
 async def create_coursework(creds: Credentials, course_id: str, title: str,
-                            max_points: float) -> Optional[str]:
+                            max_points: float) -> str | None:
     """Create a graded ASSIGNMENT courseWork in a course; return its id or None.
 
     Procta creates one assignment per linked exam (lazily, the first time a
@@ -210,9 +210,10 @@ async def create_coursework(creds: Credentials, course_id: str, title: str,
     which push_grade then grades. Fail-soft: a creation failure must not break
     exam submission — the score is still recorded in Procta.
     """
+    from typing import Any
     try:
         service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
-        body = {
+        body: dict[str, Any] = {
             "title": (title or "Procta Exam")[:3000],
             "description": "Auto-created by Procta — exam scores are posted here.",
             "workType": "ASSIGNMENT",

@@ -12,7 +12,9 @@ import os
 import logging
 import asyncio
 import threading
-from typing import Optional, Callable, Any
+from typing import Optional, Any
+from collections.abc import Callable as _Callable
+from typing import cast
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +36,7 @@ def _rq_enabled() -> bool:
     return os.environ.get("RQ_ENABLED", "").lower() in ("1", "true", "yes")
 
 
-def enqueue_job(func: Callable, *args, queue_name: str = "default", **kwargs) -> Optional[dict]:
+def enqueue_job(func: str | _Callable, *args, queue_name: str = "default", **kwargs) -> dict | None:
     """Enqueue *func* to an RQ queue, or call it synchronously.
 
     Returns ``None`` when the job was enqueued (async), or the function's
@@ -49,11 +51,11 @@ def enqueue_job(func: Callable, *args, queue_name: str = "default", **kwargs) ->
         from redis import Redis
         q = Queue(queue_name, connection=Redis.from_url(_redis_url()))
         q.enqueue(
-            func, *args, **kwargs,
+            cast(_Callable, func), *args, **kwargs,
             retry=Retry(max=_retry_max(), interval=_retry_intervals()),
         )
         return None
-    return func(*args, **kwargs)
+    return cast(_Callable, func)(*args, **kwargs)
 
 
 # ── Persistent event loop for RQ workers ────────────────────────────
@@ -66,8 +68,8 @@ def enqueue_job(func: Callable, *args, queue_name: str = "default", **kwargs) ->
 # pool. With a persistent loop, the pool lives for the worker's
 # entire lifetime.
 
-_persistent_loop: Optional[asyncio.AbstractEventLoop] = None
-_loop_thread: Optional[threading.Thread] = None
+_persistent_loop: asyncio.AbstractEventLoop | None = None
+_loop_thread: threading.Thread | None = None
 _loop_lock = threading.Lock()
 
 

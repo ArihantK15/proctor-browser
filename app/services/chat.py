@@ -159,13 +159,14 @@ class ChatHub:
                 oldest_tid = None
                 oldest_ws = None
                 oldest_ts = time.monotonic()
+                oldest_tid = ""
                 for tid, by_sock in self.teacher_last_seen.items():
                     for sock, last in by_sock.items():
                         if last < oldest_ts:
                             oldest_ts = last
                             oldest_tid = tid
                             oldest_ws = sock
-                if oldest_ws is not None:
+                if oldest_ws is not None and oldest_tid:
                     pts = self.teacher_conns.get(oldest_tid)
                     if pts:
                         pts.discard(oldest_ws)
@@ -393,16 +394,16 @@ class ChatHub:
                 self.student_meta.pop(sid, None)
                 self._last_pong.pop(ws, None)
             for tid, ws in stale_teachers + failed_teachers:
-                conns = self.teacher_conns.get(tid)
-                if conns:
-                    conns.discard(ws)
+                _conns = self.teacher_conns.get(tid)
+                if _conns:
+                    _conns.discard(ws)
                 self._last_pong.pop(ws, None)
-                by_sock = self.teacher_last_seen.get(tid)
-                if by_sock is not None:
-                    by_sock.pop(ws, None)
-                    if not by_sock:
+                _by_sock = self.teacher_last_seen.get(tid)
+                if _by_sock is not None:
+                    _by_sock.pop(ws, None)
+                    if not _by_sock:
                         self.teacher_last_seen.pop(tid, None)
-                if conns is not None and not conns:
+                if _conns is not None and not _conns:
                     self.teacher_conns.pop(tid, None)
 
     async def _cleanup_idle(self) -> None:
@@ -447,13 +448,13 @@ class ChatHub:
                 self.student_conns.pop(sid, None)
                 self.student_meta.pop(sid, None)
             for tid, ws in idle_teachers:
-                conns = self.teacher_conns.get(tid)
-                if conns:
-                    conns.discard(ws)
-                by_sock = self.teacher_last_seen.get(tid)
-                if by_sock is not None:
-                    by_sock.pop(ws, None)
-                    if not by_sock:
+                _conns2 = self.teacher_conns.get(tid)
+                if _conns2:
+                    _conns2.discard(ws)
+                _by_sock2 = self.teacher_last_seen.get(tid)
+                if _by_sock2 is not None:
+                    _by_sock2.pop(ws, None)
+                    if not _by_sock2:
                         self.teacher_last_seen.pop(tid, None)
 
             over = self._global_connection_count() - self.GLOBAL_MAX_CONNECTIONS
@@ -492,13 +493,13 @@ class ChatHub:
                     self.student_conns.pop(kid, None)
                     self.student_meta.pop(kid, None)
                 else:
-                    conns = self.teacher_conns.get(kid)
-                    if conns:
-                        conns.discard(ws)
-                    by_sock = self.teacher_last_seen.get(kid)
-                    if by_sock is not None:
-                        by_sock.pop(ws, None)
-                        if not by_sock:
+                    _conns3 = self.teacher_conns.get(kid)
+                    if _conns3:
+                        _conns3.discard(ws)
+                    _by_sock3 = self.teacher_last_seen.get(kid)
+                    if _by_sock3 is not None:
+                        _by_sock3.pop(ws, None)
+                        if not _by_sock3:
                             self.teacher_last_seen.pop(kid, None)
-                    if conns is not None and not conns:
+                    if _conns3 is not None and not _conns3:
                         self.teacher_conns.pop(kid, None)

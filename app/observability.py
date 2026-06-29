@@ -102,7 +102,7 @@ def scrub_sentry_event(event, hint):
 # Defaults every Procta Sentry init should pass. PII off, stack-frame locals off
 # (they hold the exact OTP/answer/email the before_send hook strips elsewhere),
 # and a small request-body window so the key-wise scrub isn't truncated mid-JSON.
-SAFE_SENTRY_KWARGS = dict(
+SAFE_SENTRY_KWARGS: dict[str, bool | str | int] = dict(
     send_default_pii=False,
     include_local_variables=False,
     max_request_body_size="small",

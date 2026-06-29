@@ -75,7 +75,7 @@ if SENTRY_DSN:
             # (SAFE_SENTRY_KWARGS): PII off, frame locals off (they hold the
             # exact OTP/answers the scrubber strips elsewhere), small body
             # window so the key-wise scrub isn't truncated mid-JSON.
-            **SAFE_SENTRY_KWARGS,
+            **SAFE_SENTRY_KWARGS,  # type: ignore[arg-type]
             traces_sample_rate=float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0.1")),
             profiles_sample_rate=float(os.environ.get("SENTRY_PROFILES_SAMPLE_RATE", "0.0")),
             environment=os.environ.get("SENTRY_ENVIRONMENT", "production"),
@@ -750,9 +750,9 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                         if not verify_csrf(claims, csrf_header):
                             return Response(status_code=403, content="CSRF validation failed")
                 except jwt.ExpiredSignatureError:
-                    token = None  # Expired JWT — treat as unauthenticated
+                    token = ""  # Expired JWT — treat as unauthenticated
                 except jwt.InvalidTokenError:
-                    token = None  # Malformed JWT — treat as unauthenticated
+                    token = ""  # Malformed JWT — treat as unauthenticated
         return await call_next(request)
 
 
@@ -783,7 +783,6 @@ async def _http_exception_handler(request: StarletteRequest, exc: HTTPException)
     request_id = getattr(request.state, "request_id", "") if hasattr(request, "state") else ""
     return JSONResponse(status_code=exc.status_code, content={
         "error": code_map.get(exc.status_code, "HTTP_ERROR"),
-        "code": exc.detail.get("error") if isinstance(exc.detail, dict) else None,
         "detail": exc.detail,
         "path": request.url.path,
         "request_id": request_id,

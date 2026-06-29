@@ -58,7 +58,7 @@ async def get_access_token(
     client_id: str,
     auth_token_url: str,
     scopes: list[str],
-) -> Optional[str]:
+) -> str | None:
     """Obtain an OAuth2 access token from the LMS for AGS/NRPS calls.
 
     Uses the client_credentials grant type with a JWT client_assertion
@@ -154,7 +154,7 @@ async def post_score(
 async def get_results(
     lineitem_url: str,
     access_token: str,
-    user_id: Optional[str] = None,
+    user_id: str | None = None,
 ) -> list[dict]:
     """Read results for a line item from the LMS.
 
@@ -193,7 +193,7 @@ async def create_line_item(
     score_maximum: float,
     resource_id: str = "",
     tag: str = "",
-) -> Optional[str]:
+) -> str | None:
     """Create a new line item in the LMS.
 
     Args:

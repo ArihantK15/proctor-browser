@@ -46,7 +46,7 @@ def _is_configured() -> bool:
     return bool(os.environ.get("TURNSTILE_SECRET_KEY"))
 
 
-async def verify(token: Optional[str], remote_ip: str = "") -> bool:
+async def verify(token: str | None, remote_ip: str = "") -> bool:
     """Server-side check that the Turnstile token is genuine.
 
     Returns:
@@ -106,7 +106,7 @@ async def verify(token: Optional[str], remote_ip: str = "") -> bool:
     return ok
 
 
-async def verify_or_403(request: Request, token: Optional[str]) -> None:
+async def verify_or_403(request: Request, token: str | None) -> None:
     """Convenience wrapper: raise 403 on failure.
 
     Use in endpoint bodies for one-line CAPTCHA gating:

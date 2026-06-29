@@ -24,6 +24,7 @@ What's still here:
 import os
 import sys
 import logging
+from typing import Any
 
 _log = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ class _UnavailableSupabase:
 
 _supabase_url = os.environ.get("SUPABASE_URL", "").strip()
 _supabase_key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "").strip()
-_supabase_instance = None
+_supabase_instance: Any = None
 
 def get_supabase():
     """Lazy-init Supabase client — avoids blocking module import."""

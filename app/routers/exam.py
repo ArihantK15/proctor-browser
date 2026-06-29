@@ -13,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import Request, HTTPException, Body
+from typing import Optional
 
 _exam_log = logging.getLogger("exam")
 
@@ -181,7 +182,7 @@ async def validate_student(request: Request, body: ValidateIn):
     # Resolve teacher + student. Exam window errors are intentionally
     # user-facing; identity/access-code failures below are deliberately
     # collapsed to avoid roll-number enumeration.
-    pre_tid, pre_exam_id = await _resolve_teacher(roll_upper, exam_id, provided_code, provided_teacher_id)
+    pre_tid, pre_exam_id = await _resolve_teacher(roll_upper, exam_id or "", provided_code, provided_teacher_id)
     config = await _load_exam_config(pre_tid, exam_id=exam_id)
     # Entry uses the LOBBY gate: open from starts_at - early_join_minutes so
     # students can verify early. The exam questions stay locked until starts_at
@@ -215,10 +216,10 @@ async def validate_student(request: Request, body: ValidateIn):
         # this the acceptance update below was dead code and access-code invites
         # were never recorded as accepted.
         matched_invite_id = await _validate_access_code(
-            provided_code, student_tid, student, exam_id) or matched_invite_id
-        await _check_group_restrictions(student, student_tid, exam_id)
+            provided_code, student_tid or "", student, exam_id or "") or matched_invite_id
+        await _check_group_restrictions(student, student_tid or "", exam_id or "")
         await _check_guardian_consent(student)
-        existing_key = await _check_existing_session(student, student_tid, exam_id)
+        existing_key = await _check_existing_session(student, student_tid or "", exam_id or "")
         if not existing_key:
             await _check_concurrent_exam_limit(student, student_tid)
     except HTTPException as exc:
@@ -478,12 +479,12 @@ async def _validate_access_code(provided_code: str, student_tid: str, student: d
     """Check exam access code, returning matched_invite_id or None."""
     current_code = await _get_access_code(student_tid, exam_id=exam_id)
     if not current_code:
-        return None
+        return ""
     shared_ok = bool(provided_code) and secrets.compare_digest(
         str(provided_code), str(current_code)
     )
     if shared_ok:
-        return None
+        return ""
     if not provided_code or not student_tid:
         raise HTTPException(status_code=403, detail="Invalid exam access code. Ask your examiner for the correct code.")
     inv_q = _atable("student_invites").select("id,access_code,status,expires_at,exam_id").eq("teacher_id", str(student_tid)).eq("roll_number", student["roll_number"])
@@ -604,7 +605,7 @@ async def _check_existing_session(student: dict, student_tid: str, exam_id: str)
     return in_progress[0]["session_key"] if in_progress else None
 
 
-def _build_validate_response(student: dict, student_tid: str, exam_id: str, existing_session: str = None, duration_minutes: int = None, config: dict = None) -> dict:
+def _build_validate_response(student: dict, student_tid: str, exam_id: str, existing_session: Optional[str] = None, duration_minutes: Optional[int] = None, config: Optional[dict] = None) -> dict:
     """Build the standard validate-student response dict."""
     # Observability for the #1 cause of "the student started but never showed
     # up on the teacher's dashboard": a token minted WITHOUT a teacher_id (tid)
@@ -1007,7 +1008,7 @@ async def log_event(event: EventIn, request: Request):
         "details":        event.details,
     }
     if event.detection_confidence is not None:
-        viol_row["detection_confidence"] = event.detection_confidence
+        viol_row["detection_confidence"] = str(event.detection_confidence)
     if tid:
         viol_row["teacher_id"] = tid
 
@@ -1047,7 +1048,7 @@ async def log_event(event: EventIn, request: Request):
             session_id=event.session_id,
             violation_type=event.event_type,
             severity=event.severity,
-            details=event.details,
+            details=event.details or "",
             roll_number=roll,
         )
 
@@ -1853,7 +1854,7 @@ async def submit_exam(result: ResultIn, request: Request):
         # or neither; each path no-ops when its context is absent.
         try:
             asyncio.create_task(_try_google_grade_passback(
-                trusted_roll, server_score, server_total, eid,
+                trusted_roll, server_score, server_total, eid or "",
                 teacher_id=str(tid) if tid else None,
             ))
         except Exception as e:
@@ -2323,7 +2324,7 @@ async def room_cam_qr(request: Request):
     roll = student.get("roll", "")
     # Cache QR token for 60s to avoid re-minting on refresh
     if not hasattr(room_cam_qr, "_token_cache"):
-        room_cam_qr._token_cache: dict[str, dict] = {}
+        room_cam_qr._token_cache = {}
     cache_key = f"{session_id}:{roll}"
     cached = room_cam_qr._token_cache.get(cache_key)
     if cached and cached["expires"] > time.time():
@@ -2349,7 +2350,7 @@ async def room_cam_qr(request: Request):
     # browser misreported it as a CORS failure.)
     img = qr.make_image(fill_color="black", back_color="white")
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    img.save(buf)
     from fastapi.responses import Response as _Resp
     return _Resp(content=buf.getvalue(), media_type="image/png",
                  headers={"Cache-Control": "no-cache"})

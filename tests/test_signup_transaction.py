@@ -62,6 +62,10 @@ class _FakeConn:
                 "max_students": params[3],
             }
         if "INSERT INTO teachers" in sql:
+            # Mirrors the real INSERT's column list (auth.py) so a column
+            # added/removed there without updating params is caught here
+            # rather than silently mismatching in prod.
+            assert "status" in sql, "teachers insert must set status explicitly (no DB default)"
             return {
                 "id": params[0],
                 "email": params[1],
@@ -72,6 +76,7 @@ class _FakeConn:
                 "password_hash": params[5],
                 "auth_provider": "local",
                 "password_changed_at": params[6],
+                "status": "pending_verification",
             }
         return None
 
@@ -111,6 +116,12 @@ def test_postgres_signup_transaction_creates_required_rows(monkeypatch):
     assert teacher["email"] == "new@test.com"
     assert teacher["org_id"] == org_id
     assert default_exam_id
+    # Regression guard: a brand-new teacher row must start unverified.
+    # Without status='pending_verification' set explicitly at INSERT time,
+    # it defaults to NULL and the teacher_login auto-verify-legacy-account
+    # branch (auth.py) silently treats the account as already verified on
+    # first login, skipping email verification entirely.
+    assert teacher["status"] == "pending_verification"
     assert any("INSERT INTO organizations" in call[1] for call in conn.calls)
     assert any("INSERT INTO subscriptions" in call[1] for call in conn.calls)
     assert any("INSERT INTO teachers" in call[1] for call in conn.calls)

@@ -170,7 +170,7 @@ async def _verify_teacher_in_org(teacher_id: str, org_id: str) -> bool:
     return bool(rows)
 
 
-async def scope_to_teacher_ids(scope: dict) -> Optional[list[str]]:
+async def scope_to_teacher_ids(scope: dict) -> list[str] | None:
     """Materialise the scope into a list of teacher IDs that downstream
     queries can `.in_("teacher_id", ...)` filter by.
 
@@ -189,7 +189,7 @@ async def scope_to_teacher_ids(scope: dict) -> Optional[list[str]]:
     return None  # superadmin, no filter
 
 
-def apply_teacher_scope(query, tids: Optional[list[str]]):
+def apply_teacher_scope(query, tids: list[str] | None):
     """Apply a scope_to_teacher_ids() result to a query's teacher_id filter.
 
     The single place every org-rollup endpoint should pipe its scope through, so

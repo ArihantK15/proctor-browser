@@ -38,12 +38,12 @@ def send_invite_email_job(
     invite_url: str,
     download_url: str,
     roll_number: str,
-    registration_url: Optional[str] = None,
-    access_code: Optional[str] = None,
-    exam_starts_at: Optional[str] = None,
-    exam_ends_at: Optional[str] = None,
-    custom_message: Optional[str] = None,
-    teacher_name: Optional[str] = None,
+    registration_url: str | None = None,
+    access_code: str | None = None,
+    exam_starts_at: str | None = None,
+    exam_ends_at: str | None = None,
+    custom_message: str | None = None,
+    teacher_name: str | None = None,
 ) -> dict:
     from .. import emailer
     result = emailer.send_invite_email(
@@ -69,7 +69,7 @@ def send_cohort_link_email_job(
     cohort_url: str,
     download_url: str,
     batch: str,
-    teacher_name: Optional[str] = None,
+    teacher_name: str | None = None,
 ) -> dict:
     from .. import emailer
     result = emailer.send_cohort_link_email(
@@ -198,7 +198,7 @@ def send_scorecard_email_job(
     email: str,
     full_name: str,
     teacher_name: str,
-    custom_message: Optional[str] = None,
+    custom_message: str | None = None,
     resend_all: bool = False,
 ) -> dict:
     from ..services.scorecard import _build_scorecard_pdf

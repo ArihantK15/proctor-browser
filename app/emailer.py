@@ -49,8 +49,8 @@ log = logging.getLogger(__name__)
 class SendResult:
     """What callers get back from send_invite_email."""
     ok: bool
-    provider_msg_id: Optional[str] = None
-    error: Optional[str] = None
+    provider_msg_id: str | None = None
+    error: str | None = None
 
 
 def send_invite_email(
@@ -61,12 +61,12 @@ def send_invite_email(
     invite_url: str,
     download_url: str,
     roll_number: str,
-    registration_url: Optional[str] = None,
-    access_code: Optional[str] = None,
-    exam_starts_at: Optional[str] = None,
-    exam_ends_at: Optional[str] = None,
-    custom_message: Optional[str] = None,
-    teacher_name: Optional[str] = None,
+    registration_url: str | None = None,
+    access_code: str | None = None,
+    exam_starts_at: str | None = None,
+    exam_ends_at: str | None = None,
+    custom_message: str | None = None,
+    teacher_name: str | None = None,
 ) -> SendResult:
     """Send a single invite. Never raises — returns SendResult(ok=False)
     so callers can mark the invite as 'failed' and move on.
@@ -106,7 +106,7 @@ def send_cohort_link_email(
     cohort_url: str,
     download_url: str,
     batch: str,
-    teacher_name: Optional[str] = None,
+    teacher_name: str | None = None,
 ) -> SendResult:
     """Email a student their cohort-enrollment link (join a batch + download
     Procta). One click enrolls them into the batch — standing access to every
@@ -232,9 +232,9 @@ def send_exam_reminder(
     roll_number: str,
     hours_until: int,             # 1 or 24 — drives copy
     exam_starts_at_display: str,  # already-formatted IST string
-    access_code: Optional[str] = None,
-    teacher_name: Optional[str] = None,
-    student_id: Optional[str] = None,
+    access_code: str | None = None,
+    teacher_name: str | None = None,
+    student_id: str | None = None,
 ) -> SendResult:
     """Send a "your exam starts in N hours" reminder.
 
@@ -302,8 +302,8 @@ def send_scorecard_email(
     passed: bool,
     pdf_bytes: bytes,
     pdf_filename: str,
-    teacher_name: Optional[str] = None,
-    custom_message: Optional[str] = None,
+    teacher_name: str | None = None,
+    custom_message: str | None = None,
 ) -> SendResult:
     """Email a student their graded scorecard with the PDF attached.
 

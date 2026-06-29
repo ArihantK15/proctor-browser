@@ -50,7 +50,7 @@ class ExecResult:
     time_ms: int
     timed_out: bool
     oom: bool
-    compile_error: Optional[str]
+    compile_error: str | None
 
 
 def _post(url: str, json: dict, headers: dict, timeout: float):

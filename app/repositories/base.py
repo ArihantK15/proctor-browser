@@ -27,11 +27,11 @@ T = TypeVar("T", bound=str)
 class QueryResult:
     """Typed wrapper around the raw Supabase query result."""
     data: list[dict[str, Any]]
-    count: Optional[int] = None
-    error: Optional[str] = None
+    count: int | None = None
+    error: str | None = None
 
     @property
-    def first(self) -> Optional[dict[str, Any]]:
+    def first(self) -> dict[str, Any] | None:
         return self.data[0] if self.data else None
 
     @property
@@ -53,12 +53,12 @@ class QueryBuilder:
         self._op = operation
         self._cols = columns
         self._filters: list[tuple[str, str, Any]] = []  # (col, op, value)
-        self._order_col: Optional[str] = None
+        self._order_col: str | None = None
         self._order_desc: bool = False
-        self._limit_val: Optional[int] = None
-        self._offset_val: Optional[int] = None
+        self._limit_val: int | None = None
+        self._offset_val: int | None = None
         self._single: bool = False
-        self._data: Optional[dict] = None  # for insert/update
+        self._data: dict | None = None  # for insert/update
 
     def eq(self, column: str, value: Any) -> QueryBuilder:
         self._filters.append((column, "eq", value))
@@ -182,7 +182,7 @@ class Repository(Generic[T]):
             q = q.eq(col, val)
         return await q.execute()
 
-    async def get_one(self, **filters: Any) -> Optional[dict[str, Any]]:
+    async def get_one(self, **filters: Any) -> dict[str, Any] | None:
         """Shortcut that returns the first row or None."""
         result = await self.get(**filters)
         return result.first

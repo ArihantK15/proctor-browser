@@ -19,18 +19,18 @@ class TeacherSignupIn(BaseModel):
     # callers (tests, scripted clients) keep working; the handler
     # falls back to sandbox-allow when the server-side secret isn't
     # configured. In production both halves must be present.
-    captcha_token: Optional[str] = None
+    captcha_token: str | None = None
 
 
 class TeacherLoginIn(BaseModel):
     model_config = ConfigDict(strict=True)
     email:    str
     password: str
-    captcha_token: Optional[str] = None
+    captcha_token: str | None = None
     # 2FA code from the email-delivered OTP (see app/services/email_otp.py
     # + app/emailer.py:send_2fa_otp_email). Replaced the previous
     # `totp_code` field when TOTP was retired 2026-05-23.
-    email_otp_code: Optional[str] = None
+    email_otp_code: str | None = None
 
 
 class RefreshIn(BaseModel):
@@ -41,4 +41,4 @@ class RefreshIn(BaseModel):
 class PasswordResetIn(BaseModel):
     model_config = ConfigDict(strict=True)
     email: str
-    captcha_token: Optional[str] = None
+    captcha_token: str | None = None

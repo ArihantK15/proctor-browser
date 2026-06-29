@@ -151,8 +151,7 @@ async def coding_run(body: dict, request: Request):
         try:
             result = run_one(language, source, row.get("input") or "", limits)
         except ExecUnavailable:
-            raise HTTPException(status_code=503, detail={"retryable": True,
-                                "error": "execution service unavailable"})
+            raise HTTPException(status_code=503, detail={"retryable": True,"error": "execution service unavailable"})
         if result.compile_error:
             status = "error"
             ok = False
@@ -222,8 +221,7 @@ async def admin_coding_preview_run(body: dict, request: Request):
         try:
             result = run_one(language, source, row.get("input") or "", limits)
         except ExecUnavailable:
-            raise HTTPException(status_code=503, detail={"retryable": True,
-                                "error": "execution service unavailable"})
+            raise HTTPException(status_code=503, detail={"retryable": True,"error": "execution service unavailable"})
         if result.compile_error:
             status, ok, err = "error", False, result.compile_error
         elif result.timed_out:
@@ -330,8 +328,7 @@ async def coding_judge(body: dict, request: Request):
             # Invariant #5 — never write a submission row on a transient
             # executor outage; the kiosk auto-retries. The outer except
             # HTTPException handler below releases the idempotency reservation.
-            raise HTTPException(status_code=503, detail={"retryable": True,
-                                "error": "execution service unavailable"})
+            raise HTTPException(status_code=503, detail={"retryable": True,"error": "execution service unavailable"})
 
         avg_ms = int(sum(exec_times) / len(exec_times)) if exec_times else None
         telemetry = body.get("telemetry") or {}

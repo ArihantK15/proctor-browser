@@ -27,8 +27,8 @@ logger = logging.getLogger("scoring_jobs")
 
 async def _score_submission_async(
     session_key: str,
-    teacher_id: Optional[str],
-    exam_id: Optional[str],
+    teacher_id: str | None,
+    exam_id: str | None,
     **kwargs,
 ) -> dict:
     """The actual scoring work — runs inside the RQ worker.
@@ -215,7 +215,7 @@ async def _score_submission_async(
         try:
             from ..routers.exam import _try_google_grade_passback
             await _try_google_grade_passback(
-                roll_number, server_score, server_total, exam_id,
+                roll_number or "", server_score, server_total, exam_id or "",
                 teacher_id=str(teacher_id) if teacher_id else None,
             )
         except Exception as e:
@@ -236,9 +236,9 @@ async def _score_submission_async(
 
 def score_submission_job(
     session_id: str,
-    teacher_id: Optional[str] = None,
-    exam_id: Optional[str] = None,
-    student_id: Optional[str] = None,
+    teacher_id: str | None = None,
+    exam_id: str | None = None,
+    student_id: str | None = None,
     roll_number: str = "",
     time_taken_secs: int = 0,
 ) -> dict:

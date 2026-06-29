@@ -93,7 +93,7 @@ def explain_flag(
     if conf is None:
         reason_codes.append("confidence_unavailable")
         notes.append("Detector did not provide a calibrated confidence score.")
-    elif conf < preset["review_threshold"]:
+    elif conf < float(str(preset.get("review_threshold", 0))):
         reason_codes.append("below_sensitivity_threshold")
         notes.append(
             f"{preset['label']} mode expects confidence >= {preset['review_threshold']:.0%}; "

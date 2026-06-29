@@ -16,13 +16,16 @@ from ..constants import (
 
 logger = logging.getLogger(__name__)
 
+from typing import Any
+_cache: Any = None
 try:
-    from .. import cache as _cache
+    from .. import cache as _cache_src
+    _cache = _cache_src
 except Exception:
-    _cache = None
+    pass
 
 
-def parse_calibration_details(details: str) -> Optional[dict]:
+def parse_calibration_details(details: str) -> dict | None:
     if not details:
         return None
     s = str(details).strip()
@@ -88,7 +91,7 @@ def parse_calibration_details(details: str) -> Optional[dict]:
     return out
 
 
-def classify_calibration(parsed: Optional[dict]) -> dict:
+def classify_calibration(parsed: dict | None) -> dict:
     if not parsed:
         return {"tier": "missing", "reason": "No calibration recorded.", "ranges": None}
     g_yaw, g_pitch = parsed["gaze_yaw_range"], parsed["gaze_pitch_range"]
@@ -108,12 +111,13 @@ def classify_calibration(parsed: Optional[dict]) -> dict:
     return {"tier": "normal", "reason": "Calibration within typical envelope.", "ranges": parsed}
 
 
-async def get_calibration_quality(session_id: str, teacher_id: Optional[str] = None) -> dict:
+async def get_calibration_quality(session_id: str, teacher_id: str | None = None) -> dict:
     cache_key = f"cal_quality:{session_id}"
     if _cache:
+        from typing import cast
         cached = _cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(dict, cached)
     q = (_atable("violations").select("details").eq("session_key", session_id)
          .eq("violation_type", "calibration_complete").order("id", desc=True).limit(1))
     if teacher_id:

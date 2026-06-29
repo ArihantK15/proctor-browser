@@ -232,8 +232,8 @@ async def compute_overage(org_id: str, period_start: datetime, period_end: datet
          .gte("submitted_at", ps)
          .lt("submitted_at", pe)
          .execute())
-    students_used = q.count or 0
-    overage = max(0, students_used - plan_limit)
+    students_used = int(q.count or 0)
+    overage = max(0, students_used - int(str(plan_limit)))
     amount = overage * price_per_student
     return {"students_used": students_used, "plan_limit": plan_limit,
             "overage_count": overage, "amount_inr": amount}
@@ -280,7 +280,9 @@ def compute_proration(old_plan: str, new_plan: str, period_start, period_end, no
     remaining = (pe - now).total_seconds()
     if cycle <= 0 or remaining <= 0:
         return 0
-    diff = PLANS.get(new_plan, {}).get("price_inr", 0) - PLANS.get(old_plan, {}).get("price_inr", 0)
+    new_price = int(PLANS.get(new_plan, {}).get("price_inr", 0))
+    old_price = int(PLANS.get(old_plan, {}).get("price_inr", 0))
+    diff = new_price - old_price
     if diff <= 0:
         return 0
     return round(diff * remaining / cycle)
@@ -395,7 +397,7 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
     # subscription.charged webhook must still return 200. The claim row blocks
     # an automatic retry from double-charging; a stuck 'failed' row is settled
     # manually (follow-up #4c: safe retry of failed overage add-ons).
-    sub_id = sub_row_before.get("razorpay_subscription_id")
+    sub_id = sub_row_before.get("razorpay_subscription_id") or ""
     addon_id = None
     if net <= 0:
         # Fully comped by credit — no add-on to create.
@@ -403,15 +405,16 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
     else:
         status = "charged"
         try:
-            addon = client.subscription.createAddon(sub_id, {
-                "item": {
-                    "name": f"Overage: {res['overage_count']} student{'s' if res['overage_count'] != 1 else ''}",
-                    "amount": net * 100,  # paise (net of credit)
-                    "currency": "INR",
-                },
-                "quantity": 1,
-            })
-            addon_id = str(addon.get("id", "")) or None
+            if sub_id:
+                addon = client.subscription.createAddon(str(sub_id), {  # type: ignore[union-attr]
+                    "item": {
+                        "name": f"Overage: {res['overage_count']} student{'s' if res['overage_count'] != 1 else ''}",
+                        "amount": net * 100,  # paise (net of credit)
+                        "currency": "INR",
+                    },
+                    "quantity": 1,
+                })
+                addon_id = str(addon.get("id", "")) or None
         except Exception:
             logger.exception("Razorpay add-on creation failed for org=%s", oid)
             status = "failed"
@@ -428,7 +431,7 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
     if status in ("charged", "comped"):
         try:
             await record_billing_event(
-                event_id=None,
+                event_id="",
                 org_id=oid,
                 event_type="overage.addon",
                 amount=credit_consumed if status == "comped" else net,
@@ -449,8 +452,8 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
 # subscription's plan+status, written ONLY through reconcile_org_entitlement.
 # No other code path may touch max_students — that's what caused the drift.
 
-FREE_CAP = int(PLANS.get("starter", {}).get("students", 30))  # un-entitled floor
-_PLAN_CAPS = {p: int(v.get("students", FREE_CAP)) for p, v in PLANS.items()}
+FREE_CAP: int = int(PLANS.get("starter", {}).get("students", 30))  # un-entitled floor
+_PLAN_CAPS: dict[str, int] = {p: int(v.get("students", FREE_CAP)) for p, v in PLANS.items()}
 
 # Statuses that grant access. `past_due` = in Razorpay's retry/dunning window
 # (we keep service during grace). `cancelling` = cancelled but still inside the

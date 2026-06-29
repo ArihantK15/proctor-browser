@@ -60,7 +60,7 @@ async def _mint_and_send_invite_for_student(
     exam_id: str,
     exam_title: str,
     base_url: str,
-    custom_message: Optional[str] = None,
+    custom_message: str | None = None,
 ) -> dict:
     """Mint a token + (idempotent) upsert student_invites + enqueue email.
 
@@ -235,7 +235,8 @@ async def send_invites(body: SendInvitesBody, request: Request):
     starts_at = fmt_ist(cfg.get("starts_at")) if cfg.get("starts_at") else None
     ends_at = fmt_ist(cfg.get("ends_at")) if cfg.get("ends_at") else None
 
-    results = {"sent": 0, "failed": 0, "skipped": 0, "failures": []}
+    from typing import Any
+    results: dict[str, Any] = {"sent": 0, "failed": 0, "skipped": 0, "failures": []}
     for rec in recipients:
         email = rec.email.strip().lower()
         token = _new_invite_token()
@@ -388,7 +389,7 @@ async def invite_cap_reset(request: Request):
 
 @router.get("/api/v1/admin/invites")
 @limiter.limit("30/minute")
-async def list_invites(request: Request, exam_id: Optional[str] = None):
+async def list_invites(request: Request, exam_id: str | None = None):
     # Org-rollup, scope-aware: an org admin sees co-teachers' invites (so a
     # co-teacher's exam selected in the org-wide dropdown shows its invites); a
     # plain teacher stays locked to their own.

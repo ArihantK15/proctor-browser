@@ -13,7 +13,7 @@ class LtiRegistrationIn(BaseModel):
     auth_token_url: str
     key_set_url: str
     deployment_ids: list[str] = []
-    platform_name: Optional[str] = None
+    platform_name: str | None = None
 
 
 class LtiRegistrationOut(BaseModel):
@@ -24,6 +24,6 @@ class LtiRegistrationOut(BaseModel):
     auth_token_url: str
     key_set_url: str
     deployment_ids: list[str]
-    platform_name: Optional[str] = None
+    platform_name: str | None = None
     created_at: str
     updated_at: str

@@ -14,6 +14,8 @@ from .. import cache as _cache
 from ..models import SessionStatus, VerificationStatus
 from ..models import IdDecisionIn, ID_REJECT_REASON_CODES
 from ..services.risk import _is_violation
+from typing import Optional
+
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,7 @@ router = APIRouter(prefix="")
 
 @router.get("/api/v1/admin/pending-verifications")
 @limiter.limit("30/minute")
-async def pending_verifications(request: Request, exam_id: str = None):
+async def pending_verifications(request: Request, exam_id: Optional[str] = None):
     # Org-rollup, scope-aware (matches live monitoring / results): an org admin
     # sees co-teachers' pending ID reviews; a plain teacher stays own-scoped.
     teacher = await require_admin(request)
@@ -240,7 +242,7 @@ async def violation_clusters(request: Request, exam_id: str | None = None):
             return {"clusters": [], "total_active": 0, "exam_id": exam_id}
         # Supabase REST .in_ tops out around ~1k items reliably; chunk
         # the lookup if we're in the multi-thousand range.
-        rows = []
+        rows: list[dict] = []
         for i in range(0, len(session_keys), 800):
             chunk = session_keys[i:i + 800]
             r = await _new_violations_query().in_("session_key", chunk).execute()

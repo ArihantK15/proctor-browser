@@ -50,7 +50,7 @@ if RLS_SESSION_CONTEXT:
 # sensible value so a malformed role can never widen access.
 _VALID_ROLES = frozenset({"superadmin", "admin", "owner", "teacher", "student", "system"})
 
-_ctx: "contextvars.ContextVar[dict | None]" = contextvars.ContextVar("rls_ctx", default=None)
+_ctx: contextvars.ContextVar[dict | None] = contextvars.ContextVar("rls_ctx", default=None)
 
 
 def _norm_role(role: str | None, *, has_teacher: bool, has_account: bool) -> str:
@@ -67,7 +67,7 @@ def _norm_role(role: str | None, *, has_teacher: bool, has_account: bool) -> str
 
 
 def set_context(*, role: str | None = None, teacher_id=None, org_id=None,
-                account_id=None) -> "contextvars.Token":
+                account_id=None) -> contextvars.Token:
     """Set the tenant context for the current request/task. Returns a token for
     reset_context() (optional — task isolation usually makes reset unnecessary)."""
     ctx = {
@@ -79,7 +79,7 @@ def set_context(*, role: str | None = None, teacher_id=None, org_id=None,
     return _ctx.set(ctx)
 
 
-def set_system_context() -> "contextvars.Token":
+def set_system_context() -> contextvars.Token:
     """Full cross-tenant context for background work (reaper, billing, RQ jobs,
     reconciler) that legitimately operates across tenants."""
     return _ctx.set({"role": "system", "teacher_id": "", "org_id": "", "account_id": ""})

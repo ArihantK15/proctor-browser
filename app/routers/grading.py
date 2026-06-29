@@ -31,7 +31,7 @@ class GradeConfirmIn(BaseModel):
     model_config = ConfigDict(strict=True)
     answer_id: str
     score: float
-    idempotency_key: Optional[str] = None
+    idempotency_key: str | None = None
 
 
 async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> dict | None:
@@ -506,7 +506,7 @@ async def grade_confirm_bulk(body: dict, request: Request):
 
     if idem_key_raw and tid:
         try:
-            await mark_idempotent(_bulk_k, resp)
+            await mark_idempotent(_bulk_k or "", resp)
         except Exception:
             _grading_log.debug("grading: bulk idempotency mark failed", exc_info=True)
 

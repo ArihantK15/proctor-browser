@@ -18,6 +18,7 @@ from ..models.invites import InviteStatus
 from ..limiter import limiter
 from ..services.sessions import check_org_limits
 from ..models import BulkRegisterIn, AccessCodeIn
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -170,7 +171,7 @@ async def _process_student_rows(
         return result
 
     if not validated:
-        raise HTTPException(status_code=400, detail={"message": "No valid students in payload", "invalid": invalid})
+        raise HTTPException(status_code=400, detail="No valid students in payload. Invalid rows: " + "; ".join(f"{r['roll_number']}: {', '.join(r['errors'])}" for r in invalid[:5]))
 
     # Charge only genuinely-new students against the seat cap. Re-importing an
     # existing roster (to update emails/batch labels) upserts-as-UPDATE and
@@ -198,8 +199,8 @@ async def _process_student_rows(
     successfully_upserted: list[dict] = []
     for row in validated:
         try:
-            result = await _atable("students").upsert(row, on_conflict="roll_number,teacher_id").execute()
-            if result.data:
+            _up_result = await _atable("students").upsert(row, on_conflict="roll_number,teacher_id").execute()
+            if _up_result.data:
                 registered += 1
                 successfully_upserted.append(row)
             else:
@@ -326,7 +327,7 @@ async def _process_student_rows(
 
 @router.get("/api/v1/admin/student-history")
 @limiter.limit("30/minute")
-async def list_student_history(request: Request, exam_id: str = None,
+async def list_student_history(request: Request, exam_id: Optional[str] = None,
                                batch: str = "", page: int = 1, page_size: int = 50):
     """List all students-in-scope with aggregate history stats.
 
@@ -431,7 +432,7 @@ async def list_student_history(request: Request, exam_id: str = None,
 async def get_student_history(
     roll_number: str,
     request: Request,
-    exam_id: str = None,
+    exam_id: Optional[str] = None,
     page: int = 1,
     page_size: int = 50,
 ):
@@ -826,7 +827,7 @@ async def import_students_csv(
     if not reader.fieldnames:
         raise HTTPException(status_code=400, detail="CSV appears empty or has no header row")
 
-    col_map = _build_column_map(reader.fieldnames)
+    col_map = _build_column_map(list(reader.fieldnames))
     if col_map is None:
         raise HTTPException(
             status_code=400,
@@ -911,7 +912,7 @@ async def admin_qr(request: Request):
     qr.make(fit=True)
     img = qr.make_image(fill_color="black", back_color="white")
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
+    img.save(buf)
     from fastapi.responses import Response as _Resp
     return _Resp(content=buf.getvalue(), media_type="image/png",
                  headers={"Cache-Control": "private, max-age=300"})

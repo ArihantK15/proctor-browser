@@ -759,6 +759,42 @@ class TestHybridAuthTransition:
         mock_supabase.auth.sign_in_with_password.assert_not_called()
 
 
+class TestTeacherSignupEmailVerificationGate:
+    """Regression coverage for the bug where new teacher signups skipped
+    real email verification entirely: status defaulted to NULL instead of
+    'pending_verification' at INSERT time, so the auto-verify-legacy-account
+    branch (intended only for pre-feature accounts) silently verified every
+    brand-new signup on first login. Fixed in auth.py — these tests pin the
+    behavior so it can't regress unnoticed again."""
+
+    def test_pending_verification_status_blocks_login(self, client, monkeypatch):
+        """A freshly-signed-up account (status='pending_verification',
+        email_verified_at=None) must be rejected, not auto-verified."""
+        with patch("app.routers.auth.verify_or_403", new=AsyncMock()), \
+             patch("app.routers.auth.check_lockout", new=AsyncMock(return_value=(False, 0))), \
+             patch("app.routers.auth.record_auth_event", new=AsyncMock()) as mock_record, \
+             patch("app.routers.auth._get_teacher_by_email_for_auth", new=AsyncMock(return_value={
+                 "id": "teacher-new",
+                 "email": "new@example.com",
+                 "full_name": "New Teacher",
+                 "password_hash": "$2b$hash",
+                 "status": "pending_verification",
+                 "email_verified_at": None,
+             })), \
+             patch("app.routers.auth.verify_password", new=AsyncMock(return_value=True)):
+            resp = client.post("/api/v1/auth/login", json={
+                "email": "new@example.com",
+                "password": "CorrectPassword1!",
+            })
+
+        assert resp.status_code == 403
+        assert resp.json().get("error") == "EMAIL_UNVERIFIED"
+        # Must NOT have been silently marked verified.
+        verified_calls = [c for c in mock_record.call_args_list
+                          if c.args and c.args[0] == "email_verified"]
+        assert not verified_calls
+
+
 class TestStudentDashboardAuthHardening:
     """Regression tests for student auth audit findings."""
 

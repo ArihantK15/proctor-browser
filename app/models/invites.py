@@ -24,9 +24,9 @@ class InviteRecipient(BaseModel):
 class SendInvitesBody(BaseModel):
     recipients: list[InviteRecipient] = []
     exam_id: str
-    custom_message: Optional[str] = None
+    custom_message: str | None = None
     per_invite_code: bool = True
-    expires_at: Optional[str] = None
-    idempotency_key: Optional[str] = None
-    group_id: Optional[str] = None
-    batch: Optional[str] = None
+    expires_at: str | None = None
+    idempotency_key: str | None = None
+    group_id: str | None = None
+    batch: str | None = None

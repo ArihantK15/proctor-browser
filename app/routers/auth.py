@@ -133,7 +133,7 @@ def _set_auth_cookie(
         max_age=max_age_seconds,
         httponly=True,
         secure=secure,
-        samesite=same_site,
+        samesite=same_site,  # type: ignore[arg-type]
         path="/",
     )
 
@@ -579,7 +579,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
 
     if local_password_auth_enabled() and is_postgres_backend():
         try:
-            teacher, org_id, _default_exam_id = await _create_teacher_signup_postgres_tx(
+            teacher, _pg_org_id, _default_exam_id = await _create_teacher_signup_postgres_tx(
                 email=email,
                 name=name,
                 org_name=org_name,
@@ -648,7 +648,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
             "teacher_id":    str(teacher["id"]),
             "email":         email,
             "full_name":     name,
-            "org_id":        str(org_id),
+            "org_id":        str(_pg_org_id),
             "org_name":      org_name,
             "org_role":      teacher.get("org_role", "teacher"),
             "status":        "pending_verification",
@@ -656,8 +656,8 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         }
 
     # Create org, subscription, teacher — transactional rollback
-    org_id = None
-    teacher_id = None
+    org_id: str | None = None
+    teacher_id: str | None = None
     default_exam_id = None
     try:
         # Create org
@@ -695,7 +695,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
         }
         if local_password_auth_enabled():
             teacher_row.update({
-                "password_hash": password_hash,
+                "password_hash": password_hash or "",
                 "auth_provider": auth_provider,
                 "password_changed_at": now_ist().isoformat(),
             })
@@ -1012,11 +1012,11 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
                             "revoked_at": now_ist().isoformat(),
                         }).eq("jti", evict_jti).execute()
                         try:
-                            from ..cache import _cache
-                            if _cache:
+                            from .. import cache as _cache_mod
+                            if _cache_mod:
                                 from ..constants import ADMIN_TOKEN_TTL_MINUTES
-                                _cache.set(f"session:{evict_jti}", {"revoked": True},
-                                           ttl=ADMIN_TOKEN_TTL_MINUTES * 60)
+                                _cache_mod.set(f"session:{evict_jti}", {"revoked": True},
+                                               ttl=ADMIN_TOKEN_TTL_MINUTES * 60)
                         except Exception:
                             pass
     except Exception:
@@ -1395,7 +1395,7 @@ async def accept_org_invite(body: dict, request: Request):
         }
         if local_password_auth_enabled():
             teacher_row.update({
-                "password_hash": password_hash,
+                "password_hash": password_hash or "",
                 "auth_provider": auth_provider,
                 "password_changed_at": now_ist().isoformat(),
             })
@@ -1511,7 +1511,7 @@ async def student_signup(body: StudentSignupIn, request: Request):
         }
         if local_password_auth_enabled():
             account_row.update({
-                "password_hash": password_hash,
+                "password_hash": password_hash or "",
                 "auth_provider": auth_provider,
                 "password_changed_at": now_ist().isoformat(),
             })
@@ -1624,10 +1624,7 @@ async def student_login(body: StudentLoginIn, request: Request):
         await record_auth_event("login_failed", request, "student_account", str(account.get("id") or ""), email, {"reason": "email_unverified"})
         raise HTTPException(
             status_code=403,
-            detail={
-                "code": "EMAIL_VERIFICATION_REQUIRED",
-                "message": "Check your email for a 6-digit verification code before logging in.",
-            },
+            detail="We couldn't authenticate you. Please check your email for a 6-digit verification code before logging in.",
         )
 
     await clear_failures("student", email)
@@ -1981,14 +1978,14 @@ async def student_exams(request: Request):
                 bx = (await _atable("exam_batch_assignments").select("exam_id")
                       .eq("teacher_id", enr_tid).eq("batch", sbatch).execute()).data or []
                 for r in bx:
-                    e = str(r.get("exam_id") or "").strip()
-                    if e and e not in eids:
-                        eids.append(e)
-        except Exception as e:
+                    be = str(r.get("exam_id") or "").strip()
+                    if be and be not in eids:
+                        eids.append(be)
+        except Exception as exc:
             _auth_log.warning("[student/exams] batch exam lookup failed (roll=%s tid=%s): %s",
-                              roll, enr_tid, e)
+                              roll, enr_tid, exc)
         if not eids:
-            eids = [None]  # fallback: resolve the teacher's exam in the loop
+            eids = [""]  # fallback: resolve the teacher's exam in the loop
         for eid in eids:
             key = (enr_tid, eid)
             if key in seen:
@@ -2401,7 +2398,7 @@ async def verify_email(request: Request, token: str = ""):
             await _atable("teachers").update({"status": "active"}).eq("id", user_id).execute()
             clear_teacher_cache(str(user_id))
 
-    await record_auth_event("email_verified", request, kind, user_id, claims.get("email"))
+    await record_auth_event("email_verified", request, kind, user_id, claims.get("email") or "")
 
     return HTMLResponse(_fill_template(EMAIL_VERIFY_HTML, {
         "title": "Email verified!",
@@ -2990,7 +2987,7 @@ async def confirm_password_reset(body: dict, request: Request):
     # Evict any session active before the reset — refresh + live access.
     await _revoke_refresh_tokens_for_user(user_id, kind)
     await _revoke_auth_sessions_for_user(user_id, kind)
-    await record_auth_event("password_reset_completed", request, kind, user_id, claims.get("email"))
+    await record_auth_event("password_reset_completed", request, kind, user_id, claims.get("email") or "")
     _auth_log.info("[password_reset_confirm] success kind=%s id=%s", kind, safe(user_id))
     return {"ok": True}
 
@@ -3194,7 +3191,7 @@ async def _track_a_hybrid_delete_student_account(account: dict, request: Request
             if not tid or await teacher_wants(tid, "student_activity"):
                 from ..emailer import send_student_account_deleted_to_teacher
                 send_student_account_deleted_to_teacher(
-                    to_email=teacher.get("email"),
+                    to_email=teacher.get("email") or "",
                     to_name=teacher.get("full_name") or "",
                     student_name=student_name,
                     student_email=student_email,
@@ -3298,7 +3295,7 @@ async def _track_b_set_password(kind: str, user: dict, password: str, request: R
     # "lock the intruder out" action, so it must evict any session that
     # was active before the reset, not just the refresh path.
     await _revoke_auth_sessions_for_user(user_id, kind)
-    await record_auth_event("password_reset_completed", request, kind, user_id, user.get("email"))
+    await record_auth_event("password_reset_completed", request, kind, user_id, user.get("email") or "")
 
 
 async def _track_b_send_password_reset_otp(kind: str, email: str) -> None:

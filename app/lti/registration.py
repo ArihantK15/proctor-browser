@@ -23,13 +23,13 @@ class PlatformRegistration:
     auth_token_url: str
     key_set_url: str
     deployment_ids: list[str] = field(default_factory=list)
-    platform_name: Optional[str] = None
+    platform_name: str | None = None
     # Tenant binding: which Procta organization owns this LMS integration.
     # Every user provisioned from a launch on this platform is stamped with
     # this org_id so LTI identities fit the tenant-isolation (RLS) model.
     # A registration with no org_id is rejected at launch (fail-closed) —
     # see find_or_create_lti_user.
-    org_id: Optional[str] = None
+    org_id: str | None = None
 
 
 _registrations_cache: list[PlatformRegistration] | None = None
@@ -106,7 +106,7 @@ def _norm_iss(s: str) -> str:
     return (s or "").strip().rstrip("/")
 
 
-def find_registration(issuer: str, client_id: str) -> Optional[PlatformRegistration]:
+def find_registration(issuer: str, client_id: str) -> PlatformRegistration | None:
     want_iss = _norm_iss(issuer)
     want_cid = (client_id or "").strip()
     for r in load_registrations():

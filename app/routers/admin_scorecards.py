@@ -40,7 +40,7 @@ router = APIRouter(prefix="")
 
 @router.get("/api/v1/export-csv")
 @limiter.limit("10/minute")
-async def export_csv(request: Request, exam_id: str = None, group_id: str = None, batch: str = None):
+async def export_csv(request: Request, exam_id: Optional[str] = None, group_id: Optional[str] = None, batch: Optional[str] = None):
     teacher = await require_admin(request)
     scope = await resolve_scope(teacher, request)
     tids = await scope_to_teacher_ids(scope)
@@ -54,7 +54,7 @@ async def export_csv(request: Request, exam_id: str = None, group_id: str = None
 
 @router.get("/api/v1/export-excel")
 @limiter.limit("10/minute")
-async def export_excel(request: Request, exam_id: str = None, group_id: str = None, batch: str = None):
+async def export_excel(request: Request, exam_id: Optional[str] = None, group_id: Optional[str] = None, batch: Optional[str] = None):
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
     from openpyxl.cell import WriteOnlyCell
@@ -123,7 +123,7 @@ async def export_excel(request: Request, exam_id: str = None, group_id: str = No
             _xlsx_safe(s.get("risk_label", "")),
         ]
         label = s.get("risk_label")
-        fill = risk_fills.get(label)
+        fill = risk_fills.get(str(label) if label else "")
         if fill:
             cell = WriteOnlyCell(ws, value=row[-1])
             cell.fill = fill
@@ -316,7 +316,7 @@ def _pdf_build_evidence_section(evidence_items: list, styles, evidence_caption_s
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import Paragraph, Spacer, Image, KeepTogether, Table, TableStyle
 
-    story = []
+    story: list = []
     for idx, v, img_path, room_path, context in evidence_items:
         ts_str = fmt_ist(v.get("created_at", ""))
         sev = v["severity"].upper()
@@ -401,7 +401,7 @@ async def export_pdf(session_id: str, request: Request):
         buf = io.BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40, bottomMargin=40)
         styles = getSampleStyleSheet()
-        story = []
+        story: list = []
 
         story.append(Paragraph("AI Proctored Exam \u2014 Audit Report", styles["Title"]))
         story.append(Paragraph(
@@ -483,7 +483,7 @@ async def export_pdf(session_id: str, request: Request):
 
         doc.build(story)
         buf.seek(0)
-        fname = (f"report_{_safe_filename(exam.get('roll_number'), 'unknown')}_"
+        fname = (f"report_{_safe_filename(exam.get('roll_number') or 'unknown')}_"
                  f"{now_ist().strftime('%Y%m%d')}.pdf")
         return StreamingResponse(
             buf, media_type="application/pdf",
@@ -517,7 +517,7 @@ async def scorecard_pdf(session_id: str, request: Request):
 
 @router.get("/api/v1/admin/scorecard-zip")
 @limiter.limit("5/minute")
-async def scorecard_zip(request: Request, exam_id: str = None):
+async def scorecard_zip(request: Request, exam_id: Optional[str] = None):
     teacher = await require_admin(request)
     scope = await resolve_scope(teacher, request)
     tids = await scope_to_teacher_ids(scope)
@@ -589,7 +589,7 @@ async def scorecard_zip(request: Request, exam_id: str = None):
                 pdf_buf = io.BytesIO()
                 doc = SimpleDocTemplate(pdf_buf, pagesize=A4, topMargin=40, bottomMargin=40)
                 styles = getSampleStyleSheet()
-                story = []
+                story: list = []
 
                 story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
                 story.append(Spacer(1, 12))
@@ -663,7 +663,7 @@ async def scorecard_zip(request: Request, exam_id: str = None):
                 zf.writestr(f"scorecard_{roll}.pdf", pdf_buf.getvalue())
 
         buf.seek(0)
-        fname = f"scorecards_{_safe_filename(exam_id, 'all')}_{now_ist().strftime('%Y%m%d')}.zip"
+        fname = f"scorecards_{_safe_filename(exam_id or 'all')}_{now_ist().strftime('%Y%m%d')}.zip"
         return StreamingResponse(
             buf, media_type="application/zip",
             headers={"Content-Disposition": f"attachment; filename={fname}"})
@@ -766,8 +766,8 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             already_sent += 1
             continue
 
-        email = roll_emails.get(roll)
-        if not email:
+        student_email_val: str | None = roll_emails.get(roll)
+        if not student_email_val:
             skipped_no_email += 1
             failures.append({"roll": roll, "reason": "no email on file"})
             continue
@@ -840,7 +840,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
 
 @router.get("/api/v1/admin-failed-sessions")
 @limiter.limit("30/minute")
-async def failed_sessions(request: Request, exam_id: str = None):
+async def failed_sessions(request: Request, exam_id: Optional[str] = None):
     # Org-rollup, scope-aware (matches export_csv / scorecard_zip): an org admin
     # sees co-teachers' failed submissions; a plain teacher stays own-scoped.
     teacher = await require_admin(request)

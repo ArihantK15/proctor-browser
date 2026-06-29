@@ -1,5 +1,6 @@
 """Billing router — Razorpay subscription management."""
 
+from typing import Any
 from ..log_safe import safe
 import json
 import logging
@@ -42,12 +43,13 @@ def _require_billing_admin(teacher: dict) -> str:
     return str(org_id)
 
 
-def _validate_paid_plan(plan_id: str) -> dict:
+def _validate_paid_plan(plan_id: str) -> dict[str, Any]:
     plan_id = (plan_id or "").strip().lower()
     if plan_id not in PLANS:
         raise HTTPException(status_code=400, detail=f"Invalid plan: {plan_id}")
     plan = PLANS[plan_id]
-    if int(plan.get("price_inr") or 0) <= 0:
+    price = plan.get("price_inr")
+    if int(price or 0) <= 0:
         raise HTTPException(status_code=400, detail="This plan requires a sales conversation.")
     return plan
 
@@ -124,7 +126,7 @@ async def list_plans(request: Request):
                 "name": p["name"],
                 "price_inr": p["price_inr"],
                 "annual_price_inr": p.get("annual_price_inr", 0),
-                "annual_savings_inr": p["price_inr"] * 12 - p.get("annual_price_inr", p["price_inr"] * 12),
+                "annual_savings_inr": int(p["price_inr"]) * 12 - int(p.get("annual_price_inr", 0) or int(p["price_inr"]) * 12),
                 "students": p["students"],
                 "description": p["desc"],
             }
@@ -792,8 +794,8 @@ async def change_plan(request: Request):
         await reconcile_org_entitlement(str(org_id))
         return {"ok": True, "plan_id": plan_id, "immediate": True}
 
-    current_price = PLANS.get(current_plan, {}).get("price_inr", 0)
-    new_price = PLANS.get(plan_id, {}).get("price_inr", 0)
+    current_price = int(PLANS.get(current_plan, {}).get("price_inr", 0))
+    new_price = int(PLANS.get(plan_id, {}).get("price_inr", 0))
     is_upgrade = new_price > current_price
 
     client = _get_client()
@@ -1077,7 +1079,7 @@ async def get_usage(request: Request):
         .in_("teacher_id", org_teacher_ids)\
         .gte("submitted_at", period_start.isoformat())\
         .execute()
-    students_used = student_count_q.count or 0
+    students_used = int(student_count_q.count or 0)
 
     # Count total exam attempts this month
     attempts_q = await _atable("exam_sessions")\
@@ -1086,9 +1088,9 @@ async def get_usage(request: Request):
         .in_("status", (SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED))\
         .gte("submitted_at", period_start.isoformat())\
         .execute()
-    exam_attempts = attempts_q.count or 0
+    exam_attempts = int(attempts_q.count or 0)
 
-    overage = max(0, students_used - plan_limit)
+    overage = max(0, students_used - int(plan_limit))
     overage_amount = overage * price_per_student
 
     # Surface recent overage charges so the admin sees what's been billed.

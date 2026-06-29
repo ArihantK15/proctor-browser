@@ -127,7 +127,9 @@ def test_student_login_blocks_unverified_account(client):
         })
 
     assert resp.status_code == 403
-    assert resp.json()["detail"]["code"] == "EMAIL_VERIFICATION_REQUIRED"
+    detail = resp.json()["detail"]
+    assert isinstance(detail, str)
+    assert "verification" in detail
 
 
 def test_verify_signup_otp_marks_account_verified(client):

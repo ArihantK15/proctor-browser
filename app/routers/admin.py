@@ -45,6 +45,7 @@ from .admin_verification import router as verification_router
 from .admin_media import router as media_router
 from .admin_sessions import router as sessions_router
 from .admin_liveview import router as liveview_router
+from typing import Optional
 
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
@@ -121,33 +122,33 @@ async def get_timeline(session_id: str, request: Request):
     }
 
     timeline = []
-    for e in events:
+    for ev in events:
         entry = {
-            "id":        e.get("id"),
-            "type":      e["violation_type"],
-            "severity":  e["severity"],
-            "timestamp": fmt_ist(e.get("created_at", "")),
-            "raw_ts":    e.get("created_at", ""),
-            "details":   e.get("details"),
-            "is_violation": _is_violation(e["violation_type"]),
-            "detection_confidence": e.get("detection_confidence"),
+            "id":        ev.get("id"),
+            "type":      ev["violation_type"],
+            "severity":  ev["severity"],
+            "timestamp": fmt_ist(ev.get("created_at", "")),
+            "raw_ts":    ev.get("created_at", ""),
+            "details":   ev.get("details"),
+            "is_violation": _is_violation(ev["violation_type"]),
+            "detection_confidence": ev.get("detection_confidence"),
             "false_positive_review": explain_flag(
-                e,
+                ev,
                 calibration=calibration_quality,
                 sensitivity=sensitivity,
             ),
         }
-        match = _match_screenshot_for_violation(e, screenshot_paths)
+        match = _match_screenshot_for_violation(ev, screenshot_paths)
         if match is not None:
             entry["screenshot"] = screenshot_urls[match.name]
         # Phone-cam companion captured at the same instant — the timeline
         # shows both cameras side by side for the flag (None if no phone).
-        room_match = _match_room_screenshot_for_violation(e, screenshot_paths)
+        room_match = _match_room_screenshot_for_violation(ev, screenshot_paths)
         if room_match is not None:
             entry["room_screenshot"] = screenshot_urls[room_match.name]
         # Pre-violation context strip (t-3s..t-0) for appeal-critical flags —
         # oldest-first, so the dashboard can show the lead-up to the flag.
-        ctx_matches = _match_context_screenshots_for_violation(e, screenshot_paths)
+        ctx_matches = _match_context_screenshots_for_violation(ev, screenshot_paths)
         if ctx_matches:
             entry["context_screenshots"] = [screenshot_urls[m.name] for m in ctx_matches]
         timeline.append(entry)
@@ -206,7 +207,7 @@ async def admin_cleanup(request: Request):
 
 @router.post("/api/v1/admin/backfill-risk-scores")
 @limiter.limit("10/minute")
-async def backfill_risk_scores(request: Request, exam_id: str = None):
+async def backfill_risk_scores(request: Request, exam_id: Optional[str] = None):
     teacher = await require_admin(request)
     tid = teacher["id"]
     query = _atable("exam_sessions").select("session_key")\
@@ -229,7 +230,7 @@ async def backfill_risk_scores(request: Request, exam_id: str = None):
 
 @router.get("/api/v1/admin/live-monitor")
 @limiter.limit("10/minute")
-async def live_monitor(request: Request, exam_id: str = None):
+async def live_monitor(request: Request, exam_id: Optional[str] = None):
     """Return active sessions in scope: teacher → own; admin → org-wide
     (optionally narrowed via ?teacher_id=); superadmin → unrestricted.
     An optional ?exam_id= narrows to a single exam — the HTTP-polling fallback

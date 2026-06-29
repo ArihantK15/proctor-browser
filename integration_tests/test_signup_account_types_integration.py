@@ -79,6 +79,15 @@ async def test_org_signup_shape():
     assert await _sub_count(org_id) == 1
 
 
+async def test_signup_status_is_pending_verification():
+    """Regression guard: status has no DB default, so every insert path
+    must set it explicitly or new accounts silently skip email
+    verification on first login (see auth.py teacher_login's
+    legacy-account auto-verify branch)."""
+    teacher, _org_id = await _signup("solo")
+    assert teacher["status"] == "pending_verification"
+
+
 async def test_default_account_type_is_solo():
     """Omitting account_type yields the solo shape (back-compat)."""
     uniq = uuid.uuid4().hex[:8]

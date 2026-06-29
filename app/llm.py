@@ -169,8 +169,8 @@ async def generate_questions(
     *,
     difficulty: str = "mixed",     # "easy" | "medium" | "hard" | "mixed"
     question_type: str = "mcq_single",
-    source_text: Optional[str] = None,
-    grade_level: Optional[str] = None,
+    source_text: str | None = None,
+    grade_level: str | None = None,
 ) -> list[dict]:
     """Generate question-bank-shaped dicts ready for the import endpoint.
 
@@ -283,7 +283,7 @@ async def generate_coding_question(
     *,
     difficulty: str = "medium",
     language: str = "javascript",
-    grade_level: Optional[str] = None,
+    grade_level: str | None = None,
 ) -> dict:
     """Draft ONE coding question (statement + reference solution + test cases) for the
     teacher to REVIEW before publishing. stdin/stdout model. Returns the shape the

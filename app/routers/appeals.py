@@ -34,7 +34,7 @@ class AppealIn(BaseModel):
     # Optional: dispute ONE specific flag. NULL keeps the legacy session-
     # level appeal (whole-session grade/other). When set, accepting the
     # appeal dismisses exactly this violation and recomputes the score.
-    violation_id: Optional[str] = None
+    violation_id: str | None = None
 
 
 class AppealResolveIn(BaseModel):
@@ -242,7 +242,7 @@ async def student_session_evidence(session_key: str, request: Request):
 
 @router.get("/admin/appeals")
 @limiter.limit("30/minute")
-async def list_appeals(request: Request, exam_id: str = None, status: str = None):
+async def list_appeals(request: Request, exam_id: Optional[str] = None, status: Optional[str] = None):
     """List appeals for the caller's scope (own for a teacher, org-wide for an admin)."""
     from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
     teacher = await require_admin(request)

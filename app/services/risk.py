@@ -16,17 +16,23 @@ from ..constants import (
 
 logger = logging.getLogger(__name__)
 
+from typing import Any
+
 try:
     from ..event_bus import async_publish as _bus_async_publish
     _HAS_REDIS = True
 except Exception:
     _HAS_REDIS = False
-    async def _bus_async_publish(*_a, **_kw): pass
+    async def _bus_async_publish(channel: str, payload: dict) -> None:  # type: ignore[assignment]
+        pass
 
+from typing import Any
+_cache: Any = None
 try:
-    from .. import cache as _cache
+    from .. import cache as _cache_src
+    _cache = _cache_src
 except Exception:
-    _cache = None
+    pass
 
 from ..database import async_table as _atable
 
@@ -171,9 +177,10 @@ async def publish_critical_alert(
 async def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
     cache_key = f"risk_score:{session_id}"
     if _cache:
+        from typing import cast
         cached = _cache.get(cache_key)
         if cached:
-            return cached
+            return cast(dict, cached)
     # Exclude dismissed flags: a teacher (or an accepted appeal) marking a
     # violation dismissed must clear its risk contribution. phase73 created
     # dismissed_at for exactly this; before this filter, dismissing was

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from typing import Iterable
+from collections.abc import Iterable
 
 # Canonical format keys. Order matters for "best match wins" when a
 # roll number could fit multiple patterns; place more specific
@@ -101,7 +101,7 @@ def detect_dominant_format(rolls: Iterable[str]) -> tuple[str, dict[str, int]]:
     if not valid_only:
         dominant = "invalid"
     else:
-        dominant = max(valid_only, key=valid_only.get)
+        dominant = max(valid_only, key=lambda k: valid_only[k])
     return dominant, dict(counts)
 
 

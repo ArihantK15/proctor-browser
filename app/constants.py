@@ -233,7 +233,7 @@ _CAL_LOOSE_HEAD = 30.0
 # billing.py was using price_inr (the BASE plan price) as the per-
 # student overage price → a single student over Growth = ₹12,000
 # extra. Audit P1.4.
-PLANS = {
+PLANS: dict[str, dict[str, int | str]] = {
     "starter":    {"name": "Starter",  "students": 30,  "price_inr": 2400,  "overage_price_inr": 80,  "annual_price_inr": 24000,  "desc": "For small classes & tutorials (₹80/extra student)"},
     "growth":     {"name": "Growth",   "students": 150, "price_inr": 12000, "overage_price_inr": 70,  "annual_price_inr": 120000, "desc": "For departments & mid-size programs (₹70/extra student)"},
     "pro":        {"name": "Pro",      "students": 500, "price_inr": 30000, "overage_price_inr": 60,  "annual_price_inr": 300000, "desc": "For large universities & institutions (₹60/extra student)"},

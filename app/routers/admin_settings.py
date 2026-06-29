@@ -43,7 +43,8 @@ async def admin_set_schedule(request: Request, body: ScheduleIn = Body(...)):
     tid = teacher["id"]
     exam_id = body.exam_id
 
-    update = {}
+    from typing import Any
+    update: dict[str, Any] = {}
     if body.starts_at is not None:
         update["starts_at"] = body.starts_at
     if body.ends_at is not None:
@@ -123,7 +124,7 @@ async def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
 class SensitivityIn(BaseModel):
     model_config = ConfigDict(strict=True)
     exam_id: str
-    proctoring_sensitivity: Optional[str] = None
+    proctoring_sensitivity: str | None = None
 
 
 @router.get("/api/v1/admin/proctoring-sensitivity")
@@ -179,8 +180,8 @@ _MIN_KEYWORD_LEN = 2
 class AudioKeywordsIn(BaseModel):
     model_config = ConfigDict(strict=True)
     exam_id:                  str
-    audio_keywords:           Optional[list[str]] = None  # None = clear back to defaults
-    audio_keywords_language:  Optional[str] = None        # one of _AUDIO_LANGS
+    audio_keywords:           list[str] | None = None  # None = clear back to defaults
+    audio_keywords_language:  str | None = None        # one of _AUDIO_LANGS
 
 
 def _normalise_keywords(raw) -> list[str]:

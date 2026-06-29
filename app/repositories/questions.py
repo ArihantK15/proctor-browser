@@ -7,6 +7,7 @@ import logging
 import os
 
 from ..database import async_table as _atable
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +19,13 @@ _EXAM_CONFIG_COLUMNS = (
     "created_at,pass_mark,early_join_minutes,coding_max_submit_attempts"
 )
 
+from typing import Any, cast
+_cache: Any = None
 try:
-    from .. import cache as _cache
+    from .. import cache as _cache_src
+    _cache = _cache_src
 except Exception:
-    _cache = None
+    pass
 
 from ..services import secrets_crypto
 
@@ -40,12 +44,12 @@ def _qid_sort_key(q: dict):
     return (0, int(qid)) if qid.isdigit() else (1, qid)
 
 
-async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[dict]:
+async def load_questions(teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> list[dict]:
     cache_key = f"questions:{teacher_id or '_'}:{exam_id or '_'}"
     if _cache:
         cached = _cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast("list[dict]", cached)
     try:
         query = _atable("questions").select("*")
         if teacher_id:
@@ -125,12 +129,12 @@ async def load_questions(teacher_id: str = None, exam_id: str = None) -> list[di
     return out
 
 
-async def load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
+async def load_exam_config(teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> dict:
     cache_key = f"exam_config:{teacher_id or '_'}:{exam_id or '_'}"
     if _cache:
         cached = _cache.get(cache_key)
         if cached is not None:
-            return cached
+            return cast(dict, cached)
     query = _atable("exam_config").select(_EXAM_CONFIG_COLUMNS)
     if exam_id:
         query = query.eq("exam_id", exam_id)
@@ -157,7 +161,7 @@ async def load_exam_config(teacher_id: str = None, exam_id: str = None) -> dict:
     }
 
 
-async def get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
+async def get_access_code(teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> str:
     if not teacher_id and not exam_id:
         return os.getenv("EXAM_ACCESS_CODE", "").strip().upper()
     try:
@@ -170,7 +174,7 @@ async def get_access_code(teacher_id: str = None, exam_id: str = None) -> str:
     return os.getenv("EXAM_ACCESS_CODE", "").strip().upper()
 
 
-async def set_access_code(code: str, teacher_id: str = None, exam_id: str = None):
+async def set_access_code(code: str, teacher_id: Optional[str] = None, exam_id: Optional[str] = None):
     if teacher_id and exam_id:
         await _atable("exam_config").upsert({"teacher_id": teacher_id, "exam_id": exam_id, "access_code": code}).execute()
     elif teacher_id:

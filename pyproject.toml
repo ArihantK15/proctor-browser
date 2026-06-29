@@ -1,0 +1,82 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[project]
+name = "proctor-proctor-browser"
+version = "2.4.0"
+description = "AI Proctored Exam Browser"
+authors = [
+    { name = "Procta" }
+]
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+keywords = ["education", "testing", "ai", "proctoring", "assessment"]
+dependencies = [
+    "uvicorn>=0.28",
+    "fastapi>=0.110.0",
+    "python-multipart>=1.0.1",
+    "redis>=4.5.4",
+    "asyncpg>=0.28",
+    "python-jose>=3.3.1",
+    "bcrypt>=4.1.2",
+    "python-dotenv>=0.19",
+    "sentry-sdk[fastapi]>=1.20.0",
+    "slowapi>=0.1.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.0.0",
+    "mypy>=1.0.0",
+    "black>=24.0.0",
+    "ruff>=0.4.0",
+    "pre-commit>=3.0.0",
+]
+
+[tool.poe]
+package = "proctor"
+
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+warn_unused_decorators = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+module = "app.*"
+warn_return_any = true
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "fastapi.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "starlette.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "uvicorn.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pytest.*"
+ignore_missing_imports = true
+
+[rsync]
+ignore_patterns = [
+    "__pycache__",
+    "*.pyc",
+    ".coverage",
+    "htmlcov/",
+    ".mypy_cache/",
+    ".pytest_cache/",
+]

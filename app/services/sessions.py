@@ -25,13 +25,17 @@ from ..constants import S3_LOCAL_CACHE_DAYS
 from ..services.object_store import is_enabled as _s3_enabled
 from .risk import _is_violation, _risk_label, _batch_risk_scores
 from .calibration import parse_calibration_details, classify_calibration
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+from typing import Any
+_cache: Any = None
 try:
-    from .. import cache as _cache
+    from .. import cache as _cache_src
+    _cache = _cache_src
 except Exception:
-    _cache = None
+    pass
 
 
 # ─── ORG LIMITS ────────────────────────────────────────────────────
@@ -199,9 +203,10 @@ async def _check_subscription_active(org_id: str) -> None:
 
 async def get_org_subscription(org_id: str) -> dict | None:
     cache_key = f"org_subscription:{org_id}"
+    from typing import cast
     cached = _cache.get(cache_key) if _cache else None
     if cached is not None:
-        return cached or None
+        return cast("dict | None", cached or None)
     try:
         # `max_students` lives on the `organizations` table, NOT on
         # `subscriptions` — selecting it here fired a Postgres ERROR
@@ -351,7 +356,8 @@ async def partition_live_sessions(teacher_id: str, exam_id: str | None = None, i
     except Exception as e:
         logger.warning("[ClearLive] violations ghost discovery failed: %s", e)
 
-    active, stale = [], []
+    active: list[dict] = []
+    stale: list[dict] = []
     for r in rows:
         if include_active:
             stale.append(r)
@@ -362,7 +368,8 @@ async def partition_live_sessions(teacher_id: str, exam_id: str | None = None, i
 
 def clear_token_consume(token: str, teacher_id: str) -> bool:
     if _cache:
-        rec = _cache.get(f"clear_token:{token}")
+        from typing import cast
+        rec = cast("dict | None", _cache.get(f"clear_token:{token}"))
         if not rec or rec.get("teacher_id") != str(teacher_id):
             return False
         _cache.delete(f"clear_token:{token}")
@@ -399,7 +406,7 @@ def _derive_proctor_readiness(evs: list[dict]) -> tuple:
     return None, []
 
 
-async def build_sessions_payload(tid: str, exam_id: str = None,
+async def build_sessions_payload(tid: str, exam_id: Optional[str] = None,
                                  tids: list[str] | None = None) -> dict:
     """Build the Live-tab session payload. Filter precedence:
        tids (multi) > tid (single) > unfiltered.
@@ -684,7 +691,7 @@ def _sweep_screenshots_once() -> int:
                     key = str(fp.relative_to(root))
                 except ValueError:
                     key = None
-                should_delete = bool(key) and _s3_exists(key)
+                should_delete = bool(key) and _s3_exists(key if key else "")
             if should_delete:
                 try:
                     fp.unlink()

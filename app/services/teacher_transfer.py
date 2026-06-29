@@ -20,6 +20,7 @@ _MOVE_TABLES = (
     "student_group_members", "student_invites", "exam_batch_assignments",
     "exam_group_assignments", "exam_templates", "exam_time_extensions", "appeals",
     "grading_audit", "invite_send_counters", "google_classroom_links",
+    "coding_submissions", "coding_test_cases",
 )
 
 _KEEP_TABLES = (

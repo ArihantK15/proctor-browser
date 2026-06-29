@@ -49,10 +49,10 @@ class EventIn(BaseModel):
     session_id: str
     event_type: str
     severity:   str
-    details:    Optional[str] = None
-    detection_confidence: Optional[float] = None
-    att: Optional[dict] = None
-    sig: Optional[str] = None
+    details:    str | None = None
+    detection_confidence: float | None = None
+    att: dict | None = None
+    sig: str | None = None
 
 
 class ContextFrame(BaseModel):
@@ -70,10 +70,10 @@ class FrameIn(BaseModel):
     session_id: str
     frame:      str
     timestamp:  str
-    event_type: Optional[str] = None
+    event_type: str | None = None
     # Pre-violation context frames for appeal-critical events (oldest-first).
     # Absent/None for ordinary single-frame events → unchanged behaviour.
-    context_frames: Optional[list[ContextFrame]] = None
+    context_frames: list[ContextFrame] | None = None
 
 
 class IdVerifyIn(BaseModel):
@@ -113,8 +113,8 @@ class IdDecisionIn(BaseModel):
     # ID_REJECT_REASON_CODES (validated in the router); reason_text is
     # free-text from the teacher, capped at 500 chars. Both stored in
     # violations.details JSON next to decided_by/decided_at.
-    reason_code:  Optional[str] = None
-    reason_text:  Optional[str] = None
+    reason_code:  str | None = None
+    reason_text:  str | None = None
 
 
 # ─── Live teacher intervention (phase 74) ────────────────────────────
@@ -153,8 +153,8 @@ class TeacherWarnIn(BaseModel):
     model_config = ConfigDict(strict=True)
     # Either chip_code or text (or both) must be present — empty warning
     # is rejected at the router. Both capped at sane sizes there too.
-    chip_code: Optional[str] = None
-    text:      Optional[str] = None
+    chip_code: str | None = None
+    text:      str | None = None
 
 
 class SessionTerminateIn(BaseModel):
@@ -163,9 +163,9 @@ class SessionTerminateIn(BaseModel):
     reason_text are validated against SESSION_END_REASON_CODES at the
     router and persisted on the exam_sessions row."""
     model_config = ConfigDict(strict=True)
-    reauth_token: Optional[str] = None
-    reason_code:  Optional[str] = None
-    reason_text:  Optional[str] = None
+    reauth_token: str | None = None
+    reason_code:  str | None = None
+    reason_text:  str | None = None
 
 
 class ClearSessionsIn(BaseModel):

@@ -47,7 +47,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import date, datetime
-from typing import Any
+from typing import Optional, Any
 from uuid import UUID
 
 from fastapi import Request
@@ -93,8 +93,8 @@ async def log_admin_action(
     action: str,
     target_type: str,
     target_id: str | None = None,
-    before_data: Any = None,
-    after_data: Any = None,
+    before_data: Optional[Any] = None,
+    after_data: Optional[Any] = None,
     details: dict | None = None,
     request: Request | None = None,
 ) -> None:

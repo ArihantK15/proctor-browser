@@ -73,11 +73,12 @@ def _clean_options(raw: dict) -> dict:
     raw_starter = opts.get("starter_code")
     if raw_starter is None:
         raw_starter = opts.get("starter") or ""
+    from typing import Any
     if isinstance(raw_starter, dict):
         # Keep a language's template when it's PRESENT, even if it's "" — a teacher
         # may intentionally clear a starter. `.get(l) is not None` keeps "" but drops
         # missing/None entries (truthiness would wrongly drop the empty string).
-        starter = {l: str(raw_starter[l])[:20000] for l in langs
+        starter: Any = {l: str(raw_starter[l])[:20000] for l in langs
                    if raw_starter.get(l) is not None}
     elif isinstance(raw_starter, str):
         starter = raw_starter[:20000]
@@ -122,7 +123,7 @@ def _clean_cases(raw_cases) -> list[dict]:
             ftol = None
         else:
             try:
-                ftol = float(ft)
+                ftol = float(str(ft))
             except (TypeError, ValueError):
                 raise HTTPException(
                     status_code=400,

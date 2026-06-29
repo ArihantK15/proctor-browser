@@ -2,6 +2,8 @@ from ..log_safe import mask_email, safe
 from pathlib import Path
 import json
 import logging
+from typing import Any, Optional
+
 _pub_log = logging.getLogger("public")
 import os
 import time
@@ -182,7 +184,7 @@ _req_total = 0
 _req_errors = 0
 
 @router.get("/health")
-async def health():
+async def health() -> Response:
     """Lightweight health probe for uptime monitors and load balancers.
 
     Returns 200 only when Supabase is reachable and disk has space.
@@ -190,7 +192,7 @@ async def health():
     """
     global _req_total, _req_errors
     _req_total += 1
-    checks = {}
+    checks: dict[str, Any] = {}
     ok = True
 
     # Database — required (skipped when SUPABASE_SKIP_STARTUP_CHECK=1, e.g. CI smoke tests)
@@ -212,8 +214,8 @@ async def health():
     try:
         if not hasattr(health, "_redis_client"):
             import redis as _redis
-            health._redis_client = _redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379"))
-        health._redis_client.ping()
+            setattr(health, "_redis_client", _redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379")))
+        getattr(health, "_redis_client").ping()
         checks["redis"] = "ok"
     except Exception:
         checks["redis"] = "unavailable"  # non-fatal — health check still passes
@@ -259,8 +261,8 @@ async def health():
     try:
         if not hasattr(health, "_redis_client"):
             import redis as _redis
-            health._redis_client = _redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379"))
-        hb = health._redis_client.get("worker:last_heartbeat")
+            setattr(health, "_redis_client", _redis.from_url(os.environ.get("REDIS_URL", "redis://localhost:6379")))
+        hb = getattr(health, "_redis_client").get("worker:last_heartbeat")
         if hb:
             age = time.time() - float(hb)
             checks["worker"] = "ok" if age < 60 else "stale"
@@ -619,7 +621,7 @@ async def register_student(request: Request, body: RegisterIn):
 
 @router.get("/api/v1/exam-schedule")
 @limiter.limit("30/minute")
-async def get_public_schedule(request: Request, t: str = None):
+async def get_public_schedule(request: Request, t: Optional[str] = None):
     """Public endpoint — returns exam title and schedule for download/register pages.
 
     Rate-limited to deter scraping/enumeration of exam schedules by teacher_id."""
@@ -1196,9 +1198,9 @@ async def email_webhook(request: Request):
                         .eq("provider_msg_id", msg_id).limit(1).execute()).data or []
             if existing:
                 row = existing[0]
-                update = {"click_count": int(row.get("click_count") or 0) + 1}
+                update: dict[str, Any] = {"click_count": int(row.get("click_count") or 0) + 1}
                 if not row.get("clicked_at"):
-                    update["clicked_at"] = now_iso
+                    update["clicked_at"] = str(now_iso)
                 await _atable("student_invites").update(update)\
                     .eq("id", row["id"]).execute()
                 await _atable("student_invites").update({"status": InviteStatus.CLICKED})\

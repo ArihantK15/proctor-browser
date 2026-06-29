@@ -3,7 +3,7 @@ from typing import Optional
 from ..constants import PRACTICE_PREFIX
 
 
-def is_practice(identifier: Optional[str]) -> bool:
+def is_practice(identifier: str | None) -> bool:
     return bool(identifier) and str(identifier).startswith(PRACTICE_PREFIX)
 
 

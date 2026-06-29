@@ -84,13 +84,13 @@ _logger_cache: OrderedDict[str, logging.Logger] = OrderedDict()
 _cache_lock = Lock()
 
 
-def _evict_lru():
+def _evict_lru() -> None:
     _, old_logger = _logger_cache.popitem(last=False)
     for h in old_logger.handlers[:]:
         try:
             h.close()
         except Exception:
-            logger.debug("logger: handler close failed during LRU evict", exc_info=True)
+            logging.getLogger(__name__).debug("logger: handler close failed during LRU evict", exc_info=True)
         old_logger.removeHandler(h)
     logging.Logger.manager.loggerDict.pop(old_logger.name, None)
 

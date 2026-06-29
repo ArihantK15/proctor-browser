@@ -9,6 +9,7 @@ import os
 import threading
 import time
 import logging
+from typing import Any, cast
 
 import redis
 
@@ -90,7 +91,7 @@ def _binary_client() -> redis.Redis | None:
         return _br
 
 
-def get(key: str) -> dict | list | None:
+def get(key: str) -> Any:
     """Return cached value or None on miss / error."""
     global _r_healthy
     try:
@@ -108,7 +109,7 @@ def get(key: str) -> dict | list | None:
             try:
                 r = _client()
                 if r:
-                    score = r.zscore(LIVEFRAME_INDEX_KEY, session_id)
+                    score: Any = r.zscore(LIVEFRAME_INDEX_KEY, session_id)
                     if score is not None:
                         ts = float(score)
             except (redis.ConnectionError, redis.TimeoutError, ConnectionError, OSError):
@@ -124,7 +125,7 @@ def get(key: str) -> dict | list | None:
         if raw is None:
             return None
         try:
-            return json.loads(raw)
+            return json.loads(cast(str, raw))
         except json.JSONDecodeError:
             _log.warning("Cache value is corrupt JSON for key=%s; deleting", safe(key))
             try:
@@ -223,10 +224,10 @@ def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
         r.expire(LIVEFRAME_INDEX_KEY, ttl + 5)
 
         # Evict oldest if over cap
-        total = r.zcard(LIVEFRAME_INDEX_KEY)
+        total = cast(int, r.zcard(LIVEFRAME_INDEX_KEY))
         if total > _LIVEFRAME_MAX:
             to_remove = total - _LIVEFRAME_MAX
-            oldest = r.zrange(LIVEFRAME_INDEX_KEY, 0, to_remove - 1)
+            oldest = cast(list, r.zrange(LIVEFRAME_INDEX_KEY, 0, to_remove - 1))
             if oldest:
                 oldest_keys = [f"{LIVEFRAME_PREFIX}{s.decode()}" if isinstance(s, bytes) else f"{LIVEFRAME_PREFIX}{s}" for s in oldest]
                 br.delete(*oldest_keys)
@@ -280,7 +281,7 @@ def delete_pattern(pattern: str) -> None:
             return
         cursor = 0
         while True:
-            cursor, keys = r.scan(cursor, match=pattern, count=100)
+            cursor, keys = cast("tuple[int, list]", r.scan(cursor, match=pattern, count=100))
             if keys:
                 r.delete(*keys)
             if cursor == 0:
@@ -362,12 +363,12 @@ def live_frame_stats() -> dict:
         if r is None:
             return out
         out["healthy"] = bool(_r_healthy)
-        cached = int(r.zcard(LIVEFRAME_INDEX_KEY) or 0)
+        cached = int(cast(int, r.zcard(LIVEFRAME_INDEX_KEY)) or 0)
         out["cached_sessions"] = cached
         if _LIVEFRAME_MAX > 0:
             out["utilisation_pct"] = round(cached / _LIVEFRAME_MAX * 100, 2)
         try:
-            info = r.info(section="memory") or {}
+            info = cast(dict, r.info(section="memory") or {})
             out["redis_used_bytes"] = int(info.get("used_memory") or 0)
             out["redis_max_bytes"] = int(info.get("maxmemory") or 0)
         except Exception:

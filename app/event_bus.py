@@ -10,15 +10,17 @@ import json
 import logging
 import os
 import time
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 try:
-    import redis
-    import redis.asyncio as aioredis
+    import redis as _redis_mod
+    import redis.asyncio as _aioredis_mod
+    redis = _redis_mod
+    aioredis = _aioredis_mod
     _HAS_REDIS = True
 except ImportError:
-    redis = None
-    aioredis = None
+    redis = None  # type: ignore[assignment]
+    aioredis = None  # type: ignore[assignment]
     _HAS_REDIS = False
 
 REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")

@@ -9,11 +9,11 @@ logger = logging.getLogger(__name__)
 
 async def record(
     event_type: str,
-    request: Request = None,
+    request: Optional[Request] = None,
     user_kind: str = "",
     user_id: str = "",
     email: str = "",
-    meta: Optional[dict] = None,
+    meta: dict | None = None,
 ) -> None:
     """Insert an auth event into the audit log. Best-effort — never raises."""
     try:

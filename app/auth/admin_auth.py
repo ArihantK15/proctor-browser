@@ -40,10 +40,13 @@ def _maybe_promote_super_admin(teacher: dict | None) -> dict | None:
     return teacher
 
 
+from typing import Any
+_cache: Any = None
 try:
-    from .. import cache as _cache
+    from .. import cache as _cache_src
+    _cache = _cache_src
 except Exception:
-    _cache = None
+    pass
 
 
 def _decode_with_keys(token: str, keys: list[str], **kwargs) -> dict:
@@ -72,9 +75,10 @@ async def _get_teacher_by_id(teacher_id: str) -> dict | None:
     if not teacher_id:
         return None
     if _cache:
+        from typing import cast
         cached = _cache.get(f"teacher:{teacher_id}")
         if cached:
-            return cached
+            return cast(dict, cached)
     else:
         now = time.time()
         with _teacher_cache_lock:
@@ -196,7 +200,7 @@ async def verify_admin_token(token: str) -> dict:
             logger.debug("admin_auth: revocation cache lookup failed", exc_info=True)
 
     tid = payload.get("tid")
-    teacher = await _get_teacher_by_id(tid)
+    teacher = await _get_teacher_by_id(str(tid) if tid else "")
     if not teacher:
         raise HTTPException(status_code=403, detail="Teacher account not found")
     status = (teacher.get("status") or "").lower()
@@ -402,7 +406,7 @@ async def verify_student_auth_token(token: str) -> dict:
         except Exception:
             logger.debug("admin_auth: revocation cache lookup failed", exc_info=True)
     sid = payload.get("sid")
-    account = await _get_student_account_by_id(sid)
+    account = await _get_student_account_by_id(str(sid) if sid else "")
     if not account:
         raise HTTPException(status_code=403, detail="Student account not found")
     if jti:

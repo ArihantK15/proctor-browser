@@ -9,7 +9,7 @@ Covers:
 """
 
 import os
-from unittest.mock import patch, MagicMock, AsyncMock, call
+from unittest.mock import patch, MagicMock, AsyncMock
 
 import pytest
 from httpx import AsyncClient, ASGITransport

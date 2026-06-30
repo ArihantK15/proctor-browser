@@ -316,7 +316,6 @@ class TestBulkRegistration:
         """A re-import that updates existing roster rows must charge 0 new seats
         against the org cap (it upserts-as-UPDATE; the DB quota trigger fires on
         INSERT only). Otherwise a teacher at capacity could never re-import."""
-        import asyncio
         from app.routers import admin_students as mod
 
         rows = [{"roll_number": "R1", "full_name": "A", "email": "a@x.com"},

@@ -6,7 +6,6 @@ service is mocked via app.routers.coding.run_one — these tests never touch a
 real sandbox.
 """
 import base64
-import json
 import os
 import sys
 from contextlib import nullcontext

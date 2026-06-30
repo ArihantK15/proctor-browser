@@ -10,13 +10,11 @@ Covers:
   7. Window status logic via /api/student/exams (upcoming / open / closed)
 """
 
-import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -24,7 +22,7 @@ os.environ.setdefault("SUPABASE_URL", "https://fake.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret-key-at-least-32-chars-long!!")
 
-from tests.conftest import make_admin_token, make_student_token, shared_supabase_mock
+from tests.conftest import make_admin_token, shared_supabase_mock
 
 
 TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T"}

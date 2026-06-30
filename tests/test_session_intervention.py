@@ -17,7 +17,6 @@ Covers:
 Mocks Supabase via the shared mock pattern lifted from
 tests/test_id_decision_reason.py.
 """
-import json
 import os
 import sys
 from datetime import datetime, timezone, timedelta

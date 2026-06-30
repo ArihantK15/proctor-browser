@@ -8,7 +8,7 @@ Covers:
   - Validation: invalid risk_level, role, status transitions rejected
 """
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from fastapi.testclient import TestClient
 

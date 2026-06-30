@@ -7,7 +7,6 @@ Covers:
   4. RQ retry configuration
 """
 
-import json
 import sys
 from unittest.mock import MagicMock, patch, ANY
 

@@ -13,8 +13,7 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, AsyncMock, patch, PropertyMock
+from unittest.mock import MagicMock, AsyncMock, patch
 
 import pytest
 
@@ -23,7 +22,7 @@ os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret-key-at-least-32-chars-long!!")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tests.conftest import make_admin_token, shared_supabase_mock
+from tests.conftest import make_admin_token
 
 # ── RSA key helpers for test JWT signing ──────────────────────────
 from cryptography.hazmat.primitives import serialization
@@ -403,7 +402,6 @@ class TestLtiLaunch:
 
     def test_expired_state_401(self, client):
         """An expired state should be rejected."""
-        import time
         from app.lti.launch import _store_state
 
         state = "expired-state-1"

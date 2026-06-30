@@ -8,14 +8,12 @@ Does not require a running server or Docker.  Uses the same TestClient
 and Supabase mocks as the unit test suite.
 """
 
-import uuid
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock
 
 import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.models import SessionStatus
 
 client = TestClient(app)
 

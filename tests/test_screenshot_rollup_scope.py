@@ -14,7 +14,6 @@ import os
 import sys
 from unittest.mock import patch, AsyncMock
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("SUPABASE_URL", "https://fake.supabase.co")

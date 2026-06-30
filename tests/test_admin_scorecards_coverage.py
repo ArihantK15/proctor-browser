@@ -6,12 +6,10 @@ Covers:
   3. ``scorecard_pdf``   (GET /api/v1/admin/scorecard-pdf/{session_id})
 """
 
-import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 

@@ -35,8 +35,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from app.auth.tokens import issue_reauth_token
 
 from tests.conftest import shared_supabase_mock,  make_admin_token  # noqa: E402
-from app.database import supabase as _supabase
-from app import cache as _cache
 
 
 def _iso_ago(seconds: int) -> str:

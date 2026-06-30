@@ -5,12 +5,10 @@ Covers:
   2. ``generate_bank_questions`` (POST .../question-bank/generate) — LLM path
 """
 
-import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 

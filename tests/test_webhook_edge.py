@@ -17,17 +17,15 @@ import json
 import os
 import sys
 import time
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, AsyncMock
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 os.environ.setdefault("EMAIL_PROVIDER", "noop")
 os.environ.setdefault("INVITE_BASE_URL", "https://app.procta.net")
 
-from tests.conftest import shared_supabase_mock, make_admin_token
+from tests.conftest import shared_supabase_mock
 
 
 def _signed_body(body: dict, secret_raw: bytes = b"test-webhook-secret-123",

@@ -12,12 +12,10 @@ Covers the full set of endpoints in ``question_bank.py`` beyond the
   6. GET  /api/v1/admin/question-bank/export — export
 """
 
-import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 

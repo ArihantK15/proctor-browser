@@ -5,7 +5,6 @@ Uses a local copy of _CRITICAL_TYPES to avoid importing the app
 app/dependencies.py — any mismatch will fail the mirror test.
 """
 
-import pytest
 
 # Local mirror of app/dependencies.py _CRITICAL_TYPES
 _CRITICAL_TYPES = frozenset({

@@ -7,14 +7,12 @@ import subprocess
 import tempfile
 from unittest.mock import patch
 
-import pytest
 
 from scripts.check_migration_safety import (
     _check_file,
     _get_new_migrations,
     _strip_sql_comments,
     _CONTRACT_RE,
-    _FORBIDDEN,
 )
 
 # ── Helpers ──────────────────────────────────────────────────────────────

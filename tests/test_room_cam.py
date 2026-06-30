@@ -8,9 +8,7 @@ Covers:
   5. Disconnect — session row flips to offline
   6. Approval flow — approve/reject/status endpoints
 """
-import json
 import os
-import time
 import sys
 from unittest.mock import MagicMock, patch, AsyncMock
 from datetime import datetime, timedelta, timezone
@@ -25,7 +23,6 @@ os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret-key-at-least-32-chars-
 
 from tests.conftest import shared_supabase_mock, make_admin_token  # noqa: E402
 from app.constants import EXAM_TOKEN_SIGNING_KEY, ROOM_CAM_SIGNING_KEY  # noqa: E402
-import app.repositories.sessions as _sess_repo  # noqa: E402
 
 
 ROOM_CAM_STUDENT_TOKEN = _jwt.encode({

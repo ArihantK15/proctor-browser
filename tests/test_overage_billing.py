@@ -8,11 +8,10 @@ Covers:
   4. subscription.charged webhook wires bill_cycle_overage
 """
 import contextlib
-import json
 import os
 import sys
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 

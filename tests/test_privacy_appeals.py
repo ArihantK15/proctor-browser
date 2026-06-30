@@ -1,6 +1,6 @@
 """Tests for privacy center and student appeals."""
 
-from unittest.mock import patch, AsyncMock, MagicMock, Mock
+from unittest.mock import patch, AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -429,7 +429,6 @@ class TestExamSessionsStudentId:
     def test_submit_sets_student_id(self, student_headers, mock_student_account):
         """Submit-exam with a student token should set student_id on the session."""
         import uuid
-        from tests.conftest import make_student_token
         # Use a token that includes sid claim
         import jwt as _pyjwt
         from app.constants import STUDENT_SIGNING_KEY

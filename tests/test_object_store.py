@@ -1,7 +1,6 @@
 """Tests for app/services/object_store.py — S3 encrypted screenshot storage."""
-import os
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from app.services.object_store import (
     is_enabled,

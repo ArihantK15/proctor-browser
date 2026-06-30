@@ -13,7 +13,6 @@ with a per-table fake and stub recalculate_score.
 """
 import os
 import sys
-from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 

@@ -16,8 +16,6 @@ The teacher must not already have an exam named "E2E Test - <timestamp>".
 """
 
 import os
-import json
-import time
 import uuid
 import httpx
 import pytest

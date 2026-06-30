@@ -145,7 +145,7 @@ def test_reaper_cas_miss_skips_flush_and_violation(monkeypatch):
     between the SELECT and the UPDATE), the reaper must not write a
     violation, flush stale autosave answers, or force-submit — any of
     those would clobber the student's real submission."""
-    from app.services import heartbeat_reaper, autosave, scoring
+    from app.services import heartbeat_reaper, autosave
     from app import database
 
     fake_db = _FakeDb([

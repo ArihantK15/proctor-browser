@@ -11,7 +11,6 @@ import os
 import sys
 from datetime import datetime, timedelta, timezone
 
-import pytest
 from fastapi import HTTPException
 
 os.environ.setdefault("SUPABASE_URL", "https://fake.supabase.co")

@@ -9,9 +9,8 @@ Requires proctor.py dependencies (cv2, numpy, onnxruntime, etc.).
 """
 import sys
 import os
-import time
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 _proctor_deps = ["cv2", "numpy", "uniface", "onnxruntime"]
 _missing = []
@@ -61,7 +60,6 @@ for mod_name in ["sounddevice", "uniface", "insightface"]:
     if mod_name not in sys.modules:
         sys.modules[mod_name] = MagicMock()
 
-import cv2
 import numpy as np
 
 
@@ -121,7 +119,7 @@ class TestDetectionResultFormat:
 
     def test_yolo_result_format(self):
         """YOLO results should be tuples of (name, conf, x1, y1, x2, y2)."""
-        from proctor import YoloWorker, CHEAT_IDS
+        from proctor import CHEAT_IDS
 
         # Verify CHEAT_IDS maps are valid
         assert len(CHEAT_IDS) > 0

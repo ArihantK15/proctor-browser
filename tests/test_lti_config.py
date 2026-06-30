@@ -9,9 +9,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import pytest
 
-from app.routers import lti_config
 from app.routers.lti_config import _base_url, lti_auto_config
 
 

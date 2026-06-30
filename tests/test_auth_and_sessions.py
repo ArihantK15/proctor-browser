@@ -15,10 +15,9 @@ Covers audit findings:
 """
 import os
 import sys
-import time
 import asyncio
 from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock, AsyncMock, patch, PropertyMock
+from unittest.mock import MagicMock, AsyncMock, patch
 import jwt as jose_jwt
 
 import pytest
@@ -883,7 +882,6 @@ class TestRiskScoring:
 
     def test_no_violations(self):
         from app.services.risk import compute_risk_score
-        from app.database import async_table as _atable
         # Use the shared mock infrastructure: _atable wraps the shared supabase mock
         shared_mock = shared_supabase_mock()
         shared_mock.reset_mock()

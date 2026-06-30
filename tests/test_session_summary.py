@@ -1,5 +1,4 @@
 """Tests for the automated suspicious activity summary feature."""
-import pytest
 
 from app.services.risk import generate_session_summary
 

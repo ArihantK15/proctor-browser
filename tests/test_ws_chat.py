@@ -5,10 +5,9 @@ async event loop handling makes them unreliable.  Those belong in
 integration / e2e tests.
 """
 
-import json
 import os
 import sys
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -18,7 +17,6 @@ os.environ.setdefault("SUPABASE_URL", "https://fake.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-key")
 os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret-key-at-least-32-chars-long!!")
 
-from tests.conftest import make_admin_token, make_student_token, shared_supabase_mock
 
 
 @pytest.fixture(autouse=True)

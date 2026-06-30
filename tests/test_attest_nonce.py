@@ -239,7 +239,6 @@ class TestAttestChallengeEndpoint:
         assert len(body["nonce"]) > 20  # token_urlsafe(32)
 
     def test_challenge_stores_nonce_on_session(self, client):
-        from unittest.mock import MagicMock
         mt = _AsyncMockTable()
         with patch("app.routers.exam._atable", return_value=mt):
             resp = client.get(

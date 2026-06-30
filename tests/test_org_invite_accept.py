@@ -22,7 +22,6 @@ import sys
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 
 os.environ.setdefault("SUPABASE_URL", "https://fake.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-key")

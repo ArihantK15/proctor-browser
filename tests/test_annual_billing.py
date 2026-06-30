@@ -7,12 +7,9 @@ Tests cover:
   - list_plans returns annual_price_inr + savings
   - billing_cycle is persisted on the subscriptions row
 """
-import asyncio
-import json
 import os
 from unittest.mock import patch, AsyncMock, MagicMock
 
-import pytest
 
 
 # ── Helpers (mirror patterns from test_billing_rebuild & test_org_delete) ──

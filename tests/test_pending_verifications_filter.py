@@ -16,17 +16,15 @@ These tests mock Supabase (see conftest.py) so they run offline in ~ms.
 They lock in both halves of the contract — writer stamps, reader filters —
 so neither can silently regress in isolation.
 """
-import base64
 import json
 import os
 import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from tests.conftest import shared_supabase_mock,  make_student_token, make_admin_token  # noqa: E402
+from tests.conftest import shared_supabase_mock,  make_student_token  # noqa: E402
 
 
 # Smallest valid JPEG (1x1 pixel) so the base64 guard and file-write

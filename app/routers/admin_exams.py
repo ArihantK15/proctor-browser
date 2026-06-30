@@ -815,46 +815,51 @@ async def assign_exam_batches(exam_id: str, request: Request, body: dict[str, An
         raise HTTPException(status_code=400, detail="'batches' must be a list")
     clean = sorted({str(b).strip()[:120] for b in raw if str(b).strip()})
 
-    # Validate batches exist in the scoped student roster (own for teacher, org-wide for admin/superadmin)
+    # Build batch → owning-teacher_ids from the scoped student roster. A batch
+    # label is per-teacher (students.batch lives on a teacher-owned row), so the
+    # SAME label may exist under several teachers in an org. The exam-access read
+    # (check_group_access, repositories/sessions.py) looks assignments up by the
+    # STUDENT's own teacher_id — so each batch must be assigned under EVERY
+    # teacher who owns that label, or that teacher's students silently bypass the
+    # restriction (the exam looks unrestricted to them). Storing every batch under
+    # a single "first teacher in scope" was the bug this replaces.
+    batch_owners: dict[str, set[str]] = {}
+    roster_q = _atable("students").select("batch,teacher_id")
+    if tids is not None:
+        roster_q = apply_teacher_scope(roster_q, tids)
+    for s in (await roster_q.execute()).data or []:
+        label = (s.get("batch") or "").strip()
+        owner = str(s.get("teacher_id") or "")
+        if label and owner:
+            batch_owners.setdefault(label, set()).add(owner)
+
+    # Validate every requested batch exists somewhere in the scoped roster.
     if clean:
-        batch_q = _atable("students").select("batch")
-        if tids is not None:
-            batch_q = apply_teacher_scope(batch_q, tids)
-        existing_batches = (await batch_q.execute()).data or []
-        valid_batches = {(s.get("batch") or "").strip() for s in existing_batches if (s.get("batch") or "").strip()}
-        invalid = [b for b in clean if b not in valid_batches]
+        invalid = [b for b in clean if b not in batch_owners]
         if invalid:
             raise HTTPException(status_code=400, detail=f"Batches not found in roster: {', '.join(invalid[:5])}")
 
-    # Diff-based replace: add the new batches FIRST, then remove only the ones
-    # that are gone. This never leaves the exam momentarily unrestricted (the
-    # fail-open window a blind delete-then-insert would create on a mid-op
-    # failure). Idempotent; an empty `clean` clears everything.
-    # Scope the upsert/delete to the resolved teacher_ids (org-wide for admin).
-    assign_q = _atable("exam_batch_assignments").select("batch")
+    # Diff-based replace, keyed on (batch, teacher_id) so org-wide assignments
+    # stay correct per owning teacher. Add new rows FIRST, then remove only the
+    # ones that are gone — never leaves the exam momentarily unrestricted (the
+    # fail-open window a blind delete-then-insert would create). Idempotent; an
+    # empty `clean` clears everything in scope.
+    assign_q = _atable("exam_batch_assignments").select("batch,teacher_id")
     if tids is not None:
         assign_q = apply_teacher_scope(assign_q, tids)
     existing = (await assign_q.eq("exam_id", exam_id).execute()).data or []
-    current = {(r.get("batch") or "").strip() for r in existing if (r.get("batch") or "").strip()}
-    target = set(clean)
+    current = {((r.get("batch") or "").strip(), str(r.get("teacher_id") or ""))
+               for r in existing if (r.get("batch") or "").strip()}
+    # Desired set: each clean batch paired with every teacher that owns it.
+    target = {(b, owner) for b in clean for owner in batch_owners.get(b, set())}
     to_add = target - current
     to_remove = current - target
     if to_add:
-        rows = [{"exam_id": exam_id, "batch": b, "teacher_id": tid} for b in to_add for tid in (tids or [str(teacher["id"])]) if tid]
-        # Actually, the exam_batch_assignments table has teacher_id column for ownership
-        # For org admin assigning for other teachers, we need to know which teacher owns each batch
-        # But batches are per-teacher in students table. This is a limitation.
-        # For now, use the scope's first teacher or the caller's tid as the owner.
-        # The exam_batch_assignments already scopes by teacher_id on reads.
-        # We'll assign to the first teacher in scope (or caller's tid) for simplicity.
-        first_tid = tids[0] if tids else str(teacher["id"])
-        rows = [{"exam_id": exam_id, "batch": b, "teacher_id": first_tid} for b in to_add]
+        rows = [{"exam_id": exam_id, "batch": b, "teacher_id": owner} for (b, owner) in to_add]
         await _atable("exam_batch_assignments").upsert(rows).execute()
-    for b in to_remove:
-        del_q = _atable("exam_batch_assignments").delete().eq("exam_id", exam_id).eq("batch", b)
-        if tids is not None:
-            del_q = apply_teacher_scope(del_q, tids)
-        await del_q.execute()
+    for b, owner in to_remove:
+        await _atable("exam_batch_assignments").delete()\
+            .eq("exam_id", exam_id).eq("batch", b).eq("teacher_id", owner).execute()
     return {"assigned": clean}
 
 

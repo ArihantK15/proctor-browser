@@ -452,7 +452,7 @@ class TestUpdateQuestionsPersistence:
             {"id": 12, "question_id": 2},
             {"id": 13, "question_id": 3},   # dropped in the new set → stale
         ])
-        fake_atable = lambda name: self._FakeTable(name, db)
+        def fake_atable(name): return self._FakeTable(name, db)
         with admin_patch(), \
              patch("app.routers.question_bank._atable", fake_atable):
             resp = client.post("/api/v1/admin/questions",
@@ -477,7 +477,7 @@ class TestUpdateQuestionsPersistence:
             {"id": 11, "question_id": 1},
             {"id": 12, "question_id": 2},
         ])
-        fake_atable = lambda name: self._FakeTable(name, db)
+        def fake_atable(name): return self._FakeTable(name, db)
         with admin_patch(), \
              patch("app.routers.question_bank._atable", fake_atable):
             resp = client.post("/api/v1/admin/questions",

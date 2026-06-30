@@ -256,7 +256,8 @@ class TestChatHubHeartbeat:
         """The reaper still works: a socket whose last pong is older than
         HEARTBEAT_TIMEOUT is closed and removed."""
         from app.routers.chat import chat_hub
-        import asyncio, time
+        import asyncio
+        import time
         s_ws = AsyncMock()
         asyncio.run(chat_hub.register_student(
             session_id="sess-stale", teacher_id="t1",
@@ -270,7 +271,8 @@ class TestChatHubHeartbeat:
         """An inbound pong refreshes liveness, keeping an idle socket alive
         across heartbeat sweeps."""
         from app.routers.chat import chat_hub
-        import asyncio, time
+        import asyncio
+        import time
         s_ws = AsyncMock()
         asyncio.run(chat_hub.register_student(
             session_id="sess-1", teacher_id="t1",

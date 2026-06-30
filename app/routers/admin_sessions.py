@@ -870,7 +870,7 @@ async def request_recalibration(session_id: str, request: Request, body: dict[st
             "session_key":    session_id,
             "violation_type": "recalibration_requested",
             "severity":       "low",
-            "details":        f"Teacher requested re-calibration. Session marked abandoned.",
+            "details":        "Teacher requested re-calibration. Session marked abandoned.",
             "teacher_id":     str(tid),
         }
         await _atable("violations").insert(viol_row).execute()

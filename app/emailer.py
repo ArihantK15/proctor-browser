@@ -678,7 +678,6 @@ def _render_reminder(**ctx) -> tuple[str, str]:
     hours_until            = int(ctx.get("hours_until") or 1)
     starts_at_display      = ctx.get("exam_starts_at_display") or ""
     access_code            = ctx.get("access_code")
-    teacher_name           = ctx.get("teacher_name") or "your teacher"
 
     if hours_until >= 24:
         headline_short = "Your exam is tomorrow"

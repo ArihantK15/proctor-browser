@@ -32,7 +32,6 @@ def _reset_secrets_key_cache():
 def _mcq(qid="mcq-1", correct="B", marks=1):
     return {
         "id": qid, "question_type": "mcq_single",
-        "options": {"A": "alpha", "B": "beta", "C": "gamma", "D": "delta"},
         "correct": correct,
         "options": None,  # not needed for scoring; load_questions may return it
     }

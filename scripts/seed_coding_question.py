@@ -224,17 +224,17 @@ async def main(language: str):
         }
         await _atable("coding_test_cases").insert(tc_row).execute()
 
-    print(f"\n[seed] DONE!")
+    print("\n[seed] DONE!")
     print(f"  Teacher ID  : {tid}")
     print(f"  Exam ID     : {eid}")
     print(f"  question_id  : {qid}   (the key renderer/judge/scoring all use)")
     print(f"  Language    : {language}")
-    print(f"  Type        : coding (Sum of Two Numbers)")
+    print("  Type        : coding (Sum of Two Numbers)")
     print(f"  Test cases  : {len(test_cases)} "
           f"({sum(1 for t in test_cases if t['visibility']=='sample')} sample, "
           f"{sum(1 for t in test_cases if t['visibility']=='hidden')} hidden)")
-    print(f"\nTo test with curl:")
-    print(f"  curl -H 'Authorization: Bearer <student-token>' \\")
+    print("\nTo test with curl:")
+    print("  curl -H 'Authorization: Bearer <student-token>' \\")
     print(f"    'http://localhost:8000/api/v1/coding/testcases?session_id=TEST&question_id={qid}'")
     print()
 

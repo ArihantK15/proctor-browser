@@ -47,9 +47,9 @@ def _clean_options(raw: dict[str, Any]) -> dict[str, Any]:
     langs = opts.get("allowed_languages") or ["javascript"]
     if isinstance(langs, str):
         langs = [langs]
-    langs = [str(l).strip().lower() for l in langs if str(l).strip()]
-    langs = [_LANG_ALIASES.get(l, l) for l in langs]
-    bad = [l for l in langs if l not in SUPPORTED_LANGUAGES]
+    langs = [str(lang).strip().lower() for lang in langs if str(lang).strip()]
+    langs = [_LANG_ALIASES.get(lang, lang) for lang in langs]
+    bad = [lang for lang in langs if lang not in SUPPORTED_LANGUAGES]
     if not langs or bad:
         raise HTTPException(status_code=400,
                             detail=f"allowed_languages must be a non-empty subset of "
@@ -78,8 +78,8 @@ def _clean_options(raw: dict[str, Any]) -> dict[str, Any]:
         # Keep a language's template when it's PRESENT, even if it's "" — a teacher
         # may intentionally clear a starter. `.get(l) is not None` keeps "" but drops
         # missing/None entries (truthiness would wrongly drop the empty string).
-        starter: Any = {l: str(raw_starter[l])[:20000] for l in langs
-                   if raw_starter.get(l) is not None}
+        starter: Any = {lang: str(raw_starter[lang])[:20000] for lang in langs
+                   if raw_starter.get(lang) is not None}
     elif isinstance(raw_starter, str):
         starter = raw_starter[:20000]
     else:

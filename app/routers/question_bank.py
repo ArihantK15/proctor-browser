@@ -1128,7 +1128,6 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
 
     exam_id = body.exam_id
     if tid and exam_id:
-        from typing import Any
         update_fields: dict[str, Any] = {}
         if body.exam_title is not None:
             update_fields["exam_title"] = body.exam_title

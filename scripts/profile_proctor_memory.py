@@ -114,7 +114,7 @@ def main():
         after_face_load = after_yolo_load
 
     # ── Frame processing simulation ─────────────────────────────────
-    print(f"\n  Frame Processing Simulation")
+    print("\n  Frame Processing Simulation")
     print(f"  {'─' * 40}")
 
     # Simulate a 640×480 frame
@@ -140,18 +140,18 @@ def main():
     avg_frame_ms = sum(frame_times) / len(frame_times)
     p95_frame_ms = sorted(frame_times)[int(len(frame_times) * 0.95)]
 
-    print(f"  Frame processing (10 cycles):")
+    print("  Frame processing (10 cycles):")
     print(f"    Avg: {avg_frame_ms:.0f}ms/frame | P95: {p95_frame_ms:.0f}ms/frame")
     print(f"    Memory growth: {frame_growth:+.0f} MB")
     if frame_growth > 50:
-        print(f"    ⚠️ Possible memory leak — growth exceeds 50 MB")
+        print("    ⚠️ Possible memory leak — growth exceeds 50 MB")
     else:
-        print(f"    ✅ Memory stable")
+        print("    ✅ Memory stable")
 
     # ── Summary ─────────────────────────────────────────────────────
     total = mem_mb()
     print(f"\n  {'=' * 40}")
-    print(f"  MEMORY SUMMARY")
+    print("  MEMORY SUMMARY")
     print(f"  {'=' * 40}")
     print(f"  Peak RSS:        {total:.0f} MB")
     print(f"  Baseline Python: {baseline:.0f} MB")
@@ -164,7 +164,7 @@ def main():
     os_reserve = 512  # OS + browser + other processes
     available = droplet_ram - os_reserve
     headroom = available - total
-    print(f"\n  2GB Droplet Assessment:")
+    print("\n  2GB Droplet Assessment:")
     print(f"    Total RAM:       {droplet_ram} MB")
     print(f"    OS reserve:      {os_reserve} MB (estimated)")
     print(f"    Available:       {available} MB")
@@ -176,19 +176,19 @@ def main():
     elif headroom > 256:
         print(f"    ⚠️ Tight but workable ({headroom:.0f} MB free)")
     else:
-        print(f"    ❌ Risk of OOM — consider disabling features")
+        print("    ❌ Risk of OOM — consider disabling features")
 
-    print(f"\n  Recommendations:")
+    print("\n  Recommendations:")
     if total > 1500:
-        print(f"    • Use YOLOv8n (nano) instead of larger models")
-        print(f"    • Disable InsightFace if identity verification not needed")
-        print(f"    • Reduce camera resolution to 640×480")
+        print("    • Use YOLOv8n (nano) instead of larger models")
+        print("    • Disable InsightFace if identity verification not needed")
+        print("    • Reduce camera resolution to 640×480")
     elif total > 1000:
-        print(f"    • Monitor memory during long exam sessions (2+ hours)")
-        print(f"    • Consider GC tuning: gc.set_threshold(700, 10, 10)")
+        print("    • Monitor memory during long exam sessions (2+ hours)")
+        print("    • Consider GC tuning: gc.set_threshold(700, 10, 10)")
     else:
-        print(f"    • Memory footprint is well within limits")
-        print(f"    • No action needed")
+        print("    • Memory footprint is well within limits")
+        print("    • No action needed")
 
     print(f"\n{'=' * 60}")
 

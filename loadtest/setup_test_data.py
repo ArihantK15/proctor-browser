@@ -53,7 +53,8 @@ def main():
     # requires every POST/PUT/PATCH/DELETE to echo it as X-CSRF-Token.
     # We decode without verification because we just minted the token
     # via /auth/login — we already trust it.
-    import base64 as _b64, json as _json
+    import base64 as _b64
+    import json as _json
     csrf_claim = ""
     try:
         _payload_b64 = teacher_token.split(".")[1]
@@ -191,22 +192,22 @@ def main():
 
     print(f"\n[5/5] Manifest saved: {manifest_path}")
     print(f"\n{'='*60}")
-    print(f"  LOAD TEST READY")
+    print("  LOAD TEST READY")
     print(f"  Exam ID:    {exam_id}")
     print(f"  Teacher ID: {teacher_id}")
     print(f"  Students:   {len(roll_numbers)}")
     print(f"  Questions:  {args.questions}")
     print(f"  Duration:   {args.duration} min")
     print(f"{'='*60}")
-    print(f"\nNext steps:")
-    print(f"  1. pip3 install locust")
+    print("\nNext steps:")
+    print("  1. pip3 install locust")
     print(f"  2. locust -f loadtest/locustfile.py --host {host}")
-    print(f"  3. Open http://localhost:8089")
-    print(f"  4. Recommended test plan:")
-    print(f"     - Warm-up:  50 users,  ramp 10/sec")
-    print(f"     - Sustained: 150 users, ramp 10/sec")
-    print(f"     - Stress:   300 users, ramp 20/sec")
-    print(f"     - Break:    500+ users, ramp 50/sec")
+    print("  3. Open http://localhost:8089")
+    print("  4. Recommended test plan:")
+    print("     - Warm-up:  50 users,  ramp 10/sec")
+    print("     - Sustained: 150 users, ramp 10/sec")
+    print("     - Stress:   300 users, ramp 20/sec")
+    print("     - Break:    500+ users, ramp 50/sec")
 
 
 if __name__ == "__main__":

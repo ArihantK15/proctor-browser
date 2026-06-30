@@ -37,7 +37,7 @@ class ExtractedDoc:
 
     @property
     def text(self) -> str:
-        return "\n".join(l.text for l in self.lines)
+        return "\n".join(ln.text for ln in self.lines)
 
 
 _MIN_CHARS_FOR_TEXT_PDF = 20   # total extractable chars below this → scanned-like

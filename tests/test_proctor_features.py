@@ -174,8 +174,8 @@ class TestScreenShareFeedDetection:
                 result = self._detect(frame)
                 assert result is None
 
-    def test_low_edge_frame_not_flagged(self):
-        """Low edge ratio should not trigger even with low noise."""
+    def test_low_edge_frame_not_flagged_v2(self):
+        """Low edge ratio should not trigger even with low noise (alt patching)."""
         frame = np.full((480, 640, 3), 200, dtype=np.uint8)
         with patch("cv2.Canny", return_value=np.zeros((480, 640), dtype=np.uint8)):
             with patch("cv2.Laplacian") as mock_lap:

@@ -153,8 +153,8 @@ def main():
     # On macOS getrusage reports total virtual memory, not container RSS.
     # The delta is more meaningful than the absolute number.
     print(f"  RSS delta (init → load): {after_load - after_init:+.0f} MB")
-    print(f"  Docker limit: 1000 MB (API container)")
-    print(f"  Note: macOS reports total VM; actual container RSS will be lower")
+    print("  Docker limit: 1000 MB (API container)")
+    print("  Note: macOS reports total VM; actual container RSS will be lower")
 
     # ── Latency ───────────────────────────────────────────────────────
     print("\n⏱️  Endpoint Latency (30 requests each)")
@@ -216,11 +216,11 @@ def main():
     # ── Capacity estimate ─────────────────────────────────────────────
     print("\n📈 2GB Droplet Capacity Estimate")
     print("-" * 40)
-    print(f"  Docker limits (docker-compose.yml):")
-    print(f"    API:  1000 MB RAM, 1.5 CPU (2 workers × 500 MB)")
-    print(f"    Caddy: 128 MB RAM, 0.3 CPU")
-    print(f"    Redis: 96 MB RAM, 0.2 CPU")
-    print(f"    Total: ~1224 MB RAM / 2.0 CPU")
+    print("  Docker limits (docker-compose.yml):")
+    print("    API:  1000 MB RAM, 1.5 CPU (2 workers × 500 MB)")
+    print("    Caddy: 128 MB RAM, 0.3 CPU")
+    print("    Redis: 96 MB RAM, 0.2 CPU")
+    print("    Total: ~1224 MB RAM / 2.0 CPU")
     print(f"\n  Throughput: ~{tp['throughput_rps']} req/s (single worker)")
     estimated_rps = tp['throughput_rps'] * 2
     print(f"  Estimated max: ~{estimated_rps:.0f} req/s (2 workers)")

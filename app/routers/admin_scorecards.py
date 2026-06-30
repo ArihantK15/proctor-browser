@@ -157,7 +157,6 @@ def _pdf_get_conf(vtype: str, details) -> str:
     for prefix in ("confidence:", "conf:"):
         if prefix in det:
             try:
-                suffix = prefix.replace(":", "")
                 raw = det.split(f"{prefix}")[1].split("|")[0].strip() if prefix == "confidence:" else det.split(f"{prefix}")[1].split(" ")[0].strip()
                 if prefix == "conf:":
                     val = float(raw)

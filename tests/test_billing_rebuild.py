@@ -86,7 +86,8 @@ def _signed_event(secret, event_type, sub_id="sub_x", event_id="evt_1", extra=No
 
 
 def _webhook_post(client, raw):
-    import hmac, hashlib
+    import hmac
+    import hashlib
     secret = "whsec_test"
     with patch.dict(os.environ, {"RAZORPAY_WEBHOOK_SECRET": secret}):
         sig = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()

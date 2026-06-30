@@ -183,7 +183,7 @@ class TestSubmitAllowedSecs:
                                            },
                                            headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 200, resp.text[:200]
-        assert resp.json().get("time_exceeded") != True, "Should NOT exceed 60+30=90min"
+        assert resp.json().get("time_exceeded") is not True, "Should NOT exceed 60+30=90min"
 
     def _make_token(self):
         from .conftest import make_student_token

@@ -579,7 +579,6 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
 
     supabase_uid = new_auth_uid()
     password_hash = await hash_password(body.password)
-    auth_provider = "local"
 
     try:
         teacher, _pg_org_id, _default_exam_id = await _create_teacher_signup_postgres_tx(
@@ -638,6 +637,7 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     except Exception as _e:
         _auth_log.warning("[TeacherSignup] trial-started email enqueue failed: %s", _e)
 
+    from ..constants import CARD_ON_SIGNUP_ENFORCED
     return {
         "teacher_id":    str(teacher["id"]),
         "email":         email,

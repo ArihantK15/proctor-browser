@@ -38,6 +38,7 @@ __all__ = [
     "flush_autosave_job",
     "_rq_enabled",
     "_redis_url",
+    "_run_coro_in_sync",
     "score_submission_job",
     "upload_screenshot_job",
     "ags_grade_passback_job",

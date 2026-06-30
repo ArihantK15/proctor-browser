@@ -42,7 +42,7 @@ def test_pdf_text_extraction():
     assert doc.kind == "pdf"
     assert "Q one" in doc.text
     assert doc.pdf_bytes is not None
-    assert all(l.bbox is not None for l in doc.lines)
+    assert all(ln.bbox is not None for ln in doc.lines)
 
 
 def test_docx_text_extraction():

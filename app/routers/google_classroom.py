@@ -132,7 +132,7 @@ async def _do_google_courses(request: Request):
 
     # Check which courses are already linked
     links = await _atable("google_classroom_links").select("google_course_id,exam_id").eq("teacher_id", tid).execute()
-    linked = {l["google_course_id"]: l["exam_id"] for l in (links.data or [])}
+    linked = {lnk["google_course_id"]: lnk["exam_id"] for lnk in (links.data or [])}
 
     for c in courses:
         c["linked"] = c["id"] in linked
@@ -199,7 +199,6 @@ async def _do_google_sync_roster(body: dict[str, Any], request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     course_id = (body.get("course_id") or "").strip()
-    exam_id = (body.get("exam_id") or "").strip()
 
     if not course_id:
         raise HTTPException(status_code=400, detail="course_id required")

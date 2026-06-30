@@ -31,6 +31,7 @@ so the teacher dashboard's expectations are unchanged.
 import os
 import sys
 import time
+import json
 import base64
 import platform
 import signal
@@ -1467,7 +1468,7 @@ def _derive_ws_url():
     if base.startswith("https://"):
         return "wss://" + base[len("https://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
     if base.startswith("http://"):
-        if not os.environ.get("PROCTOR_ALLOW_WS", "").strip().lower() in {"1", "true"}:
+        if os.environ.get("PROCTOR_ALLOW_WS", "").strip().lower() not in {"1", "true"}:
             print("[LiveFeed] ⚠ WebSocket URL uses ws:// — JWT sent in cleartext! Set PROCTOR_ALLOW_WS=1 to proceed.")
         return "ws://" + base[len("http://"):] + f"/ws/v1/live-frame/{SESSION_ID}"
     return base + f"/ws/v1/live-frame/{SESSION_ID}"
@@ -1505,7 +1506,7 @@ def _get_ws():
             print("[LiveFeed] ✅ WebSocket connected", flush=True)
         except Exception as _we:
             if _ws_backoff == 0:
-                print(f"[LiveFeed] WS not available, using HTTP fallback",
+                print("[LiveFeed] WS not available, using HTTP fallback",
                       flush=True)
             _ws_backoff = min(_WS_MAX_BACKOFF, max(1, _ws_backoff * 2 or 1))
         return _ws_conn

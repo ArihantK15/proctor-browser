@@ -725,22 +725,14 @@ class TestHybridAuthTransition:
         monkeypatch.setenv("AUTH_PROVIDER", "hybrid")
         with patch("app.routers.auth.verify_or_403", new=AsyncMock()), \
              patch("app.routers.auth.check_lockout", new=AsyncMock(return_value=(False, 0))), \
-             patch("app.routers.auth.clear_failures", new=AsyncMock()), \
+             patch("app.routers.auth.record_failure", new=AsyncMock()), \
              patch("app.routers.auth.record_auth_event", new=AsyncMock()), \
              patch("app.routers.auth._get_teacher_by_email_for_auth", new=AsyncMock(return_value={
                  "id": "teacher-1",
                  "email": "legacy@example.com",
                  "full_name": "Legacy",
                  "password_hash": None,
-             })), \
-             patch("app.routers.auth._get_teacher_by_uid", new=AsyncMock(return_value={
-                 "id": "teacher-1",
-                 "email": "legacy@example.com",
-                 "full_name": "Legacy",
-                 "email_verified_at": "2026-01-01T00:00:00+00:00",
-             })), \
-             patch("app.routers.auth.issue_admin_token", return_value="access-1"), \
-             patch("app.routers.auth._issue_and_persist_refresh_token", new=AsyncMock(return_value="refresh-1")):
+             })):
             resp = client.post("/api/v1/auth/login", json={
                 "email": "legacy@example.com",
                 "password": "SupabasePassword1!",

@@ -153,7 +153,7 @@ class TestE2EHappyPath:
         # clicking into specific tabs).  We check via the exported JSON.
         with _api() as c:
             tok, _ = _login_api(c)
-            r = c.get(f"/api/v1/admin/exams", headers=_auth_h(tok))
+            r = c.get("/api/v1/admin/exams", headers=_auth_h(tok))
             r.raise_for_status()
             exams = r.json()
             match = [e for e in exams if e.get("exam_id") == created_exam["exam_id"]]

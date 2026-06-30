@@ -528,7 +528,8 @@ class TestWebhook:
         rewrite — anything else returns 403 forbidden.
         """
         from app import emailer
-        import base64, time
+        import base64
+        import time
         # Use a `whsec_`-prefixed secret because that's the format
         # Resend distributes; verify_webhook base64-decodes the part
         # after the prefix before using it as the HMAC key.

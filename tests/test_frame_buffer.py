@@ -69,7 +69,7 @@ def test_context_offsets_measured_back_from_flag():
 def test_context_caps_at_available_frames():
     clk = _Clock()
     buf = FrameRingBuffer(_now=clk)
-    buf.maybe_push("only");
+    buf.maybe_push("only")
     ctx = buf.context_before(3)
     assert len(ctx) == 1 and ctx[0]["frame_b64"] == "only"
 

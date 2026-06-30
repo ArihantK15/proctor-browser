@@ -64,7 +64,7 @@ def on_init(environment, **kwargs):
                 ACCESS_CODE = data.get("access_code", "")
         print(f"[LoadTest] Loaded {len(_roll_pool)} test students for exam {EXAM_ID}")
     else:
-        print(f"[LoadTest] WARNING: No test_students.json found. Run setup_test_data.py first.")
+        print("[LoadTest] WARNING: No test_students.json found. Run setup_test_data.py first.")
         # Generate synthetic roll numbers anyway
         _roll_pool = [f"{TEST_STUDENT_PREFIX}{i:04d}" for i in range(1, 501)]
 

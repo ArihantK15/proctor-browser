@@ -426,7 +426,7 @@ def _table_style_default():
 def _cover_page(story):
     story.append(Spacer(1, 30*mm))
     story.append(Paragraph(PROJECT["name"], H1))
-    story.append(Paragraph(f"Performance Engineering Journey", H2))
+    story.append(Paragraph("Performance Engineering Journey", H2))
     story.append(Paragraph(PROJECT["tagline"], MUTED_BODY))
     story.append(Spacer(1, 16*mm))
 
@@ -647,7 +647,7 @@ def build_pdf(out_path: str = "Procta_Performance.pdf"):
         rightMargin=18*mm,
         topMargin=16*mm,
         bottomMargin=16*mm,
-        title=f"Procta — Performance Engineering Journey",
+        title="Procta — Performance Engineering Journey",
         author="Procta",
     )
     story = []

@@ -102,7 +102,7 @@ async def get_status(request: Request):
                 r.ping()
                 checks["redis"] = "ok"
                 try:
-                    info = cast(dict[str, Any], r.info())
+                    info = r.info()
                     metrics["redis_connected_clients"] = int(info.get("connected_clients", 0))
                 except Exception:
                     _log.debug("admin_status: redis info gather failed", exc_info=True)

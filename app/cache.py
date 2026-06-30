@@ -224,7 +224,7 @@ def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
         r.expire(LIVEFRAME_INDEX_KEY, ttl + 5)
 
         # Evict oldest if over cap
-        total = cast(int, r.zcard(LIVEFRAME_INDEX_KEY))
+        total = r.zcard(LIVEFRAME_INDEX_KEY)
         if total > _LIVEFRAME_MAX:
             to_remove = total - _LIVEFRAME_MAX
             oldest = cast(list[Any], r.zrange(LIVEFRAME_INDEX_KEY, 0, to_remove - 1))
@@ -363,12 +363,12 @@ def live_frame_stats() -> dict[str, Any]:
         if r is None:
             return out
         out["healthy"] = bool(_r_healthy)
-        cached = int(cast(int, r.zcard(LIVEFRAME_INDEX_KEY)) or 0)
+        cached = int(r.zcard(LIVEFRAME_INDEX_KEY) or 0)
         out["cached_sessions"] = cached
         if _LIVEFRAME_MAX > 0:
             out["utilisation_pct"] = round(cached / _LIVEFRAME_MAX * 100, 2)
         try:
-            info = cast(dict[str, Any], r.info(section="memory") or {})
+            info = r.info(section="memory") or {}
             out["redis_used_bytes"] = int(info.get("used_memory") or 0)
             out["redis_max_bytes"] = int(info.get("maxmemory") or 0)
         except Exception:

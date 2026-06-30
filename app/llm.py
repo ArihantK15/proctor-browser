@@ -401,7 +401,6 @@ async def scorecard_insight(summary: dict[str, Any], per_question: list[dict[str
     # patterns. Truncate at 25 questions to keep tokens bounded; if a
     # student took a 100-question exam, the model only sees the first
     # 25 but that's enough to spot the strength/weakness pattern.
-    correct = sum(1 for q in per_question if q.get("is_correct"))
     wrong = [q.get("question", "")[:120] for q in per_question[:25]
              if not q.get("is_correct")][:8]
     right = [q.get("question", "")[:120] for q in per_question[:25]
@@ -526,9 +525,6 @@ async def live_risk_triage(session_meta: dict[str, Any], violations: list[dict[s
         t = v.get("violation_type", "?")
         sev = (v.get("severity") or "low").upper()
         det = (v.get("details") or "")[:80]
-        # Compute relative time if we have both a session start and
-        # a violation timestamp; otherwise just include the raw ts.
-        ts = v.get("created_at") or v.get("timestamp") or ""
         lines.append(f"[{sev}] {t} — {det}".strip())
     digest = "\n".join(lines)
 

@@ -205,7 +205,6 @@ async def grade_suggest(request: Request, body: GradeSuggestIn = Body(...)):
     # us inside Groq's rate budget (free tier = 30 req/min; at 8
     # in-flight a 50-answer batch stays under the quota for a single
     # teacher action).
-    import asyncio
     _llm_sem = asyncio.Semaphore(8)
 
     async def _grade_one(a):

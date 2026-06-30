@@ -187,7 +187,7 @@ class TestWebhookEdgeCases:
             "type": "email.delivered",
             "data": {"email_id": "msg-webhook-edge"},
         })
-        sm = shared_supabase_mock()
+        shared_supabase_mock()
         _setup_webhook_secret()
         try:
             resp = client.post("/api/v1/webhooks/email", content=raw, headers=headers)

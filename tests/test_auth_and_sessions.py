@@ -281,7 +281,7 @@ class TestSubmitExam:
     def test_submit_uses_server_score_not_client(self, client):
         """Client-supplied score should be ignored; server recalculates."""
         token = make_student_token(roll="ALICE001")
-        with patch("app.routers.exam._recalculate_score", return_value=(3, 10)) as mock_score, \
+        with patch("app.routers.exam._recalculate_score", return_value=(3, 10)), \
              patch("app.routers.exam._load_exam_config", return_value={"duration_minutes": 60}), \
              patch("app.routers.exam.compute_risk_score", new=AsyncMock(return_value={"risk_score": 10, "label": "Low Risk"})), \
              patch("app.routers.exam._atable") as atable_mock:
@@ -844,7 +844,7 @@ class TestInProcessCaches:
         """Each unique teacher_id adds an entry that never expires if TTL
         is checked lazily. With enough distinct IDs, memory grows."""
         from app.auth.admin_auth import _teacher_cache, _teacher_cache_ttl
-        initial_size = len(_teacher_cache)
+        len(_teacher_cache)
         # The cache has no max size — this is the audit finding
         # We just verify the structure exists and is a plain dict
         assert isinstance(_teacher_cache, dict)

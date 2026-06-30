@@ -313,7 +313,6 @@ async def validate_id_token(id_token: str, state: str) -> dict[str, Any]:
         raise ValueError("Invalid or expired OIDC state")
 
     expected_nonce = state_data.get("nonce", "")
-    target_link_uri = state_data.get("target_link_uri", "")
 
     # 2. Decode JWT header (without verification)
     from .jwk_utils import jwk_to_public_key
@@ -657,18 +656,6 @@ async def find_or_create_lti_user(claims: dict[str, Any]) -> dict[str, Any]:
     )
     role = _parse_lti_roles(lti_roles_raw)
     logger.info("lti: launch roles=%s -> role=%s", safe(str(lti_roles_raw)[:300]), role)
-
-    context = claims.get(
-        "https://purl.imsglobal.org/spec/lti/claim/context", {}
-    )
-    context_id = context.get("id", "")
-    context_label = context.get("label", "")
-    context_title = context.get("title", "")
-
-    resource_link = claims.get(
-        "https://purl.imsglobal.org/spec/lti/claim/resource_link", {}
-    )
-    resource_link_id = resource_link.get("id", "")
 
     # Unique identifier combining platform + user
     lti_user_id = f"{iss}|{sub}"

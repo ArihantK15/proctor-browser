@@ -225,9 +225,6 @@ async def update_bank_question(qid: str, request: Request, body: UpdateQuestionI
     if isinstance(fields.get("options"), dict):
         fields["options"] = json.dumps(fields["options"])
     fields["updated_at"] = datetime.now(timezone.utc).isoformat()
-    # Fetch the pre-update row for snapshot.
-    before = (await _atable("question_bank").select("*")
-              .eq("id", qid).eq("teacher_id", tid).limit(1).execute()).data or []
     result = await (_atable("question_bank")
                     .update(fields).eq("id", qid).eq("teacher_id", tid).execute())
     if not result.data:
@@ -778,7 +775,7 @@ async def generate_rubric_endpoint(request: Request, body: GenerateRubricIn = Bo
     try:
         result = await generate_rubric(body.question, body.reference_answer, body.max_score)
         return result
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=502, detail="AI provider error. Try again.")
 
 

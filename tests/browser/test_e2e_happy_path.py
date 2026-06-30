@@ -83,7 +83,7 @@ def created_exam(teacher_token: str) -> dict:
         exam_id = exam["exam_id"]
 
         # 2. Add MCQ question
-        qid1 = str(uuid.uuid4())
+        str(uuid.uuid4())
         r = c.post("/api/v1/admin/question-bank/import", json={
             "questions": [{
                 "question": "What is 2 + 2?",

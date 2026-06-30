@@ -138,7 +138,7 @@ class TestEmailScorecards:
             "student_invites": [],  # no email mapping
             "students": [],
         })), \
-            patch("app.routers.admin_scorecards.enqueue_job") as enq:
+            patch("app.routers.admin_scorecards.enqueue_job"):
             resp = client.post(
                 "/api/v1/admin/exams/exam-1/email-scorecards",
                 json={},

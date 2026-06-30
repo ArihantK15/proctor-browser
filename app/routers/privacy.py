@@ -177,7 +177,6 @@ async def object_to_processing(body: ObjectionIn, request: Request):
     * Teachers → routed to privacy@procta.net for DPO handling.
     """
     user_type, user_id, profile = await _resolve_caller(request)
-    ip = request.client.host if request.client else ""
 
     row = await _atable("objection_records").insert({
         "user_id": user_id,

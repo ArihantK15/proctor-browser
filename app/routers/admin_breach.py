@@ -169,7 +169,6 @@ async def create_breach(request: Request, body: BreachCreateIn):
     """Log a new personal-data breach incident."""
     user = await _authenticate(request)
     _require_superadmin(request)
-    admin_email = user.get("email", "")
 
     risk = body.risk_level.lower()
     if risk not in RISK_LEVELS:
@@ -234,8 +233,8 @@ async def get_breach(request: Request, breach_id: str):
 @limiter.limit("10/minute")
 async def update_breach(request: Request, breach_id: str, body: BreachUpdateIn):
     """Transition breach status or update metadata."""
-    user = await _authenticate(request)
-    admin_email = _require_superadmin(request)
+    await _authenticate(request)
+    _require_superadmin(request)
     current = await _fetch_breach(breach_id)
 
     _validate_transition(current["status"], body.status)
@@ -276,8 +275,8 @@ async def update_breach(request: Request, breach_id: str, body: BreachUpdateIn):
 @limiter.limit("5/minute")
 async def notify_controller(request: Request, breach_id: str, body: BreachNotifyControllerIn):
     """Dispatch processor->controller breach notification email."""
-    user = await _authenticate(request)
-    admin_email = _require_superadmin(request)
+    await _authenticate(request)
+    _require_superadmin(request)
     breach = await _fetch_breach(breach_id)
 
     org_name = body.org_name.strip()
@@ -342,8 +341,8 @@ async def notify_controller(request: Request, breach_id: str, body: BreachNotify
 @limiter.limit("3/minute")
 async def notify_subjects(request: Request, breach_id: str, body: BreachNotifySubjectsIn):
     """Dispatch controller->data-subject breach notification emails (high-risk)."""
-    user = await _authenticate(request)
-    admin_email = _require_superadmin(request)
+    await _authenticate(request)
+    _require_superadmin(request)
     breach = await _fetch_breach(breach_id)
 
     sent_to: list[str] = []

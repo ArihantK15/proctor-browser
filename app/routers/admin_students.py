@@ -860,7 +860,7 @@ async def import_students_csv(
 @router.get("/api/v1/admin/students/csv-template")
 @limiter.limit("60/minute")
 async def csv_template(request: Request):
-    teacher = await require_admin(request)
+    await require_admin(request)
 
     sample = (
         "roll_number,full_name,email,phone,batch\n"

@@ -771,7 +771,6 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             failures.append({"roll": roll, "reason": "no email on file"})
             continue
 
-        did_claim = False
         if not resend_all:
             claim = await _atable("exam_sessions").update({
                 "scorecard_emailed_at": now_ist().isoformat(),
@@ -780,7 +779,6 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
             if not claimed:
                 already_sent += 1
                 continue
-            did_claim = True
 
         try:
             job_result = enqueue_job(

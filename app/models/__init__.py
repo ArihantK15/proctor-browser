@@ -26,7 +26,6 @@ from .org import OrgRole, OrgInviteStatus, OrgInviteIn, OrgOut, OrgMemberOut, Or
 from .billing import SubscriptionStatus, PlanTier, SubscriptionOut
 from .api_key import ApiKeyCreate, ApiKeyOut, ApiKeyCreated
 from .lti import LtiRegistrationIn, LtiRegistrationOut
-from .demo_request import *
 
 __all__ = [
     # teacher

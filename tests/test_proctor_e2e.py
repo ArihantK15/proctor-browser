@@ -159,7 +159,6 @@ class TestContinuousIdentityVerification:
 
     def test_similarity_math(self):
         """Cosine similarity of normalized embeddings should be in [-1, 1]."""
-        import numpy as np
         # Two identical unit vectors
         a = np.array([1.0, 0.0, 0.0, 0.0])
         assert np.dot(a, a) == pytest.approx(1.0, abs=1e-10)

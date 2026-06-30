@@ -130,7 +130,6 @@ def build_deep_linking_response(
     Returns:
         Signed JWT string ready for form POST.
     """
-    iss = claims.get("iss", "")
     aud_raw = claims.get("aud", "")
     aud = aud_raw if isinstance(aud_raw, list) else [aud_raw]
     deployment_id = claims.get(

@@ -140,7 +140,7 @@ def main():
     # ── Memory (rough estimate) ──────────────────────────────────────────
     print("\n📊 Memory Footprint")
     print("-" * 40)
-    baseline = get_memory_mb()
+    get_memory_mb()
     # Warm up
     client.get("/health")
     time.sleep(0.2)

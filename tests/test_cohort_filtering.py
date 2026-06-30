@@ -119,7 +119,7 @@ class TestResultsEndpoint:
         rows = [{"session_key": "s1_R001", "roll_number": "R001", "full_name": "A", "email": "a@t.com",
                  "score": 80, "total": 100, "percentage": 80.0, "time_taken_secs": 300,
                  "submitted_at": "2025-01-01T00:00:00Z", "risk_score": 10}]
-        mt = _mock_atable(rows)
+        _mock_atable(rows)
         with patch("app.routers.admin_sessions._fetch_all_results", new_callable=AsyncMock,
                    return_value=[{"session_id": "s1_R001", "roll_number": "R001", "full_name": "A", "email": "a@t.com",
                                    "score": 80, "total": 100, "percentage": 80.0, "time_taken_secs": 300,
@@ -173,7 +173,7 @@ class TestExportCSVEndpoint:
 
     @pytest.mark.asyncio
     async def test_no_param_returns_csv(self):
-        mt = _mock_atable([{"session_key": "s1_R001", "roll_number": "R001", "full_name": "A", "email": "a@t.com",
+        _mock_atable([{"session_key": "s1_R001", "roll_number": "R001", "full_name": "A", "email": "a@t.com",
                             "score": 80, "total": 100, "percentage": 80.0, "time_taken_secs": 300,
                             "submitted_at": "2025-01-01T00:00:00Z", "risk_score": 10}])
         with patch("app.routers.admin_scorecards._stream_csv_results") as mock_stream:
@@ -258,7 +258,7 @@ class TestInviteCohortExpansion:
             {"full_name": "Bob", "email": "bob@t.com", "roll_number": "R002"},
         ])
 
-        with patch("app.routers.admin_invites._atable", side_effect=[mt_empty, mt_exam, mt_students, mt_empty, mt_empty]) as mock_atable, \
+        with patch("app.routers.admin_invites._atable", side_effect=[mt_empty, mt_exam, mt_students, mt_empty, mt_empty]), \
              patch("app.routers.admin_invites._cohort_roll_numbers", new_callable=AsyncMock, return_value={"R001", "R002"}) as mock_cohort, \
              patch("app.routers.admin_invites.send_invite_email_job",
                    return_value={"ok": True, "provider_msg_id": "noop"}):

@@ -111,11 +111,9 @@ def compute_expected(input_str: str, language: str) -> str | None:
     """
     if language == "javascript":
         cmd = ["node", "-e", _JS_REFERENCE]
-        source = None           # reference is passed via -e, no tempfile needed
     elif language == "python":
         # Use -c to pass the source inline — mirrors node -e exactly.
         cmd = ["python3", "-c", _PY_REFERENCE]
-        source = None
     else:
         raise ValueError(f"unknown language: {language!r}")
 

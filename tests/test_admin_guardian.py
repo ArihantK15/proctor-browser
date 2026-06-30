@@ -187,7 +187,7 @@ def test_landing_missing_token():
 def test_landing_invalid_token():
     """404 for unrecognised token."""
     token = "some-unknown-token"
-    token_hash = _token_hash(token)
+    _token_hash(token)
     fake_atable = _fake_atable([])
     with patch("app.routers.admin_guardian._atable", return_value=fake_atable):
         resp = client.get(f"/guardian-consent/{token}")
@@ -197,7 +197,7 @@ def test_landing_invalid_token():
 def test_landing_already_granted():
     """Shows 'already recorded' page when consent already granted."""
     token = "known-token"
-    token_hash = _token_hash(token)
+    _token_hash(token)
     student = dict(_FAKE_STUDENT, guardian_consent_granted_at="2026-06-12T10:00:00+00:00")
     fake_atable = _fake_atable([student])
     # The lookup uses token_hash, so the student must have matching hash.

@@ -250,7 +250,7 @@ async def health() -> Response:
             f.write(b"ok")
         os.remove(test_path)
         checks["storage_write"] = "ok"
-    except Exception as e:
+    except Exception:
         checks["disk"] = "error: suppressed"
         checks["storage_write"] = "error"
         ok = False

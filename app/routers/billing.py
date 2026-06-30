@@ -241,7 +241,7 @@ async def create_subscription(body: dict[str, Any], request: Request):
     except RuntimeError as e:
         logger.error("Billing misconfigured: %s", e)
         raise HTTPException(status_code=503, detail="Billing unavailable: payment credentials not configured.")
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to create subscription")
         raise HTTPException(status_code=500, detail="Failed to create subscription")
 
@@ -1071,7 +1071,6 @@ async def get_usage(request: Request):
     org_teacher_ids = [str(r["id"]) for r in _tid_rows] or [str(teacher["id"])]
 
     # Count current period usage
-    now_utc = datetime.now(timezone.utc)
     period_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     # Count distinct students who submitted this month
     student_count_q = await _atable("exam_sessions")\

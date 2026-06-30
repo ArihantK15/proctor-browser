@@ -3603,8 +3603,8 @@ def run_proctoring(cap, W, H):
             # When the governor throttles below ~5 fps, submit every frame so
             # a briefly held phone doesn't vanish between sparse YOLO cycles.
             state["_yolo_every_n"] = 1 if governor.effective_fps < 5 else YOLO_EVERY_N
-            yolo_seen = _process_yolo_results(state, frame, frame_count, W, H,
-                                              can_log, log_if_allowed)
+            _process_yolo_results(state, frame, frame_count, W, H,
+                                  can_log, log_if_allowed)
 
             # ── EARBUDS ──────────────────────────────────────────────────────────
             # Retired the separate ear-crop classifier: the custom detector now

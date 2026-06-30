@@ -111,7 +111,7 @@ class TestPostUnsubscribe:
     async def test_idempotent_on_repeat(self):
         mt = _make_mock_atable()
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
-            with patch("app.routers.unsubscribe._atable", return_value=mt) as mock_atable:
+            with patch("app.routers.unsubscribe._atable", return_value=mt):
                 r1 = await ac.post(self.PATH, json={"token": _valid_token()})
                 r2 = await ac.post(self.PATH, json={"token": _valid_token()})
         assert r1.status_code == 200

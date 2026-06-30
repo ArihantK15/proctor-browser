@@ -68,7 +68,7 @@ class TestEnqueueJob:
         # Queue/Redis are imported lazily inside enqueue_job, so we patch
         # the top-level module paths, not app.jobs.helpers.*
         with patch("rq.Queue") as MockQ, \
-             patch("redis.Redis") as MockR:
+             patch("redis.Redis"):
             mock_queue = MockQ.return_value
             mock_queue.enqueue.return_value = None
 
@@ -85,7 +85,7 @@ class TestEnqueueJob:
     def test_rq_calls_enqueue_with_retry(self):
         """Verify retry config is passed through to the RQ Queue."""
         with patch("rq.Queue") as MockQ, \
-             patch("redis.Redis") as MockR:
+             patch("redis.Redis"):
             from app.jobs import enqueue_job
 
             def dummy():

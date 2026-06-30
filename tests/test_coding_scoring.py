@@ -285,7 +285,7 @@ def asyncio_run(coro):
     """Run a coroutine synchronously, scoping the event loop."""
     import asyncio
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
     # Already running — use a fresh loop in a new thread

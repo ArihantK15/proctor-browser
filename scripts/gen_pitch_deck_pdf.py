@@ -208,7 +208,7 @@ def kpi_row(specs, total_w_mm):
     n = len(specs)
     gap = 4  # mm between cards
     cw = (total_w_mm - gap * (n - 1)) / n
-    cells = [stat_card(b, l, c, width_mm=cw - 4) for (b, l, c) in specs]
+    cells = [stat_card(b, label, c, width_mm=cw - 4) for (b, label, c) in specs]
     t = Table([cells], colWidths=[cw * mm] * n)
     t.setStyle(TableStyle([
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -291,7 +291,7 @@ def pie_chart(labels, values, colors=None, width=180, height=150):
     pie.slices.fontColor = INK
     d.add(pie)
     # build legend rows as a small table
-    total = sum(values)
+    sum(values)
     legend_rows = []
     for i, lab in enumerate(labels):
         swatch = Drawing(9, 9)

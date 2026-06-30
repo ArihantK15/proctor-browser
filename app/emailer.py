@@ -34,9 +34,10 @@ import hmac
 import json
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, cast
 
 from .utils import _html_escape as _esc
 
@@ -920,11 +921,42 @@ class _Backend:
         raise NotImplementedError
 
 
+# ── Resend rate-limit throttle ───────────────────────────────────────────
+# Resend's API caps at 2 requests/second; bursts (e.g. signup enqueues a
+# verification + a trial-started email back-to-back) tripped 429s in prod
+# (Sentry PYTHON-1S/1R). Proactively SPACE outbound calls instead of relying
+# only on the reactive single-retry below. Process-wide gate: each caller
+# reserves the next slot under a brief lock, then sleeps to it OUTSIDE the
+# lock so concurrent job-worker threads serialize into >=interval spacing
+# rather than bursting. Default 0.55s ≈ 1.8 req/s (margin under the 2/s cap).
+# Tunable via RESEND_MIN_INTERVAL_SEC. This is per-process; a single worker
+# is the common burst source, so it removes the practical 429 path.
+_resend_throttle_lock = threading.Lock()
+_resend_next_allowed_ts = 0.0
+
+
+def _resend_throttle() -> None:
+    global _resend_next_allowed_ts
+    try:
+        interval = float(os.environ.get("RESEND_MIN_INTERVAL_SEC", "0.55"))
+    except (TypeError, ValueError):
+        interval = 0.55
+    if interval <= 0:
+        return
+    with _resend_throttle_lock:
+        now = time.monotonic()
+        slot = max(now, _resend_next_allowed_ts)
+        _resend_next_allowed_ts = slot + interval
+    wait = slot - now
+    if wait > 0:
+        time.sleep(wait)
+
+
 class _ResendBackend(_Backend):
     def send(self, *, to_email: str, to_name: str, subject: str,
              html: str, text: str, attachments=None, headers=None) -> SendResult:
         try:
-            import resend  # type: ignore
+            import resend
         except ImportError:
             return SendResult(ok=False, error="resend package not installed")
         api_key = os.environ.get("RESEND_API_KEY", "")
@@ -952,18 +984,23 @@ class _ResendBackend(_Backend):
                 for a in attachments
             ]
         try:
-            resp = resend.Emails.send(params)
+            _resend_throttle()  # proactively stay under Resend's 2 req/sec cap
+            # cast: resend's stub types send() as SendParams (a TypedDict); our
+            # dynamically-built dict[str, Any] is equivalent at runtime. cast to
+            # Any keeps this valid whether or not resend's stubs are installed.
+            resp = resend.Emails.send(cast(Any, params))
             msg_id = resp.get("id") if isinstance(resp, dict) else getattr(resp, "id", None)
             return SendResult(ok=True, provider_msg_id=msg_id)
         except Exception as e:
             err_str = str(e)
             # Rate-limit retry with a single backoff (Resend docs: 429 → wait
             # before retrying). Do NOT loop — the caller has its own timeout.
+            # The throttle above makes this path rare, but keep it as a backstop
+            # for cross-process bursts the in-process gate can't see.
             if "rate limit" in err_str.lower() or "too many requests" in err_str.lower():
-                import time as _time
-                _time.sleep(2)
+                time.sleep(2)
                 try:
-                    resp2 = resend.Emails.send(params)
+                    resp2 = resend.Emails.send(cast(Any, params))
                     msg_id2 = resp2.get("id") if isinstance(resp2, dict) else getattr(resp2, "id", None)
                     return SendResult(ok=True, provider_msg_id=msg_id2)
                 except Exception as e2:

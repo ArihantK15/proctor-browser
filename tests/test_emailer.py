@@ -44,6 +44,17 @@ if _mock_emailer is not None:
 from tests.conftest import mock_cache  # noqa: F401
 
 
+@pytest.fixture(autouse=True)
+def _neutralize_resend_throttle(monkeypatch):
+    """Keep the suite fast + deterministic: disable the Resend rate-limit
+    throttle (interval 0 → no sleep) and reset its process-wide slot before
+    each test. The dedicated TestResendThrottle tests set a nonzero interval
+    explicitly to exercise the spacing logic."""
+    monkeypatch.setenv("RESEND_MIN_INTERVAL_SEC", "0")
+    emailer._resend_next_allowed_ts = 0.0
+    yield
+
+
 # ── Helpers ────────────────────────────────────────────────────────────
 
 class SpyBackend(emailer._Backend):
@@ -109,7 +120,20 @@ class TestResendBackend:
         return emailer._ResendBackend()
 
     def test_import_error(self, backend):
-        with patch.dict(os.environ, {}, clear=True):
+        # Force the ImportError branch regardless of whether `resend` is
+        # actually installed in this environment. The prior version relied on
+        # resend being ABSENT, so it silently broke wherever resend is present
+        # (e.g. CI, which installs requirements.lock) — patch the import.
+        import builtins
+        real_import = builtins.__import__
+
+        def _no_resend(name, *a, **kw):
+            if name == "resend":
+                raise ImportError("simulated: resend not installed")
+            return real_import(name, *a, **kw)
+
+        with patch.dict(os.environ, {}, clear=True), \
+             patch("builtins.__import__", side_effect=_no_resend):
             r = backend.send(to_email="a@b.com", to_name="A", subject="S", html="<p>H</p>", text="H")
         assert r.ok is False
         assert "not installed" in (r.error or "")
@@ -200,6 +224,50 @@ class TestResendBackend:
         def _import(name, *a, **kw):
             return fake_resend
         return _import
+
+
+# ── _resend_throttle (proactive 2 req/sec spacing) ───────────────────────
+
+class TestResendThrottle:
+    """Guards the proactive Resend rate-limit throttle. Uses a mocked clock so
+    the spacing logic is verified deterministically without real sleeps."""
+
+    def test_first_call_reserves_slot_without_waiting(self, monkeypatch):
+        monkeypatch.setenv("RESEND_MIN_INTERVAL_SEC", "0.5")
+        emailer._resend_next_allowed_ts = 0.0
+        slept = []
+        monkeypatch.setattr(emailer.time, "monotonic", lambda: 100.0)
+        monkeypatch.setattr(emailer.time, "sleep", lambda s: slept.append(s))
+        emailer._resend_throttle()
+        assert slept == []  # slot == now, no wait
+        assert emailer._resend_next_allowed_ts == 100.5
+
+    def test_second_call_waits_until_reserved_slot(self, monkeypatch):
+        monkeypatch.setenv("RESEND_MIN_INTERVAL_SEC", "0.5")
+        emailer._resend_next_allowed_ts = 100.5  # a prior call reserved this
+        slept = []
+        monkeypatch.setattr(emailer.time, "monotonic", lambda: 100.0)
+        monkeypatch.setattr(emailer.time, "sleep", lambda s: slept.append(s))
+        emailer._resend_throttle()
+        assert slept == [0.5]  # spaced by the full interval
+        assert emailer._resend_next_allowed_ts == 101.0
+
+    def test_zero_interval_disables_throttle(self, monkeypatch):
+        monkeypatch.setenv("RESEND_MIN_INTERVAL_SEC", "0")
+        emailer._resend_next_allowed_ts = 999.0
+        slept = []
+        monkeypatch.setattr(emailer.time, "sleep", lambda s: slept.append(s))
+        emailer._resend_throttle()
+        assert slept == []  # disabled: returns before touching the clock
+
+    def test_bad_interval_falls_back_to_default(self, monkeypatch):
+        monkeypatch.setenv("RESEND_MIN_INTERVAL_SEC", "not-a-number")
+        emailer._resend_next_allowed_ts = 0.0
+        monkeypatch.setattr(emailer.time, "monotonic", lambda: 0.0)
+        monkeypatch.setattr(emailer.time, "sleep", lambda s: None)
+        emailer._resend_throttle()
+        # default 0.55s interval applied despite the garbage env value
+        assert emailer._resend_next_allowed_ts == 0.55
 
 
 # ── _SmtpBackend ─────────────────────────────────────────────────────

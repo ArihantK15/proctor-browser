@@ -79,7 +79,12 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("admin_exams.py", "assign_exam_groups"):    "binds own groups to own exam",
     ("admin_exams.py", "unassign_exam_group"):   "unbinds own group from own exam",
     ("admin_students.py", "delete_student_from_roster"): "deletes from own roster",
-    ("google_classroom.py", "google_sync_roster"): "syncs own roster from Classroom",
+    # NOTE: google_sync_roster's @router handler is now a thin try/except wrapper
+    # that delegates to the undecorated helper _do_google_sync_roster, so the
+    # guard (which only inspects @router handlers) no longer sees it own-lock and
+    # this allowlist entry went stale. The owner-only own-lock still lives in the
+    # helper — a deliberate "sync into your OWN roster" action — but it's now
+    # outside this guard's view. Dropped per the guard's stale-entry instruction.
     ("google_classroom.py", "google_link_exam"): "links own exam to Classroom",
     # ── invite mutations (own exam invites) ──
     ("admin_invites.py", "send_invites"):        "sends invites for own exam",

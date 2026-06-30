@@ -21,6 +21,12 @@ def _reset_cache():
     mock_cache.reset_mock()
     mock_cache.get.return_value = None
     mock_cache.get.side_effect = None
+    # mock_cache.set / .delete are EXPLICITLY assigned child mocks in
+    # conftest, so mock_cache.reset_mock() (which only cascades to
+    # auto-created children) does NOT clear their call counts. Reset them
+    # by hand or call counts leak across the whole suite — e.g.
+    # test_mark_stores_with_ttl's assert_called_once() saw 39 stale calls.
+    mock_cache.set.reset_mock()
     mock_cache.set.side_effect = None
     mock_cache.set_if_absent.return_value = True
     mock_cache.set_if_absent.side_effect = None

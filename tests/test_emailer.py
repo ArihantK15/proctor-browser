@@ -25,13 +25,22 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-# conftest patches sys.modules["app.emailer"] with a MagicMock, so we
-# must remove it before importing the real module.
-import importlib as _il
-if "app.emailer" in sys.modules:
-    del sys.modules["app.emailer"]
-import app.emailer as emailer
+# conftest installs a MagicMock at sys.modules["app.emailer"] (so the rest
+# of the suite — e.g. the email-webhook tests, which depend on its permissive
+# verify_webhook via public.py's function-level `from ..emailer import
+# verify_webhook` — gets the mock). To test the REAL module we load it fresh,
+# but we must NOT leave it in sys.modules: this file is imported at COLLECTION
+# time, so a lingering real module would pollute every other test for the whole
+# session under the suite's randomized ordering (pytest-randomly). Load real,
+# bind it to the module-local `emailer`, then immediately restore the mock so
+# sys.modules is untouched for everyone else. Every test here patches via
+# `patch.object(emailer, ...)` (the local handle), never the sys.modules path,
+# so they still exercise real code.
+_mock_emailer = sys.modules.pop("app.emailer", None)
+import app.emailer as emailer  # real module, freshly executed
 from app.emailer import SendResult
+if _mock_emailer is not None:
+    sys.modules["app.emailer"] = _mock_emailer  # restore for the rest of the suite
 from tests.conftest import mock_cache  # noqa: F401
 
 

@@ -10,7 +10,7 @@ import logging
 import random
 
 from ..repositories.questions import load_questions, load_exam_config
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +22,12 @@ def shuffle_seed(session_id: str, teacher_id: str) -> int:
     return int(hashlib.sha256(basis.encode()).hexdigest(), 16) % (2**32)
 
 
-def build_shuffle_view(questions: list[dict], session_id: str, teacher_id: str, *, shuffle_q: bool, shuffle_o: bool) -> tuple[list[dict], dict[str, dict[str, str]]]:
+def build_shuffle_view(questions: list[dict[str, Any]], session_id: str, teacher_id: str, *, shuffle_q: bool, shuffle_o: bool) -> tuple[list[dict[str, Any]], dict[str, dict[str, str]]]:
     rng = random.Random(shuffle_seed(session_id, teacher_id))
     q_iter = list(questions)
     if shuffle_q:
         rng.shuffle(q_iter)
-    student_qs: list[dict] = []
+    student_qs: list[dict[str, Any]] = []
     label_maps: dict[str, dict[str, str]] = {}
     for q in q_iter:
         qid = str(q.get("id"))
@@ -48,7 +48,7 @@ def build_shuffle_view(questions: list[dict], session_id: str, teacher_id: str, 
     return student_qs, label_maps
 
 
-def get_shuffle_flags(config: dict) -> tuple[bool, bool]:
+def get_shuffle_flags(config: dict[str, Any]) -> tuple[bool, bool]:
     sq = config.get("shuffle_questions")
     so = config.get("shuffle_options")
     if sq is None:
@@ -134,7 +134,7 @@ async def canonicalise_student_answer(session_id: str, teacher_id: str, question
     return ",".join(sorted(translated))
 
 
-async def recalculate_score(session_id: str, payload_answers: dict, teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> tuple[int, int]:
+async def recalculate_score(session_id: str, payload_answers: dict[str, Any], teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> tuple[int, int]:
     from ..database import async_table as _atable
     last_err = None
     for attempt in range(2):
@@ -174,7 +174,7 @@ async def recalculate_score(session_id: str, payload_answers: dict, teacher_id: 
                              .select("question_id,test_cases_passed,test_cases_total,submitted_at")
                              .eq("session_id", session_id)
                              .order("submitted_at").execute()).data or []
-                sub_map: dict[str, dict] = {}
+                sub_map: dict[str, dict[str, Any]] = {}
                 for s in subs_rows:
                     sub_map[str(s["question_id"])] = s  # last wins = latest by submitted_at
                 for q in coding_qs:

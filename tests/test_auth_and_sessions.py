@@ -713,20 +713,16 @@ class TestHybridAuthTransition:
                  "full_name": "Legacy",
                  "password_hash": "$2b$hash",
              })), \
-             patch("app.routers.auth.verify_password", new=AsyncMock(return_value=False)), \
-             patch("app.routers.auth.supabase") as mock_supabase:
+             patch("app.routers.auth.verify_password", new=AsyncMock(return_value=False)):
             resp = client.post("/api/v1/auth/login", json={
                 "email": "legacy@example.com",
                 "password": "WrongPassword1!",
             })
 
         assert resp.status_code == 401
-        mock_supabase.auth.sign_in_with_password.assert_not_called()
 
     def test_hybrid_teacher_without_local_hash_is_rejected_no_supabase_fallback(self, client, monkeypatch):
         monkeypatch.setenv("AUTH_PROVIDER", "hybrid")
-        auth_resp = MagicMock()
-        auth_resp.user.id = "supabase-uid-1"
         with patch("app.routers.auth.verify_or_403", new=AsyncMock()), \
              patch("app.routers.auth.check_lockout", new=AsyncMock(return_value=(False, 0))), \
              patch("app.routers.auth.clear_failures", new=AsyncMock()), \
@@ -744,19 +740,13 @@ class TestHybridAuthTransition:
                  "email_verified_at": "2026-01-01T00:00:00+00:00",
              })), \
              patch("app.routers.auth.issue_admin_token", return_value="access-1"), \
-             patch("app.routers.auth._issue_and_persist_refresh_token", new=AsyncMock(return_value="refresh-1")), \
-             patch("app.routers.auth.supabase") as mock_supabase:
-            mock_supabase.auth.sign_in_with_password.return_value = auth_resp
+             patch("app.routers.auth._issue_and_persist_refresh_token", new=AsyncMock(return_value="refresh-1")):
             resp = client.post("/api/v1/auth/login", json={
                 "email": "legacy@example.com",
                 "password": "SupabasePassword1!",
             })
 
-        # Gap #38: the Supabase-Auth fallback is decommissioned. A no-local-hash
-        # teacher can no longer log in via Supabase — they get a clean 401 and
-        # must password-reset (which sets a local hash). Fallback must NOT fire.
         assert resp.status_code == 401
-        mock_supabase.auth.sign_in_with_password.assert_not_called()
 
 
 class TestTeacherSignupEmailVerificationGate:

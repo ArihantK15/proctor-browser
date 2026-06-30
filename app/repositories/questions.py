@@ -30,7 +30,7 @@ except Exception:
 from ..services import secrets_crypto
 
 
-def _qid_sort_key(q: dict):
+def _qid_sort_key(q: dict[str, Any]):
     """Order questions the way the integer question_id column used to.
 
     phase146 widened questions.question_id integer → text (coding questions
@@ -44,12 +44,12 @@ def _qid_sort_key(q: dict):
     return (0, int(qid)) if qid.isdigit() else (1, qid)
 
 
-async def load_questions(teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> list[dict]:
+async def load_questions(teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> list[dict[str, Any]]:
     cache_key = f"questions:{teacher_id or '_'}:{exam_id or '_'}"
     if _cache:
         cached = _cache.get(cache_key)
         if cached is not None:
-            return cast("list[dict]", cached)
+            return cast("list[dict[str, Any]]", cached)
     try:
         query = _atable("questions").select("*")
         if teacher_id:
@@ -129,12 +129,12 @@ async def load_questions(teacher_id: Optional[str] = None, exam_id: Optional[str
     return out
 
 
-async def load_exam_config(teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> dict:
+async def load_exam_config(teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> dict[str, Any]:
     cache_key = f"exam_config:{teacher_id or '_'}:{exam_id or '_'}"
     if _cache:
         cached = _cache.get(cache_key)
         if cached is not None:
-            return cast(dict, cached)
+            return cast(dict[str, Any], cached)
     query = _atable("exam_config").select(_EXAM_CONFIG_COLUMNS)
     if exam_id:
         query = query.eq("exam_id", exam_id)

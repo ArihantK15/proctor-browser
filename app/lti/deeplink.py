@@ -9,7 +9,7 @@ import logging
 import secrets
 import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from .key import sign_jwt_payload, get_kid
 from .launch import _fetch_platform_jwks, find_registration
@@ -18,7 +18,7 @@ from ..database import async_table as _atable
 logger = logging.getLogger(__name__)
 
 
-async def validate_deep_linking_request(id_token: str) -> dict:
+async def validate_deep_linking_request(id_token: str) -> dict[str, Any]:
     """Validate the Deep Linking request JWT from the LMS.
 
     Follows the same verification as launch validation but checks
@@ -115,8 +115,8 @@ async def validate_deep_linking_request(id_token: str) -> dict:
 
 
 def build_deep_linking_response(
-    claims: dict,
-    content_items: list[dict],
+    claims: dict[str, Any],
+    content_items: list[dict[str, Any]],
 ) -> str:
     """Build and sign a Deep Linking Response JWT.
 
@@ -156,7 +156,7 @@ def build_deep_linking_response(
     return sign_jwt_payload(response_payload)
 
 
-async def get_teacher_exams_as_content_items(teacher_id: str) -> list[dict]:
+async def get_teacher_exams_as_content_items(teacher_id: str) -> list[dict[str, Any]]:
     """Fetch the teacher's exams and format them as LTI content items.
 
     Returns a list of ltiResourceLink content items.

@@ -18,7 +18,7 @@ from ..log_safe import safe
 import asyncio
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from .helpers import _run_coro_in_sync
 
@@ -30,7 +30,7 @@ async def _score_submission_async(
     teacher_id: str | None,
     exam_id: str | None,
     **kwargs,
-) -> dict:
+) -> dict[str, Any]:
     """The actual scoring work — runs inside the RQ worker.
 
     Returns a dict with the computed score so the worker logs are useful.
@@ -241,7 +241,7 @@ def score_submission_job(
     student_id: str | None = None,
     roll_number: str = "",
     time_taken_secs: int = 0,
-) -> dict:
+) -> dict[str, Any]:
     """Sync wrapper called by the RQ worker process."""
     return _run_coro_in_sync(_score_submission_async(
         session_key=session_id,

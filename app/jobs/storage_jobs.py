@@ -1,11 +1,12 @@
 """Storage-related background job functions (S3 upload, etc.)."""
 import logging
 import os
+from typing import Any
 
 log = logging.getLogger(__name__)
 
 
-def upload_screenshot_job(*, s3_key: str, local_path: str, content_type: str = "image/jpeg") -> dict:
+def upload_screenshot_job(*, s3_key: str, local_path: str, content_type: str = "image/jpeg") -> dict[str, Any]:
     """Upload a screenshot file from *local_path* to S3 in the background.
 
     The caller (exam.py handler) has already written the file to local disk,

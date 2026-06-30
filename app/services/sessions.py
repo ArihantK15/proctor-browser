@@ -60,7 +60,7 @@ def _soft_cap_enabled() -> bool:
     return OVERAGE_BILLING_ENABLED
 
 
-async def check_org_limits(teacher: dict, delta: int = 0) -> dict:
+async def check_org_limits(teacher: dict[str, Any], delta: int = 0) -> dict[str, Any]:
     if teacher.get("org_role") == "superadmin":
         return {"max_students": 999999}
     org_id = teacher.get("org_id")
@@ -201,12 +201,12 @@ async def _check_subscription_active(org_id: str) -> None:
                 pass  # don't block on bad date
 
 
-async def get_org_subscription(org_id: str) -> dict | None:
+async def get_org_subscription(org_id: str) -> dict[str, Any] | None:
     cache_key = f"org_subscription:{org_id}"
     from typing import cast
     cached = _cache.get(cache_key) if _cache else None
     if cached is not None:
-        return cast("dict | None", cached or None)
+        return cast("dict[str, Any] | None", cached or None)
     try:
         # `max_students` lives on the `organizations` table, NOT on
         # `subscriptions` — selecting it here fired a Postgres ERROR
@@ -243,7 +243,7 @@ def heartbeat_age_seconds(hb) -> float | None:
     return (datetime.now(timezone.utc) - dt.astimezone(timezone.utc)).total_seconds()
 
 
-def derive_live_state(meta: dict) -> tuple[str, int | None]:
+def derive_live_state(meta: dict[str, Any]) -> tuple[str, int | None]:
     status = (meta.get("status") or "").lower()
     if status == SessionStatus.PAUSED:
         # Surface paused AS paused so the dashboard renders the Resume button.
@@ -268,7 +268,7 @@ def derive_live_state(meta: dict) -> tuple[str, int | None]:
 
 # ─── CLEAR LIVE SESSION HELPERS ────────────────────────────────────
 
-_CLEAR_TOKENS: dict[str, dict] = {}
+_CLEAR_TOKENS: dict[str, dict[str, Any]] = {}
 _CLEAR_TOKENS_LOCK = threading.Lock()
 
 
@@ -287,7 +287,7 @@ def clear_token_issue(teacher_id: str) -> str:
     return tok
 
 
-def session_is_active(row: dict) -> bool:
+def session_is_active(row: dict[str, Any]) -> bool:
     hb = row.get("last_heartbeat")
     if not hb:
         return False
@@ -304,7 +304,7 @@ def session_is_active(row: dict) -> bool:
     return age <= _CLEAR_ACTIVE_WINDOW
 
 
-async def partition_live_sessions(teacher_id: str, exam_id: str | None = None, include_active: bool = False) -> tuple[list[dict], list[dict]]:
+async def partition_live_sessions(teacher_id: str, exam_id: str | None = None, include_active: bool = False) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     tid = str(teacher_id)
     base = _atable("exam_sessions").select("session_key,roll_number,full_name,started_at,last_heartbeat,teacher_id,exam_id").eq("teacher_id", tid).eq("status", SessionStatus.IN_PROGRESS)
     if exam_id:
@@ -356,8 +356,8 @@ async def partition_live_sessions(teacher_id: str, exam_id: str | None = None, i
     except Exception as e:
         logger.warning("[ClearLive] violations ghost discovery failed: %s", e)
 
-    active: list[dict] = []
-    stale: list[dict] = []
+    active: list[dict[str, Any]] = []
+    stale: list[dict[str, Any]] = []
     for r in rows:
         if include_active:
             stale.append(r)
@@ -369,7 +369,7 @@ async def partition_live_sessions(teacher_id: str, exam_id: str | None = None, i
 def clear_token_consume(token: str, teacher_id: str) -> bool:
     if _cache:
         from typing import cast
-        rec = cast("dict | None", _cache.get(f"clear_token:{token}"))
+        rec = cast("dict[str, Any] | None", _cache.get(f"clear_token:{token}"))
         if not rec or rec.get("teacher_id") != str(teacher_id):
             return False
         _cache.delete(f"clear_token:{token}")
@@ -383,7 +383,7 @@ def clear_token_consume(token: str, teacher_id: str) -> bool:
 
 # ─── BUILD SESSIONS PAYLOAD ────────────────────────────────────────
 
-def _derive_proctor_readiness(evs: list[dict]) -> tuple:
+def _derive_proctor_readiness(evs: list[dict[str, Any]]) -> tuple[str | None, list[str]]:
     """Summarise on-device proctor health for the live view from a session's
     events (newest-first). proctor.py logs `proctoring_tier`
     (full/reduced/minimal + the missing models) at boot, and
@@ -407,7 +407,7 @@ def _derive_proctor_readiness(evs: list[dict]) -> tuple:
 
 
 async def build_sessions_payload(tid: str, exam_id: Optional[str] = None,
-                                 tids: list[str] | None = None) -> dict:
+                                 tids: list[str] | None = None) -> dict[str, Any]:
     """Build the Live-tab session payload. Filter precedence:
        tids (multi) > tid (single) > unfiltered.
     Org-admin/superadmin endpoints pass `tids` from
@@ -458,13 +458,13 @@ async def build_sessions_payload(tid: str, exam_id: Optional[str] = None,
         if (m.get("status") or "").lower() in (SessionStatus.COMPLETED, SessionStatus.SUBMITTED, SessionStatus.FORCE_SUBMITTED) or m.get("submitted_at")
     }
 
-    viol_by_session: dict[str, list[dict]] = {}
+    viol_by_session: dict[str, list[dict[str, Any]]] = {}
     for e in events:
         viol_by_session.setdefault(e["session_key"], []).append(e)
 
     batch_risks = _batch_risk_scores(viol_by_session)
 
-    sessions: dict = {}
+    sessions: dict[str, Any] = {}
     for e in events:
         sk = e["session_key"]
         # Strict exam scope: the violations (events) query is teacher-scoped, not
@@ -498,7 +498,7 @@ async def build_sessions_payload(tid: str, exam_id: Optional[str] = None,
                 "proctor_missing": _pmissing,
             }
 
-    cal_tiers: dict[str, dict] = {}
+    cal_tiers: dict[str, dict[str, Any]] = {}
     seen_cal_keys: set[str] = set()
     for e in events:
         if e["violation_type"] == "calibration_complete" and e["session_key"] not in seen_cal_keys:
@@ -556,7 +556,7 @@ def collect_session_screenshots(roll: str, teacher_id: str) -> dict[str, Path]:
     return out
 
 
-def match_screenshot_for_violation(violation: dict, screenshots: dict[str, Path]) -> Path | None:
+def match_screenshot_for_violation(violation: dict[str, Any], screenshots: dict[str, Path]) -> Path | None:
     if not screenshots or not violation.get("created_at"):
         return None
     try:
@@ -587,7 +587,7 @@ def match_screenshot_for_violation(violation: dict, screenshots: dict[str, Path]
     return None
 
 
-def match_context_screenshots_for_violation(violation: dict, screenshots: dict[str, Path]) -> list[Path]:
+def match_context_screenshots_for_violation(violation: dict[str, Any], screenshots: dict[str, Path]) -> list[Path]:
     """The pre-violation context frames (ctx_<type>_<ts>.jpg) saved in the
     seconds BEFORE a flag, so the timeline/PDF can show the lead-up (dropped
     pen vs. phone). Returns them OLDEST-FIRST. Empty for single-frame events or
@@ -612,7 +612,7 @@ def match_context_screenshots_for_violation(violation: dict, screenshots: dict[s
     return [fp for _, fp in matches]
 
 
-def match_room_screenshot_for_violation(violation: dict, screenshots: dict[str, Path]) -> Path | None:
+def match_room_screenshot_for_violation(violation: dict[str, Any], screenshots: dict[str, Path]) -> Path | None:
     """The phone-cam companion (room_<type>_<ts>.jpg) saved at the same instant
     as the primary evt_ frame for a flag — so the PDF / live timeline can show
     both cameras side by side. Returns None when no phone was paired."""

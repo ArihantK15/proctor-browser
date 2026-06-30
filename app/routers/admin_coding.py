@@ -13,6 +13,7 @@ coding_test_cases.question_id is the LABEL, and we mint a unique label per quest
 import json
 import logging
 import uuid as _uuid
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, Body
 
@@ -40,7 +41,7 @@ MAX_TEST_CASES = 50
 MAX_FIELD_LEN = 64 * 1024
 
 
-def _clean_options(raw: dict) -> dict:
+def _clean_options(raw: dict[str, Any]) -> dict[str, Any]:
     """Validate + normalize the per-question options stored in questions.options."""
     opts = raw or {}
     langs = opts.get("allowed_languages") or ["javascript"]
@@ -73,7 +74,6 @@ def _clean_options(raw: dict) -> dict:
     raw_starter = opts.get("starter_code")
     if raw_starter is None:
         raw_starter = opts.get("starter") or ""
-    from typing import Any
     if isinstance(raw_starter, dict):
         # Keep a language's template when it's PRESENT, even if it's "" — a teacher
         # may intentionally clear a starter. `.get(l) is not None` keeps "" but drops
@@ -93,7 +93,7 @@ def _clean_options(raw: dict) -> dict:
     }
 
 
-def _clean_cases(raw_cases) -> list[dict]:
+def _clean_cases(raw_cases) -> list[dict[str, Any]]:
     """Validate the test cases. Requires >=1 hidden case (else nothing is graded);
     expected_output is provided by the caller — the dashboard/LLM fills it by running
     the reference solution through the same runtime, so the server only persists it."""
@@ -129,7 +129,7 @@ def _clean_cases(raw_cases) -> list[dict]:
                     status_code=400,
                     detail=f"test_cases[{i}].float_tolerance must be a number")
         out.append({
-            "idx": i,
+            "idx": int(i),
             "input": inp,
             "expected_output": exp,
             "visibility": vis,
@@ -143,7 +143,7 @@ def _clean_cases(raw_cases) -> list[dict]:
 
 @router.post("/api/v1/admin/coding-question")
 @router.put("/api/v1/admin/coding-question")
-async def upsert_coding_question(body: dict, request: Request):
+async def upsert_coding_question(body: dict[str, Any], request: Request):
     """Create (or replace) a coding question + its test cases for an exam.
 
     Body: {exam_id, question, options{allowed_languages,marks,marks_policy,
@@ -190,14 +190,18 @@ async def upsert_coding_question(body: dict, request: Request):
         else:
             await _atable("questions").insert(q_row).execute()
         for c in cases:
+            # Coerce types so the DB adapter never sees a str where it
+            # expects int/float — the request body may carry JSON-parsed
+            # values that preserved their original types, but the raw
+            # dict from the router doesn't go through a Pydantic model.
             await _atable("coding_test_cases").insert({
-                "question_id": qid, "teacher_id": tid, "idx": c["idx"],
-                "input": c["input"],
-                # Envelope-encrypt the secret answer key before it hits Postgres
-                # (app/services/secrets_crypto.py) — a no-op if CODING_SECRETS_KEY
-                # isn't configured (dev/CI), idempotent if already encrypted.
+                "question_id": qid,
+                "teacher_id": tid,
+                "idx": int(c["idx"]),
+                "input": str(c["input"]),
                 "expected_output": secrets_crypto.encrypt(c["expected_output"]),
-                "visibility": c["visibility"], "float_tolerance": c["float_tolerance"],
+                "visibility": str(c["visibility"]),
+                "float_tolerance": float(c["float_tolerance"]) if c["float_tolerance"] is not None else None,
             }).execute()
     except HTTPException:
         raise
@@ -250,7 +254,7 @@ async def get_coding_question(request: Request):
 
 
 @router.post("/api/v1/admin/coding-question/generate")
-async def generate_coding_question_draft(body: dict, request: Request):
+async def generate_coding_question_draft(body: dict[str, Any], request: Request):
     """AI-draft a coding question for the authoring form. Returns a DRAFT (statement +
     reference solution + test cases with AI-drafted expected) for the teacher to
     review/verify, NOT auto-saved — the teacher edits then POSTs to

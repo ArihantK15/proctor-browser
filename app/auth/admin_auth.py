@@ -19,11 +19,12 @@ from ..constants import (
 )
 from ..database import async_table as _atable
 from ..db_context import set_context as _set_db_context
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 
-def _maybe_promote_super_admin(teacher: dict | None) -> dict | None:
+def _maybe_promote_super_admin(teacher: dict[str, Any] | None) -> dict[str, Any] | None:
     """Stamp org_role='superadmin' on the master account.
 
     SUPER_ADMIN_EMAIL is an env-controlled escape hatch — a teacher row
@@ -40,7 +41,6 @@ def _maybe_promote_super_admin(teacher: dict | None) -> dict | None:
     return teacher
 
 
-from typing import Any
 _cache: Any = None
 try:
     from .. import cache as _cache_src
@@ -49,7 +49,7 @@ except Exception:
     pass
 
 
-def _decode_with_keys(token: str, keys: list[str], **kwargs) -> dict:
+def _decode_with_keys(token: str, keys: list[str], **kwargs) -> dict[str, Any]:
     last_err: Exception | None = None
     for key in keys:
         try:
@@ -66,19 +66,19 @@ def _bearer_or_cookie(request: Request, cookie_name: str) -> str:
     return request.cookies.get(cookie_name, "")
 
 # ─── Teacher lookup cache ─────────────────────────────────────────
-_teacher_cache: OrderedDict = OrderedDict()
+_teacher_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _teacher_cache_ttl: dict[str, float] = {}
 _teacher_cache_lock = threading.Lock()
 
 
-async def _get_teacher_by_id(teacher_id: str) -> dict | None:
+async def _get_teacher_by_id(teacher_id: str) -> dict[str, Any] | None:
     if not teacher_id:
         return None
     if _cache:
         from typing import cast
         cached = _cache.get(f"teacher:{teacher_id}")
         if cached:
-            return cast(dict, cached)
+            return cast(dict[str, Any], cached)
     else:
         now = time.time()
         with _teacher_cache_lock:
@@ -91,6 +91,7 @@ async def _get_teacher_by_id(teacher_id: str) -> dict | None:
     if not result:
         return None
     teacher = _maybe_promote_super_admin(result[0])
+    assert teacher is not None
     if _cache:
         _cache.set(f"teacher:{teacher_id}", teacher, ttl=60)
     else:
@@ -106,7 +107,7 @@ async def _get_teacher_by_id(teacher_id: str) -> dict | None:
     return teacher
 
 
-async def _get_teacher_by_uid(uid: str) -> dict | None:
+async def _get_teacher_by_uid(uid: str) -> dict[str, Any] | None:
     if not uid:
         return None
     result = (await _atable("teachers").select("id,email,full_name,org_id,org_role,email_verified_at,status,email_2fa_enabled_at").eq("supabase_uid", str(uid)).execute()).data
@@ -115,7 +116,7 @@ async def _get_teacher_by_uid(uid: str) -> dict | None:
     return _maybe_promote_super_admin(result[0])
 
 
-async def _load_org_auth_settings(org_id: str) -> dict:
+async def _load_org_auth_settings(org_id: str) -> dict[str, Any]:
     """Return (timeout_minutes, max_concurrent) for an org, cached."""
     if not org_id:
         return {"auth_session_timeout_minutes": None, "max_concurrent_auth_sessions": None}
@@ -175,7 +176,7 @@ async def _touch_and_check_idle(jti: str, org_timeout_min: int | None,
         logger.debug("admin_auth: session touch/check failed", exc_info=True)
 
 
-async def verify_admin_token(token: str) -> dict:
+async def verify_admin_token(token: str) -> dict[str, Any]:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
@@ -246,7 +247,7 @@ _SUPERADMIN_WRITE_ALLOW = (
 )
 
 
-async def require_admin(request: Request) -> dict:
+async def require_admin(request: Request) -> dict[str, Any]:
     token = _bearer_or_cookie(request, "procta_access")
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
@@ -278,7 +279,7 @@ async def require_admin(request: Request) -> dict:
 
 
 def require_reauth_or_403(
-    body: dict | None,
+    body: dict[str, Any] | None,
     user_id: str,
     *,
     request: Request | None = None,
@@ -337,12 +338,12 @@ def require_reauth_or_403(
 
 
 # ─── Student-account (dashboard) auth ────────────────────────────
-_student_acct_cache: OrderedDict = OrderedDict()
+_student_acct_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
 _student_acct_cache_ttl: dict[str, float] = {}
 _student_acct_cache_lock = threading.Lock()
 
 
-async def _get_student_account_by_id(account_id: str) -> dict | None:
+async def _get_student_account_by_id(account_id: str) -> dict[str, Any] | None:
     if not account_id:
         return None
     now = time.time()
@@ -374,7 +375,7 @@ def clear_student_account_cache(account_id: str) -> None:
         _student_acct_cache_ttl.pop(account_id, None)
 
 
-async def _get_student_account_by_uid(uid: str) -> dict | None:
+async def _get_student_account_by_uid(uid: str) -> dict[str, Any] | None:
     if not uid:
         return None
     result = (await _atable("student_accounts").select("id,email,full_name").eq("supabase_uid", str(uid)).execute()).data
@@ -383,7 +384,7 @@ async def _get_student_account_by_uid(uid: str) -> dict | None:
     return result[0]
 
 
-async def verify_student_auth_token(token: str) -> dict:
+async def verify_student_auth_token(token: str) -> dict[str, Any]:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
@@ -418,7 +419,7 @@ async def verify_student_auth_token(token: str) -> dict:
     return account
 
 
-async def require_student_account(request: Request) -> dict:
+async def require_student_account(request: Request) -> dict[str, Any]:
     token = _bearer_or_cookie(request, "procta_student_access")
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")

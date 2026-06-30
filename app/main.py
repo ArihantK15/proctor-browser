@@ -7,6 +7,7 @@ import time
 import uuid
 import logging
 import threading
+from datetime import datetime, date
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
@@ -18,7 +19,7 @@ from slowapi import Limiter
 import os
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import JSONResponse, Response, StreamingResponse
 
 # ── shared deps (config, auth, helpers, models) ────────────────────
 from .limiter import _rate_limit_key, _custom_rate_limit_handler
@@ -109,11 +110,10 @@ limiter = Limiter(key_func=_rate_limit_key)
 async def lifespan(_app) -> AsyncIterator[None]:
     """Startup + shutdown lifecycle handler (replaces deprecated on_event)."""
     # ── STARTUP ───────────────────────────────────────────────────
-    from .database import async_table as _atable, database_backend
-    db_backend = database_backend()
+    from .database import async_table as _atable
     try:
         await _atable("exam_config").select("id").limit(1).execute()
-        print(f"[startup] database connected ({db_backend})", flush=True)
+        print("[startup] database connected (postgres)", flush=True)
     except Exception as e:
         allow_unhealthy = os.environ.get("SUPABASE_SKIP_STARTUP_CHECK", "") == "1"
         if allow_unhealthy:
@@ -321,7 +321,34 @@ async def _room_frame_cleanup_loop():
         await asyncio.sleep(86400)  # 24 hours
 
 
-app = FastAPI(title="AI Proctor Server", lifespan=lifespan)
+class _SafeJSONResponse(JSONResponse):
+    """JSONResponse that serialises UUID, datetime, date, and bytes types
+    that can leak past jsonable_encoder (e.g. from raw DB query results or
+    third-party libs). Prevents "TypeError: Object of type UUID is not JSON
+    serializable" 500s from ending up in Sentry."""
+
+    @staticmethod
+    def _safe_default(o: object) -> str:
+        if isinstance(o, uuid.UUID):
+            return str(o)
+        if isinstance(o, (datetime, date)):
+            return o.isoformat()
+        if isinstance(o, bytes):
+            return o.decode("utf-8", errors="replace")
+        raise TypeError(f"Object of type {type(o).__name__} is not JSON serializable")
+
+    def render(self, content: object) -> bytes:
+        return json.dumps(
+            content,
+            ensure_ascii=False,
+            allow_nan=False,
+            indent=None,
+            separators=(",", ":"),
+            default=self._safe_default,
+        ).encode("utf-8")
+
+
+app = FastAPI(title="AI Proctor Server", lifespan=lifespan, default_response_class=_SafeJSONResponse)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _custom_rate_limit_handler)
 

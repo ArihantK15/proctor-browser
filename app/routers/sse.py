@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict
 from ..auth import (
     require_admin, verify_admin_token, verify_student_token, _get_teacher_by_id, require_auth,
 )
-from ..database import supabase, async_table as _atable
+from ..database import async_table as _atable
 from ..event_bus import subscribe as _bus_subscribe, _HAS_REDIS, async_publish as _bus_async_publish
 from ..services.sessions import build_sessions_payload as _build_sessions_payload
 from .. import cache as _cache
@@ -48,7 +48,7 @@ def _realtime_available() -> bool:
         return False
 
 
-def _sessions_event_data(snap: dict, *, with_ts: bool = False) -> dict:
+def _sessions_event_data(snap: dict[str, Any], *, with_ts: bool = False) -> dict[str, Any]:
     """Shape the init / refresh SSE payload from a build_sessions_payload()
     result. BOTH events MUST carry `sessions` + `all_sessions`: the dashboard's
     refresh handler renders straight from them, so a payload-less refresh tick
@@ -179,7 +179,7 @@ def _evict_live_frame_ts(now: float | None = None) -> None:
             _last_live_frame_ts.pop(sid, None)
 
 
-async def _assert_exam_ws_session_access(claims: dict, session_id: str) -> None:
+async def _assert_exam_ws_session_access(claims: dict[str, Any], session_id: str) -> None:
     session_roll = session_id.rsplit("_", 1)[0].upper()
     if claims.get("roll", "").upper() != session_roll:
         raise HTTPException(status_code=403, detail="Access denied")
@@ -746,14 +746,14 @@ async def _store_room_frame(session_id: str, jpeg_bytes: bytes):
     # Track per-session frame count for debugging (cleaned up on disconnect)
     if not hasattr(_store_room_frame, "_frame_meta"):
         setattr(_store_room_frame, "_frame_meta", {})
-    meta = cast(dict, getattr(_store_room_frame, "_frame_meta")).setdefault(session_id, {"count": 0})
+    meta = cast(dict[str, Any], getattr(_store_room_frame, "_frame_meta")).setdefault(session_id, {"count": 0})
     meta["count"] += 1
 
     # Rate limit: max 2 FPS per session
     if not hasattr(_store_room_frame, "_last_ts"):
         setattr(_store_room_frame, "_last_ts", {})
     now = time.time()
-    last_ts = cast(dict, getattr(_store_room_frame, "_last_ts"))
+    last_ts = cast(dict[str, Any], getattr(_store_room_frame, "_last_ts"))
     if now - last_ts.get(session_id, 0) < 0.5:
         return
     last_ts[session_id] = now
@@ -875,7 +875,7 @@ async def sse_sessions(request: Request):
             logger.warning("[sse_sessions] initial snapshot failed: %s", e)
 
         # Start async generators for each channel
-        async def _channel_reader(channel: str, evt_type: str, queue: asyncio.Queue):
+        async def _channel_reader(channel: str, evt_type: str, queue: asyncio.Queue[tuple[str, dict[str, Any]]]):
             if not _HAS_REDIS:
                 return
             try:
@@ -887,7 +887,7 @@ async def sse_sessions(request: Request):
             except Exception as e:
                 logger.warning("[sse_sessions] subscription failed channel=%s: %s", channel, e)
 
-        queue: asyncio.Queue = asyncio.Queue()
+        queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
         tasks = [
             asyncio.create_task(_channel_reader(alert_channel, "alert", queue)),
             asyncio.create_task(_channel_reader(events_channel, "update", queue)),

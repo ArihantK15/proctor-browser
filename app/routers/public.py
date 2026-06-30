@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from ..auth import (
     require_admin, require_student_account, verify_student_auth_token, _get_teacher_by_id,
 )
-from ..database import supabase, async_table as _atable
+from ..database import async_table as _atable
 from ..limiter import limiter
 from .. import cache as _cache
 from ..models import RegisterIn, SessionStatus, InviteStatus, VerificationStatus
@@ -196,17 +196,15 @@ async def health() -> Response:
     ok = True
 
     # Database — required (skipped when SUPABASE_SKIP_STARTUP_CHECK=1, e.g. CI smoke tests)
-    from ..database import database_backend
-    db_backend = database_backend()
     _skip_db = os.environ.get("SUPABASE_SKIP_STARTUP_CHECK", "") == "1"
     try:
         await _atable("exam_config").select("id").limit(1).execute()
         checks["database"] = "ok"
-        checks["database_backend"] = db_backend
+        checks["database_backend"] = "postgres"
     except Exception as e:
         _pub_log.warning("[health] database check failed: %s", e)
         checks["database"] = "stub" if _skip_db else "error: suppressed"
-        checks["database_backend"] = db_backend
+        checks["database_backend"] = "postgres"
         if not _skip_db:
             ok = False
 

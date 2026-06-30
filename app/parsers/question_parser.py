@@ -7,6 +7,8 @@ math/visual routing for image preservation.
 No I/O. The endpoint layer rasterizes any `_region` and sets `image_url`.
 """
 import re
+from typing import Any
+
 from dataclasses import dataclass, field
 
 from .answer_key import parse_answer_key, find_answer_key_block
@@ -41,15 +43,15 @@ _MATH_FONT_HINTS = ("CMMI", "CMSY", "CMEX", "MSAM", "MSBM", "Symbol",
 class ParsedQuestion:
     question: str
     question_type: str
-    options: dict
+    options: dict[str, Any]
     correct: str
-    tags: list = field(default_factory=list)
+    tags: list[Any] = field(default_factory=list)
     image_url: str = ""
     confidence: float = 1.0
-    flags: list = field(default_factory=list)
-    _region: dict | None = None
+    flags: list[Any] = field(default_factory=list)
+    _region: dict[str, Any] | None = None
 
-    def to_public(self) -> dict:
+    def to_public(self) -> dict[str, Any]:
         return {
             "question": self.question, "type": self.question_type,
             "options": self.options, "correct": self.correct, "tags": self.tags,
@@ -72,11 +74,11 @@ def _strip_qnum(line: str) -> str:
     return re.sub(r"^[\.\)\-:]\s*", "", s).strip()
 
 
-def _segment_blocks(text: str) -> list:
+def _segment_blocks(text: str) -> list[Any]:
     """Return [(qnum, [text lines...]), ...] using question-number markers."""
     blocks = []
     cur_num = None
-    cur_lines: list = []
+    cur_lines: list[Any] = []
     for raw in text.splitlines():
         n = _qnum_of(raw)
         if n is not None:
@@ -127,7 +129,7 @@ def _split_inline_options(line: str):
     return out
 
 
-def _normalize_answer(ans: str, options: dict) -> str:
+def _normalize_answer(ans: str, options: dict[str, Any]) -> str:
     """Canonicalise a raw answer token. Letters → upper. A bare number that
     indexes an existing option (1..N) → its letter — this maps "(3)" on a
     numbered-option MCQ to "C". A number with no options (numeric question)
@@ -144,11 +146,11 @@ def _normalize_answer(ans: str, options: dict) -> str:
     return a
 
 
-def _parse_block(qnum: int, lines: list) -> ParsedQuestion:
-    stem_parts: list = []
-    options: dict = {}
+def _parse_block(qnum: int, lines: list[Any]) -> ParsedQuestion:
+    stem_parts: list[Any] = []
+    options: dict[str, Any] = {}
     inline_ans = ""
-    starred: list = []
+    starred: list[Any] = []
     next_letter = 0
     for ln in lines:
         mb = _INLINE_BRACKET.match(ln)
@@ -208,7 +210,7 @@ def _parse_block(qnum: int, lines: list) -> ParsedQuestion:
 
 
 def _finalise(q: ParsedQuestion) -> None:
-    flags: list = []
+    flags: list[Any] = []
     if q.options and re.fullmatch(r"[A-F]{2,6}", q.correct or ""):
         q.question_type = "mcq_multi"
     if not q.correct:
@@ -241,7 +243,7 @@ def _line_is_mathy(dl) -> bool:
     return _looks_garbled(dl.text)
 
 
-def _apply_layout(q: ParsedQuestion, block_lines: list) -> None:
+def _apply_layout(q: ParsedQuestion, block_lines: list[Any]) -> None:
     """block_lines: list[DocLine] for this question. Sets _region / flags."""
     mathy = [dl for dl in block_lines if _line_is_mathy(dl)]
     if not mathy:
@@ -277,7 +279,7 @@ def _is_content_line(text: str) -> bool:
             or _INLINE_ANS.search(t) is not None)
 
 
-def _strip_furniture(lines: list) -> list:
+def _strip_furniture(lines: list[Any]) -> list[Any]:
     """Drop header/footer furniture so it never bleeds into a question stem.
 
     Two signals, both conservative:
@@ -290,7 +292,7 @@ def _strip_furniture(lines: list) -> list:
     """
     if not lines:
         return lines
-    page_span: dict = {}
+    page_span: dict[str, Any] = {}
     for dl in lines:
         if dl.bbox is None:
             continue
@@ -311,7 +313,7 @@ def _strip_furniture(lines: list) -> list:
         band = 0.12 * h
         return dl.bbox[1] <= lo + band or dl.bbox[3] >= hi - band
 
-    repeated: set = set()
+    repeated: set[str] = set()
     pages = {dl.page for dl in lines}
     if len(pages) >= 2:
         from collections import defaultdict
@@ -336,7 +338,7 @@ def _strip_furniture(lines: list) -> list:
     return out
 
 
-def _split_lines_on_key(lines: list) -> tuple[list, dict]:
+def _split_lines_on_key(lines: list[Any]) -> tuple[list[Any], dict[int, Any]]:
     """Split DocLines into (body_lines, answer_key) on the last heading line."""
     heading_idx = None
     for i, dl in enumerate(lines):
@@ -349,10 +351,10 @@ def _split_lines_on_key(lines: list) -> tuple[list, dict]:
     return body, parse_answer_key(key_text)
 
 
-def _segment_doclines(lines: list) -> list:
+def _segment_doclines(lines: list[Any]) -> list[Any]:
     """Return [[DocLine, ...], ...] grouped by question-number markers."""
-    blocks: list = []
-    cur: list | None = None
+    blocks: list[Any] = []
+    cur: list[Any] | None = None
     for dl in lines:
         if _qnum_of(dl.text) is not None:
             if cur is not None:
@@ -365,7 +367,7 @@ def _segment_doclines(lines: list) -> list:
     return blocks
 
 
-def _build_question(qnum: int, text_lines: list, key: dict) -> ParsedQuestion:
+def _build_question(qnum: int, text_lines: list[Any], key: dict[int, Any]) -> ParsedQuestion:
     try:
         q = _parse_block(qnum, text_lines)
         if not q.correct and qnum in key:
@@ -378,14 +380,14 @@ def _build_question(qnum: int, text_lines: list, key: dict) -> ParsedQuestion:
                               flags=["parse_error"], confidence=0.0)
 
 
-def parse_questions(text: str, lines: list | None = None) -> list:
+def parse_questions(text: str, lines: list[Any] | None = None) -> list[Any]:
     """text (+optional DocLine list for math/image routing) -> questions.
 
     Text-only path is used by unit tests and DOCX-without-layout. When `lines`
     is provided, segmentation runs over the DocLines so text and layout stay
     perfectly aligned, and math/visual blocks are routed to image preservation.
     """
-    out: list = []
+    out: list[Any] = []
     if lines:
         lines = _strip_furniture(lines)
         body_lines, key = _split_lines_on_key(lines)

@@ -35,7 +35,7 @@ from collections.abc import Iterable
 # Canonical format keys. Order matters for "best match wins" when a
 # roll number could fit multiple patterns; place more specific
 # patterns above the generic fallback.
-_FORMAT_PATTERNS: list[tuple[str, re.Pattern]] = [
+_FORMAT_PATTERNS: list[tuple[str, "re.Pattern[str]"]] = [
     # JEE Advanced — IIT-side identifier, mixed alphanumeric.
     ("jee_advanced", re.compile(r"^[0-9]{2}[A-Z][0-9]{8}$")),
     # CBSE board roll number — 8 digits, no letters.

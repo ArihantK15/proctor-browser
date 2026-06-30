@@ -18,7 +18,7 @@ from ..models.invites import InviteStatus
 from ..limiter import limiter
 from ..services.sessions import check_org_limits
 from ..models import BulkRegisterIn, AccessCodeIn
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -84,12 +84,12 @@ def _build_column_map(headers: list[str]) -> dict[str, str] | None:
 
 
 async def _process_student_rows(
-    teacher: dict,
-    rows: list[dict],
+    teacher: dict[str, Any],
+    rows: list[dict[str, Any]],
     dry_run: bool,
     exam_id: str | None = None,
     send_invites: bool = True,
-) -> dict:
+) -> dict[str, Any]:
     """Shared validation + registration logic used by both JSON and CSV endpoints.
 
     *rows* is a list of dicts each containing *roll_number*, *full_name*,
@@ -109,8 +109,8 @@ async def _process_student_rows(
     tid = str(teacher["id"])
     org_id = teacher.get("org_id")
 
-    validated: list[dict] = []
-    invalid: list[dict] = []
+    validated: list[dict[str, Any]] = []
+    invalid: list[dict[str, Any]] = []
     for s in rows:
         roll = str(s.get("roll_number", "")).strip().upper()
         name = str(s.get("full_name", "")).strip()
@@ -158,7 +158,7 @@ async def _process_student_rows(
     dominant_format_label = format_label(dominant_format) if dominant_format != "unknown" else "Unknown"
 
     if dry_run:
-        result: dict = {
+        result: dict[str, Any] = {
             "dry_run": True,
             "would_register": len(validated),
             "total": len(rows),
@@ -196,7 +196,7 @@ async def _process_student_rows(
     registered = 0
     skipped = 0
     quota_hit = False
-    successfully_upserted: list[dict] = []
+    successfully_upserted: list[dict[str, Any]] = []
     for row in validated:
         try:
             _up_result = await _atable("students").upsert(row, on_conflict="roll_number,teacher_id").execute()
@@ -360,7 +360,7 @@ async def list_student_history(request: Request, exam_id: Optional[str] = None,
         sess_q = sess_q.eq("exam_id", exam_id)
     sessions = (await sess_q.limit(5000).execute()).data or []
 
-    by_roll: dict[str, dict] = {}
+    by_roll: dict[str, dict[str, Any]] = {}
     for s in sessions:
         roll = (s.get("roll_number") or "").upper()
         if not roll:
@@ -473,7 +473,7 @@ async def get_student_history(
     session_keys = [s["session_key"] for s in sessions]
     vcounts = await _violation_counts_by_session(session_keys)
 
-    violations_by_session: dict[str, list[dict]] = {}
+    violations_by_session: dict[str, list[dict[str, Any]]] = {}
     if session_keys:
         all_viols = (await _atable("violations")
                      # dismissed_at is selected so generate_session_summary's
@@ -616,7 +616,7 @@ async def search_students(request: Request, q: str = "", batch: str = "",
         tid_set = set(tids)
         all_sessions = [s for s in all_sessions if str(s.get("teacher_id")) in tid_set]
 
-    sessions_by_student: dict[tuple[str, str], list[dict]] = {}
+    sessions_by_student: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for sess in all_sessions:
         sessions_by_student.setdefault((str(sess.get("teacher_id")), sess["roll_number"]), []).append(sess)
 
@@ -656,7 +656,7 @@ async def search_students(request: Request, q: str = "", batch: str = "",
 
 @router.post("/api/v1/admin/students/{roll_number}/batch")
 @limiter.limit("60/minute")
-async def set_student_batch(roll_number: str, request: Request, body: dict = Body(...)):
+async def set_student_batch(roll_number: str, request: Request, body: dict[str, Any] = Body(...)):
     """Assign / change / clear a single student's cohort label (gap #59).
 
     This is the catch-all fix for students who arrived WITHOUT a batch — e.g.
@@ -711,7 +711,7 @@ async def list_student_batches(request: Request):
 
 @router.post("/api/v1/admin/batches/email-cohort-link")
 @limiter.limit("6/minute")
-async def email_cohort_link(request: Request, body: dict = Body(...)):
+async def email_cohort_link(request: Request, body: dict[str, Any] = Body(...)):
     """Email the cohort-enrollment link to every student in a batch.
 
     Bridges roster-sync / batch-assignment to the student: each recipient gets a
@@ -1037,7 +1037,7 @@ async def delete_student_from_roster(
     if not rows:
         return {"deleted": 0, "matched": [], "warnings": []}
 
-    warnings: list[dict] = []
+    warnings: list[dict[str, Any]] = []
     seen_sessions: set[str] = set()
     for row in rows:
         roll = (row.get("roll_number") or "").strip().upper()

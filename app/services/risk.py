@@ -23,7 +23,7 @@ try:
     _HAS_REDIS = True
 except Exception:
     _HAS_REDIS = False
-    async def _bus_async_publish(channel: str, payload: dict) -> None:  # type: ignore[assignment]
+    async def _bus_async_publish(channel: str, payload: dict[str, Any]) -> None:
         pass
 
 from typing import Any
@@ -174,13 +174,13 @@ async def publish_critical_alert(
 
 # ─── RISK SCORE ────────────────────────────────────────────────────
 
-async def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict:
+async def compute_risk_score(session_id: str, teacher_id: str | None = None) -> dict[str, Any]:
     cache_key = f"risk_score:{session_id}"
     if _cache:
         from typing import cast
         cached = _cache.get(cache_key)
         if cached:
-            return cast(dict, cached)
+            return cast(dict[str, Any], cached)
     # Exclude dismissed flags: a teacher (or an accepted appeal) marking a
     # violation dismissed must clear its risk contribution. phase73 created
     # dismissed_at for exactly this; before this filter, dismissing was
@@ -210,7 +210,7 @@ async def compute_risk_score(session_id: str, teacher_id: str | None = None) -> 
         key = (r["violation_type"], r["severity"])
         counts[key] = counts.get(key, 0) + 1
 
-    breakdown: dict[str, dict] = {}
+    breakdown: dict[str, dict[str, Any]] = {}
     raw_sum = 0.0
     log_sat = math.log(1 + _SATURATION_K)
     for (vtype, sev), n in counts.items():
@@ -245,7 +245,7 @@ async def compute_risk_score(session_id: str, teacher_id: str | None = None) -> 
 
 # ─── BATCH RISK (for _build_sessions_payload) ──────────────────────
 
-def _batch_risk_scores(viol_by_session: dict[str, list[dict]]) -> dict[str, tuple[int | None, str | None]]:
+def _batch_risk_scores(viol_by_session: dict[str, list[dict[str, Any]]]) -> dict[str, tuple[int | None, str | None]]:
     scores: dict[str, tuple[int | None, str | None]] = {}
     for sk, rows in viol_by_session.items():
         # Dismissed flags don't count toward risk (see compute_risk_score).
@@ -292,7 +292,7 @@ def _batch_risk_scores(viol_by_session: dict[str, list[dict]]) -> dict[str, tupl
 
 # ─── NARRATIVE SUMMARY ─────────────────────────────────────────────
 
-def generate_session_summary(violations: list[dict], session_info: dict | None = None) -> dict:
+def generate_session_summary(violations: list[dict[str, Any]], session_info: dict[str, Any] | None = None) -> dict[str, Any]:
     if not violations:
         return {
             "narrative": "No suspicious activity detected during this session.",
@@ -313,9 +313,9 @@ def generate_session_summary(violations: list[dict], session_info: dict | None =
             "pattern_count": 0,
         }
 
-    behavioral: list[dict] = []
-    critical: list[dict] = []
-    standard: list[dict] = []
+    behavioral: list[dict[str, Any]] = []
+    critical: list[dict[str, Any]] = []
+    standard: list[dict[str, Any]] = []
     for v in real_viols:
         vt = v.get("violation_type", "")
         if vt in _BEHAVIORAL_PATTERNS:

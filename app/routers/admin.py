@@ -29,7 +29,7 @@ from ..services.false_positive import explain_flag, normalize_sensitivity, SENSI
 from ..services.sessions import match_screenshot_for_violation as _match_screenshot_for_violation
 from ..services.sessions import match_room_screenshot_for_violation as _match_room_screenshot_for_violation
 from ..services.sessions import match_context_screenshots_for_violation as _match_context_screenshots_for_violation
-from ..database import supabase, async_table as _atable
+from ..database import async_table as _atable
 from ..limiter import limiter
 from ..constants import SCREENSHOTS_DIR, S3_LOCAL_CACHE_DAYS
 from ..services.object_store import is_enabled as _s3_enabled

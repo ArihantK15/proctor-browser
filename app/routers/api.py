@@ -4,6 +4,7 @@ Key management  — admin-only, under the Settings panel.
 Public API      — X-API-Key auth, programmatic access to exam data.
 """
 
+from typing import Any
 from fastapi import APIRouter, Request, HTTPException, Depends
 from ..limiter import limiter
 
@@ -86,7 +87,7 @@ _API_SESSION_ALIASES = {
 }
 
 
-def _shape_api_session(row: dict) -> dict:
+def _shape_api_session(row: dict[str, Any]) -> dict[str, Any]:
     """Rename real exam_sessions columns to the documented API field names."""
     return {_API_SESSION_ALIASES.get(k, k): v for k, v in row.items()}
 

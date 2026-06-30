@@ -95,7 +95,7 @@ async def log_admin_action(
     target_id: str | None = None,
     before_data: Optional[Any] = None,
     after_data: Optional[Any] = None,
-    details: dict | None = None,
+    details: dict[str, Any] | None = None,
     request: Request | None = None,
 ) -> None:
     """Insert one row into admin_audit_log. Best-effort; never raises.

@@ -7,6 +7,8 @@ not given the global endpoint in this phase.
 
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Body, HTTPException, Request
 
 from ..auth import require_admin
@@ -18,7 +20,7 @@ from ..utils import fmt_ist, now_ist
 router = APIRouter(prefix="")
 
 
-def _role(teacher: dict) -> str:
+def _role(teacher: dict[str, Any]) -> str:
     return (teacher.get("org_role") or "teacher").lower()
 
 
@@ -29,8 +31,8 @@ def _clean_choice(value: str | None, allowed: set[str], default: str | None = No
     return v
 
 
-def _serialize_issue(row: dict, org_map: dict[str, str] | None = None,
-                     teacher_map: dict[str, dict] | None = None) -> dict:
+def _serialize_issue(row: dict[str, Any], org_map: dict[str, str] | None = None,
+                     teacher_map: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
     org_id = str(row.get("org_id") or "")
     teacher_id = str(row.get("teacher_id") or "")
     t = (teacher_map or {}).get(teacher_id, {})
@@ -55,7 +57,7 @@ def _serialize_issue(row: dict, org_map: dict[str, str] | None = None,
 
 @router.post("/api/v1/issues")
 @limiter.limit("20/hour")
-async def create_issue(request: Request, body: dict = Body(...)):
+async def create_issue(request: Request, body: dict[str, Any] = Body(...)):
     teacher = await require_admin(request)
     org_id = teacher.get("org_id")
     if not org_id:
@@ -124,7 +126,7 @@ async def list_admin_issues(request: Request):
     org_ids = list({str(r.get("org_id")) for r in rows if r.get("org_id")})
     teacher_ids = list({str(r.get("teacher_id")) for r in rows if r.get("teacher_id")})
     org_map: dict[str, str] = {}
-    teacher_map: dict[str, dict] = {}
+    teacher_map: dict[str, dict[str, Any]] = {}
     if org_ids:
         orgs = (await _atable("organizations").select("id,name").in_("id", org_ids).execute()).data or []
         org_map = {str(o["id"]): o.get("name", "") for o in orgs}
@@ -139,12 +141,12 @@ async def list_admin_issues(request: Request):
 
 @router.patch("/api/v1/admin/issues/{issue_id}")
 @limiter.limit("60/minute")
-async def update_admin_issue(issue_id: str, request: Request, body: dict = Body(...)):
+async def update_admin_issue(issue_id: str, request: Request, body: dict[str, Any] = Body(...)):
     teacher = await require_admin(request)
     if _role(teacher) != "superadmin":
         raise HTTPException(status_code=403, detail="Super admin access required")
 
-    patch: dict = {}
+    patch: dict[str, Any] = {}
     if "status" in body:
         status = _clean_choice(body.get("status"), ISSUE_STATUSES, "open")
         patch["status"] = status

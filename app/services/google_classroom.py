@@ -7,9 +7,10 @@ and grade passback to Google Classroom.
 import json
 import logging
 import os
-from typing import Optional
+from typing import Any, Optional
 
 import google.auth
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import Flow
@@ -74,7 +75,7 @@ def get_authorization_url(state: str) -> tuple[str, str]:
     return auth_url, flow.code_verifier
 
 
-def exchange_code(code: str, code_verifier: str | None = None) -> dict | None:
+def exchange_code(code: str, code_verifier: str | None = None) -> dict[str, Any] | None:
     """Exchange the OAuth code for tokens. Returns token dict or None.
 
     code_verifier is the PKCE verifier captured at get_authorization_url time
@@ -119,8 +120,14 @@ def exchange_code(code: str, code_verifier: str | None = None) -> dict | None:
         return None
 
 
-def _build_credentials(token_dict: dict) -> Credentials | None:
-    """Build Google Credentials from a stored token dict, refreshing if needed."""
+def _build_credentials(token_dict: dict[str, Any]) -> Credentials | None:
+    """Build Google Credentials from a stored token dict, refreshing if needed.
+
+    Returns None on failure. Callers should check the return value and, when
+    ``token_dict`` came from a stored token that was valid at insert time, also
+    consider deleting the stored row so subsequent requests don't repeat the
+    same failing refresh against an expired/revoked token.
+    """
     try:
         creds = Credentials(
             token=token_dict.get("token"),
@@ -133,12 +140,15 @@ def _build_credentials(token_dict: dict) -> Credentials | None:
         if creds.expired and creds.refresh_token:
             creds.refresh(Request())
         return creds
+    except RefreshError:
+        logger.info("[google_classroom] token refresh failed: token expired or revoked — reconnection required")
+        return None
     except Exception as e:
         logger.warning("[google_classroom] credential refresh failed: %s", e)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         return None
 
 
-async def list_courses(creds: Credentials) -> list[dict]:
+async def list_courses(creds: Credentials) -> list[dict[str, Any]]:
     """List Google Classroom courses accessible by this teacher."""
     try:
         service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
@@ -173,7 +183,7 @@ async def get_course_name(creds: Credentials, course_id: str) -> str:
         return ""
 
 
-async def list_students(creds: Credentials, course_id: str) -> list[dict]:
+async def list_students(creds: Credentials, course_id: str) -> list[dict[str, Any]]:
     """List students enrolled in a Google Classroom course."""
     try:
         service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)

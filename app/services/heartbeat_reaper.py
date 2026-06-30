@@ -20,6 +20,8 @@ import logging
 import os
 from datetime import datetime, timezone, timedelta
 
+from typing import Any
+
 from ..models import SessionStatus
 
 logger = logging.getLogger(__name__)
@@ -86,7 +88,7 @@ async def _reap_once() -> None:
             logger.error("[reaper] failed to abandon session %s: %s", sid, e)
 
 
-async def _mark_abandoned(row: dict, _atable) -> None:
+async def _mark_abandoned(row: dict[str, Any], _atable) -> None:
     """Mark a single session ABANDONED and attempt to score saved answers."""
     sid       = row.get("session_key")
     teacher_id = str(row.get("teacher_id") or "")

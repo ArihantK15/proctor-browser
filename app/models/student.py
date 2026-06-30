@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -45,10 +45,10 @@ class ResultIn(BaseModel):
     full_name:       str
     email:           str
     time_taken_secs: int
-    answers:         dict = {}
+    answers:         dict[str, Any] = {}
     score:           int  = 0
     total:           int  = 0
-    violations:      list = []
+    violations:      list[Any] = []
 
 
 class AnswerIn(BaseModel):
@@ -61,7 +61,7 @@ class AnswerIn(BaseModel):
 class BulkAnswerIn(BaseModel):
     model_config = ConfigDict(strict=True)
     session_id: str
-    answers:    dict
+    answers:    dict[str, Any]
 
 
 class StudentSignupIn(BaseModel):

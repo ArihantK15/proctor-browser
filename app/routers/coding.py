@@ -30,6 +30,7 @@ import hashlib
 import json
 import logging
 
+from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
 from ..auth import require_auth, require_admin
@@ -120,7 +121,7 @@ async def coding_testcases(request: Request):
 
 @router.post("/api/v1/coding/run")
 @limiter.limit("30/minute")
-async def coding_run(body: dict, request: Request):
+async def coding_run(body: dict[str, Any], request: Request):
     """Run the student's source against the (public) SAMPLE cases, server-side.
 
     Sample expected outputs ARE returned — they're the worked examples shown to
@@ -187,7 +188,7 @@ async def coding_run(body: dict, request: Request):
 
 @router.post("/api/v1/admin/coding-question/preview-run")
 @limiter.limit("30/minute")
-async def admin_coding_preview_run(body: dict, request: Request):
+async def admin_coding_preview_run(body: dict[str, Any], request: Request):
     """Teacher-facing preview: run author-supplied source against a coding
     question's SAMPLE cases so the author can verify the question (statement,
     starter code, expected outputs) before publishing. Teacher-scoped to their
@@ -247,7 +248,7 @@ async def admin_coding_preview_run(body: dict, request: Request):
 
 @router.post("/api/v1/coding/judge")
 @limiter.limit("30/minute")
-async def coding_judge(body: dict, request: Request):
+async def coding_judge(body: dict[str, Any], request: Request):
     """Run the student's source against the SECRET hidden cases, server-side,
     and grade it. Returns `{passed, total, average_execution_ms}` only — never
     per-case detail or expected values."""

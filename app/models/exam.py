@@ -1,6 +1,6 @@
 from __future__ import annotations
 from enum import StrEnum
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict
 
 
@@ -51,7 +51,7 @@ class EventIn(BaseModel):
     severity:   str
     details:    str | None = None
     detection_confidence: float | None = None
-    att: dict | None = None
+    att: dict[str, Any] | None = None
     sig: str | None = None
 
 
@@ -255,7 +255,7 @@ class SaveTemplateIn(BaseModel):
 
 class AttestIn(BaseModel):
     model_config = ConfigDict(strict=True)
-    att: dict
+    att: dict[str, Any]
     sig: str
 
 

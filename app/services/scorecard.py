@@ -6,6 +6,7 @@ Extracted from app/routers/admin.py to reduce the god module.
 import io
 import logging
 from pathlib import Path
+from typing import Any
 
 from ..repositories.sessions import assert_session_owned as _assert_session_owned
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
@@ -52,8 +53,8 @@ def _procta_brand_header():
     return t
 
 
-def _build_scorecard_evidence(session_id: str, exam: dict, real_violations: list,
-                              tid, styles) -> list:
+def _build_scorecard_evidence(session_id: str, exam: dict[str, Any], real_violations: list[Any],
+                              tid, styles) -> list[Any]:
     """Flowables for the 'Visual Evidence' section — the proof screenshots
     captured at each flagged moment, matched from disk (same source the
     dashboard timeline + full report use). Returns [] when there's nothing to
@@ -133,7 +134,7 @@ _END_REASON_LABELS = {
 }
 
 
-def _build_info_table(exam: dict, score: float, total: float,
+def _build_info_table(exam: dict[str, Any], score: float, total: float,
                        pct: float, risk_label: str, passed: bool):
     from reportlab.lib import colors as _c
     from reportlab.platypus import Table, TableStyle
@@ -175,7 +176,7 @@ def _build_info_table(exam: dict, score: float, total: float,
     return t
 
 
-def _build_violation_table(viol_counts: dict):
+def _build_violation_table(viol_counts: dict[str, Any]):
     from reportlab.lib import colors as _c
     from reportlab.platypus import Table, TableStyle
 
@@ -235,7 +236,7 @@ def _build_violation_table(viol_counts: dict):
     return vt
 
 
-def _build_question_table(questions: list, ans_map: dict):
+def _build_question_table(questions: list[Any], ans_map: dict[str, Any]):
     from reportlab.lib import colors as _c
     from reportlab.platypus import Table, TableStyle
     # Use the authoritative grader so the per-question result matches the actual
@@ -271,7 +272,7 @@ def _build_question_table(questions: list, ans_map: dict):
     return qt
 
 
-async def resolve_student_name(exam: dict, teacher_id) -> str:
+async def resolve_student_name(exam: dict[str, Any], teacher_id) -> str:
     """Best-effort display name for a session.
 
     ``exam_sessions.full_name`` is the primary source, but several join paths
@@ -302,7 +303,7 @@ async def resolve_student_name(exam: dict, teacher_id) -> str:
     return roll
 
 
-async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict]:
+async def _build_scorecard_pdf(session_id: str, teacher_id) -> tuple[bytes, str, dict[str, Any]]:
     from reportlab.lib.pagesizes import A4
     from reportlab.platypus import SimpleDocTemplate, Spacer, Paragraph, Image
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle

@@ -32,13 +32,13 @@ from ..models import (
     SESSION_END_REASON_CODES, TEACHER_WARN_CHIP_CODES,
     TeacherWarnIn, SessionTerminateIn,
 )
-from typing import Optional
+from typing import Any, Optional
 
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
 
 
-async def _bus_async_publish(channel: str, payload: dict) -> None:
+async def _bus_async_publish(channel: str, payload: dict[str, Any]) -> None:
     """Publish to SSE/event bus when Redis support is installed."""
     try:
         from ..event_bus import async_publish
@@ -105,7 +105,7 @@ async def get_all_results(request: Request, exam_id: Optional[str] = None, page:
 
 
 async def _fetch_completed_sessions(tid: str, exam_id_scope: str | None,
-                                    fields: str) -> list[dict]:
+                                    fields: str) -> list[dict[str, Any]]:
     q = _atable("exam_sessions").select(fields)\
         .eq("teacher_id", tid).in_("status", list(RESULT_STATUSES))
     if exam_id_scope:
@@ -154,7 +154,7 @@ async def clear_live_sessions(request: Request, body: ClearSessionsIn = Body(...
 
 async def _clear_request_preview(tid: str, include_active: bool,
                                  include_completed: bool,
-                                 exam_id_scope: str | None) -> dict:
+                                 exam_id_scope: str | None) -> dict[str, Any]:
     active, stale = await _partition_live_sessions(
         tid, exam_id=exam_id_scope, include_active=include_active)
     completed_rows = (await _fetch_completed_sessions(
@@ -193,7 +193,7 @@ async def _clear_request_preview(tid: str, include_active: bool,
 
 
 async def _clear_confirm_execute(tid: str, body: ClearSessionsIn,
-                                 exam_id_scope: str | None) -> dict:
+                                 exam_id_scope: str | None) -> dict[str, Any]:
     ack = body.ack
     if ack != "DELETE":
         raise HTTPException(status_code=400,
@@ -266,7 +266,7 @@ async def _clear_confirm_execute(tid: str, body: ClearSessionsIn,
             sess_failures += 1
             _admin_log.warning("[ClearLive] session delete failed %s: %s", sk, e)
 
-    resp: dict = {"step": "confirm", "cleared": len(session_keys),
+    resp: dict[str, Any] = {"step": "confirm", "cleared": len(session_keys),
                   "sessions": len(session_keys), "answers": ans_deleted,
                   "violations": viol_deleted, "screenshots": 0,
                   "skipped_active": len(active), "skipped": skipped_active}
@@ -281,7 +281,7 @@ async def _clear_confirm_execute(tid: str, body: ClearSessionsIn,
 
 @router.post("/api/v1/admin-submit/{session_id}")
 @limiter.limit("10/minute")
-async def admin_submit(session_id: str, request: Request, body: dict = Body(default_factory=dict)):
+async def admin_submit(session_id: str, request: Request, body: dict[str, Any] = Body(default_factory=dict)):
     """Force-submit a student's exam.
 
     Reauth gate (P1.2) consolidated to the shared helper from
@@ -350,7 +350,7 @@ async def admin_submit(session_id: str, request: Request, body: dict = Body(defa
 
     # Prefer answers table — authoritative source; violation parsing
     # is a lossy fallback used only when answers were never persisted.
-    answers_map: dict = {}
+    answers_map: dict[str, Any] = {}
     try:
         ans_rows = (await _atable("answers").select("question_id,answer")
                      .eq("session_key", session_id)
@@ -561,7 +561,7 @@ async def session_warn(session_id: str, request: Request,
 @router.post("/api/v1/admin/session/{session_id:path}/pause")
 @limiter.limit("30/minute")
 async def session_pause(session_id: str, request: Request,
-                        body: dict = Body(default_factory=dict)):
+                        body: dict[str, Any] = Body(default_factory=dict)):
     """Pause an in-progress exam.
 
     Sets status=PAUSED and paused_at=now() on exam_sessions. Pushes a
@@ -624,7 +624,7 @@ async def session_pause(session_id: str, request: Request,
 @router.post("/api/v1/admin/session/{session_id:path}/reset")
 @limiter.limit("30/minute")
 async def session_reset(session_id: str, request: Request,
-                        body: dict = Body(default_factory=dict)):
+                        body: dict[str, Any] = Body(default_factory=dict)):
     """Re-open a CLOSED session so the student can re-enter.
 
     The heartbeat reaper closes a session as ABANDONED after a long
@@ -700,7 +700,7 @@ _RESCHEDULE_RESET_STATUSES = [
 @router.post("/api/v1/admin/exam/{exam_id:path}/reset-attempts")
 @limiter.limit("10/minute")
 async def reset_exam_attempts(exam_id: str, request: Request,
-                              body: dict = Body(default_factory=dict)):
+                              body: dict[str, Any] = Body(default_factory=dict)):
     """Re-open EVERY finished attempt for one exam so the students can retake it.
 
     The one-click companion to /session/{id}/reset, offered after a teacher
@@ -771,7 +771,7 @@ async def reset_exam_attempts(exam_id: str, request: Request,
 @router.post("/api/v1/admin/session/{session_id:path}/resume")
 @limiter.limit("30/minute")
 async def session_resume(session_id: str, request: Request,
-                         body: dict = Body(default_factory=dict)):
+                         body: dict[str, Any] = Body(default_factory=dict)):
     """Resume a paused exam.
 
     Computes the current pause window's elapsed seconds, adds to
@@ -833,7 +833,7 @@ async def session_resume(session_id: str, request: Request,
 
 @router.post("/api/v1/admin/sessions/{session_id:path}/request-recalibration")
 @limiter.limit("10/minute")
-async def request_recalibration(session_id: str, request: Request, body: dict = Body(default_factory=dict)):
+async def request_recalibration(session_id: str, request: Request, body: dict[str, Any] = Body(default_factory=dict)):
     from ..auth.admin_auth import require_reauth_or_403
     teacher = await require_admin(request)
     tid = teacher["id"]

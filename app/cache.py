@@ -227,7 +227,7 @@ def set_live_frame(session_id: str, jpeg_bytes: bytes, ttl: int = 10) -> None:
         total = cast(int, r.zcard(LIVEFRAME_INDEX_KEY))
         if total > _LIVEFRAME_MAX:
             to_remove = total - _LIVEFRAME_MAX
-            oldest = cast(list, r.zrange(LIVEFRAME_INDEX_KEY, 0, to_remove - 1))
+            oldest = cast(list[Any], r.zrange(LIVEFRAME_INDEX_KEY, 0, to_remove - 1))
             if oldest:
                 oldest_keys = [f"{LIVEFRAME_PREFIX}{s.decode()}" if isinstance(s, bytes) else f"{LIVEFRAME_PREFIX}{s}" for s in oldest]
                 br.delete(*oldest_keys)
@@ -281,7 +281,7 @@ def delete_pattern(pattern: str) -> None:
             return
         cursor = 0
         while True:
-            cursor, keys = cast("tuple[int, list]", r.scan(cursor, match=pattern, count=100))
+            cursor, keys = cast("tuple[int, list[Any]]", r.scan(cursor, match=pattern, count=100))
             if keys:
                 r.delete(*keys)
             if cursor == 0:
@@ -337,7 +337,7 @@ async def acleanup_room_frames() -> None:
     await _asyncio.get_event_loop().run_in_executor(None, cleanup_room_frames)
 
 
-def live_frame_stats() -> dict:
+def live_frame_stats() -> dict[str, Any]:
     """Snapshot of the live-frame cache for observability.
 
     Returns a dict shaped for the admin /api/v1/admin/live-stats endpoint.
@@ -368,7 +368,7 @@ def live_frame_stats() -> dict:
         if _LIVEFRAME_MAX > 0:
             out["utilisation_pct"] = round(cached / _LIVEFRAME_MAX * 100, 2)
         try:
-            info = cast(dict, r.info(section="memory") or {})
+            info = cast(dict[str, Any], r.info(section="memory") or {})
             out["redis_used_bytes"] = int(info.get("used_memory") or 0)
             out["redis_max_bytes"] = int(info.get("maxmemory") or 0)
         except Exception:

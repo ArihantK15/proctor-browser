@@ -91,7 +91,7 @@ class SARRevokeSessionsIn(BaseModel):
     target_email: str | None = None
 
 
-async def _require_superadmin(request: Request) -> dict:
+async def _require_superadmin(request: Request) -> dict[str, Any]:
     """Reject anyone who isn't the platform owner.
 
     require_admin enforces an authenticated teacher session; we then
@@ -117,7 +117,7 @@ async def _resolve_target(
     user_type: str,
     user_id: str | None,
     email: str | None,
-) -> dict:
+) -> dict[str, Any]:
     """Look up the SAR target by id or email. Raises 404 if missing."""
     if not (user_id or email):
         raise HTTPException(
@@ -381,8 +381,8 @@ async def sar_export(body: SARExportIn, request: Request):
                 status_code=413,
                 detail=f"Export exceeds {SESSION_CAP} sessions. Use a smaller time range or contact support.",
             )
-        answers: list[dict] = []
-        violations: list[dict] = []
+        answers: list[dict[str, Any]] = []
+        violations: list[dict[str, Any]] = []
         for sk in session_keys:
             answers.extend(await _safe_fetch("answers", eq={"session_key": sk}))
             violations.extend(await _safe_fetch("violations", eq={"session_key": sk}))

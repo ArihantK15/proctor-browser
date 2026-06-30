@@ -25,7 +25,7 @@ the cross-tenant guards run uniformly.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException, Request
 
@@ -52,7 +52,7 @@ def compute_is_solo(org_role: str | None, org_id, member_count: int) -> bool:
     return member_count <= 1
 
 
-async def org_is_solo(teacher: dict) -> bool:
+async def org_is_solo(teacher: dict[str, Any]) -> bool:
     """Resolve is_solo for a teacher dict (as returned by require_admin).
 
     Short-circuits for superadmin and org-less accounts so we only hit the
@@ -84,7 +84,7 @@ async def _org_owner_teacher_id(org_id) -> str | None:
     return str(owner) if owner else None
 
 
-async def is_billing_owner(teacher: dict) -> bool:
+async def is_billing_owner(teacher: dict[str, Any]) -> bool:
     """Whether this teacher owns their org's billing/subscription.
 
     Decoupled from org_role: a solo teacher (org_role='teacher') owns their
@@ -105,7 +105,7 @@ async def is_billing_owner(teacher: dict) -> bool:
     return bool(owner_id) and str(owner_id) == str(teacher.get("id"))
 
 
-def assert_can_author(teacher: dict) -> None:
+def assert_can_author(teacher: dict[str, Any]) -> None:
     """Defense-in-depth: 403 a manager-only org admin on exam-authoring paths.
 
     Account types (phase135): an `org_role='admin'` account is a *manager* —
@@ -125,7 +125,7 @@ def assert_can_author(teacher: dict) -> None:
         )
 
 
-async def resolve_scope(teacher: dict, request: Request) -> dict:
+async def resolve_scope(teacher: dict[str, Any], request: Request) -> dict[str, Any]:
     """Build the scope dict from the authenticated teacher's role and
     any ?teacher_id= query parameter.
 
@@ -170,7 +170,7 @@ async def _verify_teacher_in_org(teacher_id: str, org_id: str) -> bool:
     return bool(rows)
 
 
-async def scope_to_teacher_ids(scope: dict) -> list[str] | None:
+async def scope_to_teacher_ids(scope: dict[str, Any]) -> list[str] | None:
     """Materialise the scope into a list of teacher IDs that downstream
     queries can `.in_("teacher_id", ...)` filter by.
 
@@ -210,7 +210,7 @@ def apply_teacher_scope(query, tids: list[str] | None):
     return query.in_("teacher_id", tids)
 
 
-async def assert_session_accessible(session_id: str, scope: dict) -> dict:
+async def assert_session_accessible(session_id: str, scope: dict[str, Any]) -> dict[str, Any]:
     """Single-session access check for endpoints that operate on a
     specific session_key (timeline, risk-score, terminate, etc.).
 

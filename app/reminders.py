@@ -13,6 +13,7 @@ from .database import async_table as _atable
 from .constants import REMINDER_1H_WINDOW_MIN, REMINDER_24H_WINDOW_MIN
 from .logger import get_logger
 from .log_safe import mask_email, safe
+from typing import Any
 
 _dep_log = get_logger("reminders")
 
@@ -23,7 +24,7 @@ def _reminder_window(target_minutes: int, half_width_min: int):
     return (centre - timedelta(minutes=half_width_min), centre + timedelta(minutes=half_width_min))
 
 
-def _send_reminder_for_invite(inv: dict, exam_cfg: dict, hours_until: int, student_id: str | None = None) -> bool:
+def _send_reminder_for_invite(inv: dict[str, Any], exam_cfg: dict[str, Any], hours_until: int, student_id: str | None = None) -> bool:
     from .emailer import send_exam_reminder
     base = os.environ.get("INVITE_BASE_URL", "https://app.procta.net").rstrip("/")
     invite_url = f"{base}/invite/{inv['token']}"

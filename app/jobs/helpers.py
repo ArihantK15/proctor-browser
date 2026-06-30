@@ -36,7 +36,7 @@ def _rq_enabled() -> bool:
     return os.environ.get("RQ_ENABLED", "").lower() in ("1", "true", "yes")
 
 
-def enqueue_job(func: str | _Callable, *args, queue_name: str = "default", **kwargs) -> dict | None:
+def enqueue_job(func: str | _Callable[..., Any], *args, queue_name: str = "default", **kwargs) -> dict[str, Any] | None:
     """Enqueue *func* to an RQ queue, or call it synchronously.
 
     Returns ``None`` when the job was enqueued (async), or the function's
@@ -51,11 +51,11 @@ def enqueue_job(func: str | _Callable, *args, queue_name: str = "default", **kwa
         from redis import Redis
         q = Queue(queue_name, connection=Redis.from_url(_redis_url()))
         q.enqueue(
-            cast(_Callable, func), *args, **kwargs,
+            cast(_Callable[..., Any], func), *args, **kwargs,
             retry=Retry(max=_retry_max(), interval=_retry_intervals()),
         )
         return None
-    return cast(_Callable, func)(*args, **kwargs)
+    return cast(_Callable[..., Any], func)(*args, **kwargs)
 
 
 # ── Persistent event loop for RQ workers ────────────────────────────
@@ -130,7 +130,7 @@ def _run_coro_in_sync(coro) -> Any:
         return future.result(timeout=timeout_secs)
 
     # Running loop exists → spawn a fresh thread + loop for this call.
-    result: list = []
+    result: list[Any] = []
     exc: list[Exception] = []
 
     def _target():

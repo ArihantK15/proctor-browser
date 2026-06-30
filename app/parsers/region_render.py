@@ -6,13 +6,14 @@ b"" on any failure so the caller can fall back to text + a review flag.
 """
 import io
 import logging
+from typing import Any
 
 logger = logging.getLogger("qbank.region")
 
 _SCALE = 2.0   # render at 2x for crisp text/equations
 
 
-def render_region_png(pdf_bytes: bytes, page_index: int, bbox: list) -> bytes:
+def render_region_png(pdf_bytes: bytes, page_index: int, bbox: list[Any]) -> bytes:
     try:
         import pypdfium2 as pdfium
         pdf = pdfium.PdfDocument(pdf_bytes)

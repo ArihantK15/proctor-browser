@@ -36,6 +36,8 @@ __all__ = [
     "send_objection_to_controller_notice_job",
     "send_guardian_consent_request_job",
     "flush_autosave_job",
+    "_rq_enabled",
+    "_redis_url",
     "score_submission_job",
     "upload_screenshot_job",
     "ags_grade_passback_job",

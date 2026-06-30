@@ -15,7 +15,7 @@ import json
 import logging
 import time
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -155,7 +155,7 @@ async def get_results(
     lineitem_url: str,
     access_token: str,
     user_id: str | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Read results for a line item from the LMS.
 
     Args:

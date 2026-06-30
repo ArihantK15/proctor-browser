@@ -65,7 +65,7 @@ class ObjectionIn(BaseModel):
         return v
 
 
-async def _resolve_caller(request: Request) -> tuple[str, str, dict]:
+async def _resolve_caller(request: Request) -> tuple[str, str, dict[str, Any]]:
     """Return (user_type, user_id, profile_row) for the authenticated caller.
 
     Tries teacher auth first, then student-account auth. Raises 401 if
@@ -88,7 +88,7 @@ async def _record_privacy_event(
     user_type: str,
     user_id: str,
     event: str,
-    meta: dict | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> None:
     """Append to auth_events for regulator audit trail. Best-effort."""
     try:
@@ -284,7 +284,7 @@ _PROFILE_SECRET_KEYS = frozenset({
 })
 
 
-def _redact_profile(row: dict | None) -> dict | None:
+def _redact_profile(row: dict[str, Any] | None) -> dict[str, Any] | None:
     """Strip credential/secret columns from a profile row before export.
 
     Defends both the self-service `/export` and the operator-run SAR
@@ -304,10 +304,10 @@ def _redact_profile(row: dict | None) -> dict | None:
 async def _safe_fetch(
     table: str,
     *,
-    eq: dict | None = None,
+    eq: dict[str, Any] | None = None,
     columns: str = "*",
     limit: int = _EXPORT_ROW_CAP,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Best-effort SELECT — returns [] on error rather than failing the
     whole export. A missing column on one table shouldn't deny the
     user their other data.
@@ -326,7 +326,7 @@ async def _safe_fetch(
         return []
 
 
-def _maybe_truncate(rows: list[dict], cap: int = _EXPORT_ROW_CAP) -> tuple[list[dict], bool]:
+def _maybe_truncate(rows: list[dict[str, Any]], cap: int = _EXPORT_ROW_CAP) -> tuple[list[dict[str, Any]], bool]:
     """If _safe_fetch hit the +1 sentinel, trim back to `cap` and flag.
 
     Returns (visible_rows, was_truncated). Caller writes both back into
@@ -360,7 +360,7 @@ async def export_data(request: Request):
         "_truncated_tables": [],
     }
 
-    def _add(key: str, rows: list[dict]) -> None:
+    def _add(key: str, rows: list[dict[str, Any]]) -> None:
         """Insert rows into the export, flagging truncation when hit."""
         visible, truncated = _maybe_truncate(rows)
         data[key] = visible
@@ -439,8 +439,8 @@ async def export_data(request: Request):
             capped_keys = session_keys[:SESSION_CAP]
             if len(session_keys) > SESSION_CAP:
                 data["_truncated_tables"].extend(["answers", "violations"])
-            answers: list[dict] = []
-            violations: list[dict] = []
+            answers: list[dict[str, Any]] = []
+            violations: list[dict[str, Any]] = []
             for sk in capped_keys:
                 answers.extend(await _safe_fetch("answers", eq={"session_key": sk}))
                 violations.extend(await _safe_fetch("violations", eq={"session_key": sk}))
@@ -525,7 +525,7 @@ async def _cleanup_screenshots(user_type: str, user_id: str) -> None:
         else:
             rows = await _atable("exam_sessions").select("teacher_id,roll_number")\
                 .eq("student_id", user_id).execute()
-            seen: set = set()
+            seen: set[tuple[str, str]] = set()
             for r in (rows.data or []):
                 tid = r.get("teacher_id")
                 roll = r.get("roll_number")
@@ -546,7 +546,7 @@ async def _cleanup_screenshots(user_type: str, user_id: str) -> None:
 
 @router.post("/delete")
 @limiter.limit("2/hour")
-async def delete_account(request: Request, body: dict = Body(default_factory=dict)):
+async def delete_account(request: Request,     body: dict[str, Any] = Body(default_factory=dict)):
     """Erase the caller's account and personal data (DPDP §13 / GDPR Art 17).
 
     Anonymisation strategy:

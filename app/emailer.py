@@ -36,7 +36,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from .utils import _html_escape as _esc
 
@@ -935,7 +935,7 @@ class _ResendBackend(_Backend):
         from_addr = os.environ.get("EMAIL_FROM", "invites@procta.net")
         from_name = os.environ.get("EMAIL_FROM_NAME", "Procta")
         reply_to = os.environ.get("EMAIL_REPLY_TO", "")
-        params: dict = {
+        params: dict[str, Any] = {
             "from": f"{from_name} <{from_addr}>",
             "to": [f"{to_name} <{to_email}>"] if to_name else [to_email],
             "subject": subject,
@@ -957,8 +957,21 @@ class _ResendBackend(_Backend):
             msg_id = resp.get("id") if isinstance(resp, dict) else getattr(resp, "id", None)
             return SendResult(ok=True, provider_msg_id=msg_id)
         except Exception as e:
-            log.error("Resend API error: %s", e)
-            return SendResult(ok=False, error=str(e))
+            err_str = str(e)
+            # Rate-limit retry with a single backoff (Resend docs: 429 → wait
+            # before retrying). Do NOT loop — the caller has its own timeout.
+            if "rate limit" in err_str.lower() or "too many requests" in err_str.lower():
+                import time as _time
+                _time.sleep(2)
+                try:
+                    resp2 = resend.Emails.send(params)
+                    msg_id2 = resp2.get("id") if isinstance(resp2, dict) else getattr(resp2, "id", None)
+                    return SendResult(ok=True, provider_msg_id=msg_id2)
+                except Exception as e2:
+                    log.error("Resend API error (after retry): %s", e2)
+                    return SendResult(ok=False, error=str(e2))
+            log.error("Resend API error: %s", err_str)
+            return SendResult(ok=False, error=err_str)
 
 
 class _SmtpBackend(_Backend):

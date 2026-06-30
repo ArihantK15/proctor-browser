@@ -3,6 +3,7 @@
 import json
 import logging
 import uuid
+from typing import Any
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request, HTTPException
@@ -100,6 +101,16 @@ async def google_disconnect(request: Request):
 @limiter.limit("30/minute")
 async def google_courses(request: Request):
     """List Google Classroom courses linked or available for linking."""
+    try:
+        return await _do_google_courses(request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("[google_classroom] /courses failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch Google Classroom courses")
+
+
+async def _do_google_courses(request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
 
@@ -111,7 +122,11 @@ async def google_courses(request: Request):
     token_dict = json.loads(decrypt_token(token_row.data[0].get("token_json", "{}")) or "{}")
     creds = _build_credentials(token_dict)
     if not creds:
-        return {"connected": False, "courses": [], "error": "Session expired. Reconnect Google Classroom."}
+        # Token is permanently invalid (expired/revoked) — delete it so the
+        # teacher is prompted to reconnect rather than hitting the same error
+        # on every API call.
+        await _atable("google_auth_tokens").delete().eq("teacher_id", tid).execute()
+        return {"connected": False, "courses": []}
 
     courses = await list_courses(creds)
 
@@ -128,7 +143,7 @@ async def google_courses(request: Request):
 
 @router.post("/link-exam")
 @limiter.limit("20/minute")
-async def google_link_exam(body: dict, request: Request):
+async def google_link_exam(body: dict[str, Any], request: Request):
     """Link a Procta exam to a Google Classroom course."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
@@ -158,7 +173,7 @@ async def google_link_exam(body: dict, request: Request):
 
 @router.post("/unlink-exam")
 @limiter.limit("20/minute")
-async def google_unlink_exam(body: dict, request: Request):
+async def google_unlink_exam(body: dict[str, Any], request: Request):
     """Unlink a Google Classroom course from its exam."""
     teacher = await require_admin(request)
     tid = str(teacher["id"])
@@ -169,8 +184,18 @@ async def google_unlink_exam(body: dict, request: Request):
 
 @router.post("/sync-roster")
 @limiter.limit("10/minute")
-async def google_sync_roster(body: dict, request: Request):
+async def google_sync_roster(body: dict[str, Any], request: Request):
     """Sync student roster from Google Classroom into Procta."""
+    try:
+        return await _do_google_sync_roster(body, request)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("[google_classroom] /sync-roster failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to sync roster")
+
+
+async def _do_google_sync_roster(body: dict[str, Any], request: Request):
     teacher = await require_admin(request)
     tid = str(teacher["id"])
     course_id = (body.get("course_id") or "").strip()
@@ -187,7 +212,9 @@ async def google_sync_roster(body: dict, request: Request):
     token_dict = json.loads(decrypt_token(token_row.data[0].get("token_json", "{}")) or "{}")
     creds = _build_credentials(token_dict)
     if not creds:
-        raise HTTPException(status_code=400, detail="Session expired")
+        # Token is permanently invalid — delete so the teacher reconnects.
+        await _atable("google_auth_tokens").delete().eq("teacher_id", tid).execute()
+        raise HTTPException(status_code=400, detail="Google Classroom session expired — please reconnect")
 
     # Tag imported students with the Google class name as their cohort (batch),
     # so the synced roster is immediately usable for exam→batch assignment.

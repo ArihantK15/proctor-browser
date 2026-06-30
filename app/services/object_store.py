@@ -37,6 +37,16 @@ def _kms_key_id_is_valid(key: str) -> bool:
 # ── Lazy client ──────────────────────────────────────────────────────────────
 
 _client = None
+# Circuit-breaker: set to True after the first KMS failure so every subsequent
+# upload_* call skips SSE-KMS and falls through to SSE-S3 without repeating the
+# same wasted PutObject round-trip for tens/hundreds of screenshots against a
+# KMS key that doesn't exist (was deleted / revoked / cross-region).
+_KMS_FAILED = False
+
+
+def _mark_kms_failed() -> None:
+    global _KMS_FAILED  # noqa: PLW0603
+    _KMS_FAILED = True
 
 
 def _make_client() -> Any:
@@ -82,7 +92,7 @@ def is_enabled() -> bool:
     return os.environ.get("S3_ENABLED", "").lower() in ("1", "true", "yes")
 
 
-def _encryption_args() -> dict:
+def _encryption_args() -> dict[str, Any]:
     """Server-side-encryption kwargs for put_object.
 
     Prefer SSE-KMS with our customer-managed key when ``S3_KMS_KEY_ID`` is set
@@ -96,9 +106,9 @@ def _encryption_args() -> dict:
     kms:GenerateDataKey (writes) + kms:Decrypt (reads) on the key.
     """
     kms_key = os.environ.get("S3_KMS_KEY_ID", "").strip()
-    if kms_key and _kms_key_id_is_valid(kms_key):
+    if kms_key and _kms_key_id_is_valid(kms_key) and not _KMS_FAILED:
         return {"ServerSideEncryption": "aws:kms", "SSEKMSKeyId": kms_key}
-    if kms_key:
+    if kms_key and not _KMS_FAILED:
         # Misconfigured key — don't fail every upload. Fall back to SSE-S3
         # (still encrypted at rest) and warn LOUDLY. Log only a short prefix so
         # we never echo a (possibly secret) value into logs/Sentry in full.
@@ -135,8 +145,31 @@ def upload_screenshot(s3_key: str, data: bytes, content_type: str = "image/jpeg"
             **_encryption_args(),
         )
         return True
-    except Exception:
-        _log.exception("S3 upload failed for key=%s", s3_key)
+    except Exception as _exc:
+        # KMS.NotFoundException → disable KMS and retry once with SSE-S3.
+        # Check the exception duck-typing style so it works with both real
+        # boto3/botocore ClientError and test mocks.
+        _code = ""
+        if hasattr(_exc, "response"):
+            _code = _exc.response.get("Error", {}).get("Code", "")
+        elif hasattr(_exc, "code"):
+            _code = _exc.code or ""
+        if _code == "KMS.NotFoundException":
+            _log.error("KMS key not found (prefix=%r…) — "
+                       "disabling SSE-KMS, falling back to SSE-S3",
+                       os.environ.get("S3_KMS_KEY_ID", "")[:6])
+            _mark_kms_failed()
+            try:
+                client.put_object(
+                    Bucket=bucket, Key=s3_key, Body=data,
+                    ContentType=content_type,
+                    ServerSideEncryption="AES256",
+                )
+                return True
+            except Exception:
+                _log.exception("S3 upload (SSE-S3 fallback) failed for key=%s", s3_key)
+                return False
+        _log.exception("S3 upload failed for key=%s (code=%r)", s3_key, _code)
         return False
 
 

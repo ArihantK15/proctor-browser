@@ -9,6 +9,8 @@ touch interior spacing — that can be significant, and authors print canonical 
 """
 from __future__ import annotations
 
+from typing import Any
+
 
 def normalize_output(s: str | None) -> str:
     """Trim trailing whitespace per line and drop trailing blank lines. CRLF→LF."""
@@ -35,7 +37,7 @@ def _float_match(a: str, e: str, tol: float) -> bool:
     return all(abs(x - y) <= tol for x, y in zip(af, ef))
 
 
-def judge_outputs(actual: list, expected: list, tolerances: list) -> dict:
+def judge_outputs(actual: list[Any], expected: list[Any], tolerances: list[Any]) -> dict[str, Any]:
     """Compare client outputs to expected outputs.
 
     Args:

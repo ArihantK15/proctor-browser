@@ -13,7 +13,7 @@ claim.
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -39,7 +39,7 @@ async def fetch_membership(
     context_memberships_url: str,
     access_token: str,
     role_filter: str | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Fetch the course membership roster from the LMS via NRPS.
 
     Args:
@@ -77,7 +77,7 @@ async def sync_learner_roster(
     access_token: str,
     teacher_id: str,
     iss: str = "",
-) -> dict:
+) -> dict[str, Any]:
     """Fetch learner membership from the LMS and create local student accounts.
 
     This is typically called after an LTI launch by an instructor to

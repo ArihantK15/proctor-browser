@@ -102,7 +102,7 @@ async def get_status(request: Request):
                 r.ping()
                 checks["redis"] = "ok"
                 try:
-                    info = cast(dict, r.info())
+                    info = cast(dict[str, Any], r.info())
                     metrics["redis_connected_clients"] = int(info.get("connected_clients", 0))
                 except Exception:
                     _log.debug("admin_status: redis info gather failed", exc_info=True)
@@ -157,8 +157,8 @@ async def get_status(request: Request):
         else:
             checks["queue"] = "ok"
     except Exception:
-        metrics["queue_depth"] = None  # type: ignore[assignment]
-        metrics["queue_failed"] = None  # type: ignore[assignment]
+        metrics["queue_depth"] = None
+        metrics["queue_failed"] = None
         checks["queue"] = "unavailable"
 
     # Email
@@ -222,7 +222,7 @@ async def get_status(request: Request):
             .execute()
         metrics["active_sessions"] = active.count or 0
     except Exception:
-        metrics["active_sessions"] = None  # type: ignore[assignment]
+        metrics["active_sessions"] = None
 
     try:
         from ..database import async_table as _atable
@@ -234,7 +234,7 @@ async def get_status(request: Request):
             .execute()
         metrics["submit_failures_24h"] = failed.count or 0
     except Exception:
-        metrics["submit_failures_24h"] = None  # type: ignore[assignment]
+        metrics["submit_failures_24h"] = None
 
     # Fleet proctor health — device-failure rates Sentry can't see (the events
     # POST as 200s). Surfaced here for the status page + any admin monitor; the
@@ -248,7 +248,7 @@ async def get_status(request: Request):
             ok = False
     except Exception:
         _log.warning("admin_status: proctor health gather failed", exc_info=True)
-        metrics["proctor_health"] = None  # type: ignore[assignment]
+        metrics["proctor_health"] = None
 
     uptime_sec = round(time.time() - _REQ_TS, 1)
 

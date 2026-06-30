@@ -1,5 +1,5 @@
 """Settings router — schedule, shuffle, and proctoring sensitivity."""
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Body
 from pydantic import BaseModel, ConfigDict
@@ -99,7 +99,7 @@ async def admin_set_shuffle(request: Request, body: ShuffleIn = Body(...)):
     teacher = await require_admin(request)
     tid = teacher["id"]
     exam_id = body.exam_id
-    fields: dict = {}
+    fields: dict[str, Any] = {}
     if body.shuffle_questions is not None:
         fields["shuffle_questions"] = body.shuffle_questions
     if body.shuffle_options is not None:

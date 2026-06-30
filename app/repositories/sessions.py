@@ -4,7 +4,7 @@ Extracted from app/dependencies.py.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from ..database import async_table as _atable
 from ..models import SessionStatus
@@ -14,7 +14,7 @@ from ..services.calibration import parse_calibration_details, classify_calibrati
 logger = logging.getLogger(__name__)
 
 
-async def assert_session_owned(session_id: str, teacher_id: str) -> dict:
+async def assert_session_owned(session_id: str, teacher_id: str) -> dict[str, Any]:
     from fastapi import HTTPException
 
     if not teacher_id:
@@ -58,7 +58,7 @@ async def violation_counts_by_session(session_keys: list[str]) -> dict[str, int]
 
 
 async def calibration_tiers_by_session(session_keys: list[str], teacher_id: str | None = None,
-                                       teacher_ids: list[str] | None = None) -> dict[str, dict]:
+                                       teacher_ids: list[str] | None = None) -> dict[str, dict[str, Any]]:
     """Calibration tier per session. Scope filter precedence mirrors
     fetch_all_results: teacher_ids (org multi) > teacher_id (single) >
     unscoped. The session_keys constraint already bounds the result set;
@@ -77,7 +77,7 @@ async def calibration_tiers_by_session(session_keys: list[str], teacher_id: str 
     elif teacher_id:
         q = q.eq("teacher_id", str(teacher_id))
     rows = (await q.execute()).data or []
-    out: dict[str, dict] = {}
+    out: dict[str, dict[str, Any]] = {}
     for r in rows:
         sk = r.get("session_key")
         if not sk:
@@ -163,7 +163,7 @@ async def cohort_roll_numbers(teacher_ids: list[str] | None, group_id: str | Non
 
 async def fetch_all_results(teacher_id: Optional[str] = None, exam_id: Optional[str] = None, limit: int = 5000,
                             teacher_ids: list[str] | None = None,
-                            roll_numbers: set[str] | None = None) -> list[dict]:
+                            roll_numbers: set[str] | None = None) -> list[dict[str, Any]]:
     """Fetch completed-session results. Filter precedence:
        teacher_ids (multi) > teacher_id (single) > unfiltered.
     teacher_ids is the org-scope path: pass the list of teachers the

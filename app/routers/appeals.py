@@ -4,7 +4,7 @@ import json
 import logging
 from urllib.parse import quote
 from datetime import datetime, timezone
-from typing import Optional, Literal
+from typing import Any, Optional, Literal
 
 from fastapi import APIRouter, Request, HTTPException
 from pydantic import BaseModel, ConfigDict
@@ -276,7 +276,7 @@ async def list_appeals(request: Request, exam_id: Optional[str] = None, status: 
         except Exception:
             _log.debug("[admin/appeals] evidence flag lookup failed", exc_info=True)
             vmap = {}
-        _ss_cache: dict = {}
+        _ss_cache: dict[Any, Any] = {}
         _MAX_DIR_SCANS = 100  # bound filesystem scans for very large appeal lists
         scans = 0
         for a in flagged:

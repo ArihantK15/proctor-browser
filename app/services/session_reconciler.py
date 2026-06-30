@@ -17,6 +17,8 @@ the heartbeat reaper / ttl sweeper). All operations are idempotent.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 import logging
 import os
@@ -43,7 +45,7 @@ def _report(msg: str) -> None:
         pass
 
 
-def _enqueue_rescore(row: dict) -> bool:
+def _enqueue_rescore(row: dict[str, Any]) -> bool:
     """Re-enqueue the (idempotent) scoring job for a drifted row."""
     try:
         from ..jobs import enqueue_job, score_submission_job
@@ -65,7 +67,7 @@ def _enqueue_rescore(row: dict) -> bool:
         return False
 
 
-async def _reconcile_once() -> dict:
+async def _reconcile_once() -> dict[str, Any]:
     healed = {"stuck_submitted": 0, "missing_submitted_at": 0, "completed_no_score": 0}
     now = datetime.now(timezone.utc)
     fields = "session_key,status,teacher_id,exam_id,student_id,roll_number,submitted_at,score,time_taken_secs"

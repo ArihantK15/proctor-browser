@@ -12,6 +12,7 @@ So retrying after a partial failure is always safe.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from .helpers import _run_coro_in_sync
 
@@ -24,7 +25,7 @@ def ags_grade_passback_job(
     total: int,
     percentage: float,
     teacher_id: str = "",
-) -> dict:
+) -> dict[str, Any]:
     """Sync wrapper called by the RQ worker.
 
     Calls _try_ags_grade_passback with raise_on_failure=True so that a
@@ -39,7 +40,7 @@ def ags_grade_passback_job(
     """
     from ..routers.exam import _try_ags_grade_passback
 
-    async def _run() -> dict:
+    async def _run() -> dict[str, Any]:
         await _try_ags_grade_passback(
             roll_number, score, total, percentage,
             teacher_id=teacher_id or None,

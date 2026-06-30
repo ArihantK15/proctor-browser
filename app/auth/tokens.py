@@ -7,7 +7,7 @@ import re
 import secrets
 import uuid
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime, timezone, timedelta
 
 from fastapi import Request, HTTPException
@@ -51,7 +51,7 @@ class AuthCtx:
     sid: str | None = None  # student_account id (for student-auth tokens)
 
     @classmethod
-    def from_claims(cls, claims: dict) -> AuthCtx:
+    def from_claims(cls, claims: dict[str, Any]) -> AuthCtx:
         return cls(
             teacher_id=str(claims.get("tid") or ""),
             roll_number=str(claims.get("roll") or ""),
@@ -80,7 +80,7 @@ def _gen_csrf() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _csrf_stateless_token(claims: dict, token: str | None = None) -> str:
+def _csrf_stateless_token(claims: dict[str, Any], token: str | None = None) -> str:
     """Create a signed CSRF fallback tied to the current access-token JTI."""
     now = datetime.now(timezone.utc)
     payload = {
@@ -94,7 +94,7 @@ def _csrf_stateless_token(claims: dict, token: str | None = None) -> str:
     return jwt.encode(payload, REAUTH_SIGNING_KEY, algorithm="HS256")
 
 
-def _verify_stateless_csrf(claims: dict, header_value: str) -> bool:
+def _verify_stateless_csrf(claims: dict[str, Any], header_value: str) -> bool:
     """Validate a signed CSRF fallback token against the access-token JTI."""
     try:
         payload = jwt.decode(header_value, REAUTH_SIGNING_KEY, algorithms=["HS256"])
@@ -110,7 +110,7 @@ def _verify_stateless_csrf(claims: dict, header_value: str) -> bool:
     )
 
 
-def _csrf_subject(claims: dict) -> str:
+def _csrf_subject(claims: dict[str, Any]) -> str:
     """Stable server-side CSRF storage subject for browser auth tokens."""
     role = claims.get("role")
     jti = str(claims.get("jti") or "")
@@ -119,7 +119,7 @@ def _csrf_subject(claims: dict) -> str:
     return ""
 
 
-def _csrf_key(claims: dict) -> str:
+def _csrf_key(claims: dict[str, Any]) -> str:
     subject = _csrf_subject(claims)
     if not subject:
         return ""
@@ -127,12 +127,12 @@ def _csrf_key(claims: dict) -> str:
     return f"csrf:{digest}"
 
 
-def csrf_required_for_claims(claims: dict) -> bool:
+def csrf_required_for_claims(claims: dict[str, Any]) -> bool:
     """CSRF applies to browser account JWTs, not exam-runtime bearer tokens."""
     return claims.get("role") in {"teacher", "student_account"}
 
 
-def issue_csrf_token(claims: dict) -> str:
+def issue_csrf_token(claims: dict[str, Any]) -> str:
     """Issue a server-stored CSRF secret for the current access-token JTI.
 
     The value is deliberately not embedded in the JWT.  A stolen access token
@@ -153,7 +153,7 @@ def issue_csrf_token(claims: dict) -> str:
     return token
 
 
-def clear_csrf_token(claims: dict) -> None:
+def clear_csrf_token(claims: dict[str, Any]) -> None:
     key = _csrf_key(claims)
     if not key:
         return
@@ -164,7 +164,7 @@ def clear_csrf_token(claims: dict) -> None:
         logger.debug("tokens: csrf cache delete failed", exc_info=True)
 
 
-def verify_csrf(claims: dict, header_value: str) -> bool:
+def verify_csrf(claims: dict[str, Any], header_value: str) -> bool:
     """Check whether ``header_value`` matches the server-stored CSRF secret.
 
     Returns False when the header is absent or doesn't match.
@@ -203,7 +203,7 @@ def create_token(roll_number: str, teacher_id: Optional[str] = None, exam_id: Op
     return jwt.encode(payload, EXAM_TOKEN_SIGNING_KEY, algorithm="HS256")
 
 
-def _decode_token(token: str, keys: list[str]) -> dict:
+def _decode_token(token: str, keys: list[str]) -> dict[str, Any]:
     """Try decoding a JWT with multiple signing keys (ordered by likelihood)."""
     last_err = None
     for key in keys:
@@ -214,7 +214,7 @@ def _decode_token(token: str, keys: list[str]) -> dict:
     raise last_err or JWTError("Token could not be decoded with any key")
 
 
-def require_auth(request: Request, allowed_roles: list[str] | None = None) -> dict:
+def require_auth(request: Request, allowed_roles: list[str] | None = None) -> dict[str, Any]:
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else ""
     if not token:
@@ -247,13 +247,13 @@ def require_auth(request: Request, allowed_roles: list[str] | None = None) -> di
     return claims
 
 
-def require_teacher_auth(request: Request) -> dict:
+def require_teacher_auth(request: Request) -> dict[str, Any]:
     """Like require_auth but restricted to teacher tokens only.
     Use on exam management endpoints that must not accept student tokens."""
     return require_auth(request, allowed_roles=["teacher"])
 
 
-def verify_student_token(token: str) -> dict:
+def verify_student_token(token: str) -> dict[str, Any]:
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     try:
@@ -268,7 +268,7 @@ def verify_student_token(token: str) -> dict:
     return payload
 
 
-def issue_admin_token(teacher: dict) -> str:
+def issue_admin_token(teacher: dict[str, Any]) -> str:
     now = datetime.now(timezone.utc)
     jti = str(uuid.uuid4())
     payload = {
@@ -284,7 +284,7 @@ def issue_admin_token(teacher: dict) -> str:
     return jwt.encode(payload, ADMIN_SIGNING_KEY, algorithm="HS256")
 
 
-def issue_student_auth_token(account: dict) -> str:
+def issue_student_auth_token(account: dict[str, Any]) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sid": str(account["id"]), "email": account.get("email", ""),
@@ -321,7 +321,7 @@ def verify_reauth_token(token: str, user_id: str) -> bool:
         return False
 
 
-def verify_email_token(token: str) -> dict | None:
+def verify_email_token(token: str) -> dict[str, Any] | None:
     """Decode and validate an email_verify token. Returns claims dict or None."""
     try:
         claims = _decode_token(token, EMAIL_VERIFY_SIGNING_KEYS)
@@ -332,7 +332,7 @@ def verify_email_token(token: str) -> dict | None:
         return None
 
 
-def _check_session_ownership(claims: dict, session_id: str) -> None:
+def _check_session_ownership(claims: dict[str, Any], session_id: str) -> None:
     parts = session_id.rsplit("_", 1)
     session_roll = parts[0].upper() if parts else ""
     # `(claims.get("roll") or "")` not `.get("roll", "")`: dict.get only

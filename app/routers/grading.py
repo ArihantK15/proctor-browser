@@ -5,13 +5,13 @@ import logging
 import time
 import asyncio
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Request, Body, HTTPException
 from pydantic import BaseModel, ConfigDict
 _grading_log = logging.getLogger("grading")
 
-from ..database import supabase, async_table as _atable
+from ..database import async_table as _atable
 from ..limiter import limiter
 from ..auth import require_admin
 from ..utils import fmt_ist, now_ist
@@ -34,7 +34,7 @@ class GradeConfirmIn(BaseModel):
     idempotency_key: str | None = None
 
 
-async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> dict | None:
+async def _apply_short_answer_to_session(session_key: str, teacher_id: str) -> dict[str, Any] | None:
     """Recompute exam_sessions.{score,total,percentage} including
     teacher-confirmed short-answer scores.
 
@@ -354,7 +354,7 @@ async def grade_confirm(request: Request, body: GradeConfirmIn = Body(...)):
 
 @router.post("/api/v1/admin/grade-confirm-bulk")
 @limiter.limit("10/minute")
-async def grade_confirm_bulk(body: dict, request: Request):
+async def grade_confirm_bulk(body: dict[str, Any], request: Request):
     """Bulk confirm (accept) all pending grades for an exam, or reject all.
 
     Body::

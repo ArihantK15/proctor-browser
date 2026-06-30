@@ -11,11 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
+from typing import Any
 from fastapi import Request, HTTPException, Body, UploadFile, File
 from fastapi.routing import APIRouter
 from pydantic import BaseModel, ConfigDict
 
-from ..database import supabase, async_table as _atable
+from ..database import async_table as _atable
 from ..limiter import limiter
 from ..auth import require_admin
 from ..auth.scope import assert_can_author
@@ -38,7 +39,7 @@ async def _record_question_version(
     question_id: str,
     teacher_id: str,
     change_type: str,
-    snapshot: dict,
+    snapshot: dict[str, Any],
     changed_by: str | None = None,
 ) -> None:
     """Append a row to question_versions.
@@ -72,7 +73,7 @@ async def _record_question_version(
         )
 
 
-def _build_snapshot(row: dict) -> dict:
+def _build_snapshot(row: dict[str, Any]) -> dict[str, Any]:
     """Build a compact snapshot dict from a question_bank row."""
     return {
         "question": row.get("question", ""),
@@ -88,14 +89,14 @@ def _build_snapshot(row: dict) -> dict:
 
 class BankQuestionIn(BaseModel):
     model_config = ConfigDict(strict=True)
-    questions: list[dict] | None = None
+    questions: list[dict[str, Any]] | None = None
 
 
 class UpdateQuestionIn(BaseModel):
     model_config = ConfigDict(strict=True)
     question: str | None = None
     question_type: str | None = None
-    options: dict | None = None
+    options: dict[str, Any] | None = None
     correct: str | None = None
     image_url: str | None = None
     tags: list[str] | None = None
@@ -103,7 +104,7 @@ class UpdateQuestionIn(BaseModel):
 
 class ImportQuestionsIn(BaseModel):
     model_config = ConfigDict(strict=True)
-    questions: list[dict]
+    questions: list[dict[str, Any]]
 
 
 class GenerateQuestionsIn(BaseModel):
@@ -119,13 +120,13 @@ class GenerateQuestionsIn(BaseModel):
 class SuggestTagsIn(BaseModel):
     model_config = ConfigDict(strict=True)
     question: str
-    options: dict = {}
+    options: dict[str, Any] = {}
     correct: str = ""
 
 
 class LintQuestionsIn(BaseModel):
     model_config = ConfigDict(strict=True)
-    questions: list[dict]
+    questions: list[dict[str, Any]]
 
 
 class BankToExamIn(BaseModel):
@@ -136,7 +137,7 @@ class BankToExamIn(BaseModel):
 
 class UpdateQuestionsIn(BaseModel):
     model_config = ConfigDict(strict=True)
-    questions: list[dict]
+    questions: list[dict[str, Any]]
     exam_id: str | None = None
     exam_title: str | None = None
     duration_minutes: int | None = None
@@ -398,7 +399,7 @@ async def _read_upload_capped(file: UploadFile) -> bytes:
     return data
 
 
-def _extract_parse_render(data: bytes, name: str, tid: str) -> dict:
+def _extract_parse_render(data: bytes, name: str, tid: str) -> dict[str, Any]:
     """CPU/IO-bound import pipeline (PDF/DOCX parse + region rasterization).
 
     Pure of the request loop so it can run under asyncio.to_thread — pdfplumber
@@ -436,9 +437,9 @@ def _store_region_png(tid: str, png: bytes) -> str:
     return f"/api/v1/question-image/{tid}/{digest}.png"
 
 
-def _recompute_blocking(item: dict) -> list:
+def _recompute_blocking(item: dict[str, Any]) -> list[Any]:
     """Server-side truth for blocking flags — never trusts client-sent flags."""
-    flags: list = []
+    flags: list[str] = []
     qtype = str(item.get("type") or item.get("question_type") or "mcq_single").lower()
     options = item.get("options") or {}
     correct = str(item.get("correct") or "").strip()
@@ -454,7 +455,7 @@ def _recompute_blocking(item: dict) -> list:
 
 class ExtractConfirmIn(BaseModel):
     model_config = ConfigDict(strict=False)
-    questions: list[dict]
+    questions: list[dict[str, Any]]
 
 
 @router.post("/api/v1/admin/question-bank/extract")
@@ -991,7 +992,7 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
 
     ALLOWED_TYPES = {"mcq_single", "mcq_multi", "true_false", "short_answer", "numeric"}
     required_fields = {"id", "question", "options", "correct"}
-    normalised: list[dict] = []
+    normalised: list[dict[str, Any]] = []
     for i, q in enumerate(questions):
         missing = required_fields - set(q.keys())
         if missing:

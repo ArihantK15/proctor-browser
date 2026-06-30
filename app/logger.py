@@ -25,7 +25,7 @@ import contextvars
 from collections import OrderedDict
 from threading import Lock
 
-from pythonjsonlogger.jsonlogger import JsonFormatter
+from pythonjsonlogger.jsonlogger import JsonFormatter  # type: ignore[attr-defined]
 
 # ─── Trace context (propagates across async boundaries) ──────────
 trace_request_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_request_id", default="")

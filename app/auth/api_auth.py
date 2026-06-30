@@ -1,7 +1,7 @@
 """API key authentication middleware."""
 import hashlib
 import secrets
-from typing import Optional
+from typing import Any, Optional
 from fastapi import Request, HTTPException
 
 from ..database import async_table as _atable
@@ -37,7 +37,7 @@ async def revoke_api_key(key_id: str, teacher_id: str) -> bool:
     return bool(result.data)
 
 
-async def list_api_keys(teacher_id: str) -> list[dict]:
+async def list_api_keys(teacher_id: str) -> list[dict[str, Any]]:
     """List all API keys for a teacher (never returns the raw key)."""
     result = await _atable("api_keys").select(
         "id,name,key_prefix,created_at,last_used_at,is_active"

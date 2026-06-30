@@ -7,7 +7,7 @@ from the old single-module layout. New code should NOT add imports here;
 instead import directly from the specific module.
 
 Migration guide:
-  supabase, _atable         → from .database import supabase, async_table as _atable
+  _atable                   → from .database import async_table as _atable
   limiter, _rate_limit_key  → from .limiter import ...
   get_logger                → from .logger import get_logger
   require_admin, etc.       → from .auth import ...
@@ -34,7 +34,7 @@ from .auth import (
 )
 
 # ─── Database ──────────────────────────────────────────────────────
-from .database import supabase, async_table as _atable
+from .database import async_table as _atable
 
 # ─── Logger ────────────────────────────────────────────────────────
 from .logger import get_logger
@@ -82,9 +82,9 @@ try:
 except Exception as _e:
     _HAS_REDIS = False
     _boot_log.warning("event_bus import failed (%s) — falling back to in-memory pub/sub.", _e)
-    def _bus_publish(channel: str, payload: dict) -> None: pass
-    async def _bus_async_publish(channel: str, payload: dict) -> None: pass
-    async def _bus_subscribe(channel: str, keepalive_sec: int = 15) -> AsyncGenerator[dict[Any, Any], None]:
+    def _bus_publish(channel: str, payload: dict[str, Any]) -> None: pass
+    async def _bus_async_publish(channel: str, payload: dict[str, Any]) -> None: pass
+    async def _bus_subscribe(channel: str, keepalive_sec: int = 15) -> AsyncGenerator[dict[str, Any], None]:
         return
         yield  # pragma: no cover, unreachable -- makes this an async generator
 

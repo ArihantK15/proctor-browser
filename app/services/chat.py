@@ -4,6 +4,7 @@ import uuid as _uuid
 import time
 from datetime import datetime, timezone
 from collections import deque
+from typing import Any
 
 from fastapi import WebSocket
 
@@ -24,11 +25,11 @@ class ChatHub:
         self._lock = asyncio.Lock()
         self.student_conns: dict[str, WebSocket] = {}
         self.teacher_conns: dict[str, set[WebSocket]] = {}
-        self.threads: dict[str, dict[str, deque]] = {}
-        self.student_meta: dict[str, dict] = {}
+        self.threads: dict[str, dict[str, deque[dict[str, Any]]]] = {}
+        self.student_meta: dict[str, dict[str, Any]] = {}
         self.teacher_last_seen: dict[str, dict[WebSocket, float]] = {}
         self._last_pong: dict[WebSocket, float] = {}
-        self._cleanup_task: asyncio.Task | None = None
+        self._cleanup_task: asyncio.Task[Any] | None = None
 
     def _evict_stale_meta(self) -> None:
         now = datetime.now(timezone.utc)
@@ -48,12 +49,12 @@ class ChatHub:
             self.student_meta.pop(sid, None)
             self.student_conns.pop(sid, None)
 
-    def _thread(self, teacher_id: str, session_id: str) -> deque:
+    def _thread(self, teacher_id: str, session_id: str) -> deque[dict[str, Any]]:
         t = self.threads.setdefault(teacher_id, {})
         return t.setdefault(session_id, deque(maxlen=CHAT_HISTORY_LIMIT))
 
     def _make_msg(self, *, sender: str, session_id: str, text: str,
-                  kind: str = "msg") -> dict:
+                  kind: str = "msg") -> dict[str, Any]:
         return {
             "type": kind,
             "id": _uuid.uuid4().hex,
@@ -63,7 +64,7 @@ class ChatHub:
             "ts": datetime.now(timezone.utc).isoformat(),
         }
 
-    async def _safe_send(self, ws: WebSocket, payload: dict) -> bool:
+    async def _safe_send(self, ws: WebSocket, payload: dict[str, Any]) -> bool:
         try:
             await ws.send_json(payload)
             return True
@@ -127,7 +128,7 @@ class ChatHub:
             await self._notify_teachers_presence(
                 meta["teacher_id"], session_id, online=False)
 
-    async def student_send(self, session_id: str, text: str) -> dict | None:
+    async def student_send(self, session_id: str, text: str) -> dict[str, Any] | None:
         async with self._lock:
             meta = self.student_meta.get(session_id)
             if not meta:
@@ -224,7 +225,7 @@ class ChatHub:
 
     async def teacher_send(self, teacher_id: str, session_id: str,
                            text: str, *, kind: str = "msg",
-                           extra: dict | None = None) -> dict | None:
+                           extra: dict[str, Any] | None = None) -> dict[str, Any] | None:
         """Send a message or directive from a teacher to a single
         student session.
 
@@ -283,7 +284,7 @@ class ChatHub:
         await self._fanout_teachers(teacher_id, teacher_view)
         return delivered
 
-    async def _fanout_teachers(self, teacher_id: str, payload: dict) -> None:
+    async def _fanout_teachers(self, teacher_id: str, payload: dict[str, Any]) -> None:
         dead: list[WebSocket] = []
         async with self._lock:
             conns = list(self.teacher_conns.get(teacher_id, ()))

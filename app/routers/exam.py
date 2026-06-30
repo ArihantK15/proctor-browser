@@ -13,11 +13,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from fastapi import Request, HTTPException, Body
-from typing import Optional
+from typing import Any, Optional
 
 _exam_log = logging.getLogger("exam")
 
-from ..database import supabase, async_table as _atable
+from ..database import async_table as _atable
 from .. import cache as _cache
 from ..models import EventIn, ValidateIn, ResultIn, AnswerIn, BulkAnswerIn, FrameIn, IdVerifyIn, AttestIn
 from ..auth import require_auth, require_teacher_auth, create_token, _check_session_ownership, _get_teacher_by_id
@@ -41,7 +41,7 @@ from ..services.kiosk_attest import verify_attestation as _verify_attestation
 from ..services.object_store import is_enabled as _s3_enabled
 
 
-async def _bus_async_publish(channel: str, payload: dict) -> None:
+async def _bus_async_publish(channel: str, payload: dict[str, Any]) -> None:
     """Publish to SSE/event bus when Redis support is installed.
 
     Keep the optional Redis dependency off the router import path so the exam
@@ -75,7 +75,7 @@ router = APIRouter(prefix="")
 _CACHE_TTL = 600  # 10 minutes
 
 
-async def _assert_student_session_access(claims: dict, session_id: str) -> dict | None:
+async def _assert_student_session_access(claims: dict[str, Any], session_id: str) -> dict[str, Any] | None:
     """Verify a student token may access an existing session.
 
     Legacy clients construct session keys client-side, so the first request
@@ -146,7 +146,7 @@ async def _require_attested(session_id: str, tid: str | None) -> None:
     )
 
 
-def _cache_validate(key: str, resp: dict) -> None:
+def _cache_validate(key: str, resp: dict[str, Any]) -> None:
     if not _cache:
         return
     try:
@@ -221,7 +221,7 @@ async def validate_student(request: Request, body: ValidateIn):
         await _check_guardian_consent(student)
         existing_key = await _check_existing_session(student, student_tid or "", exam_id or "")
         if not existing_key:
-            await _check_concurrent_exam_limit(student, student_tid)
+            await _check_concurrent_exam_limit(student, student_tid or "")
     except HTTPException as exc:
         if exc.status_code in (403, 404):
             raise HTTPException(
@@ -237,7 +237,7 @@ async def validate_student(request: Request, body: ValidateIn):
     effective_duration = base_duration + extra
 
     if existing_key:
-        resp = _build_validate_response(student, student_tid, _q_exam_id, existing_key, duration_minutes=effective_duration, config=config)
+        resp = _build_validate_response(student, student_tid or "", _q_exam_id or "", existing_key, duration_minutes=effective_duration, config=config)
         _cache_validate(cache_key, resp)
         return resp
 
@@ -250,7 +250,7 @@ async def validate_student(request: Request, body: ValidateIn):
         except Exception as e:
             logger.debug("Failed to mark invite as accepted: %s", e)
 
-    resp = _build_validate_response(student, student_tid, _q_exam_id, duration_minutes=effective_duration, config=config)
+    resp = _build_validate_response(student, student_tid or "", _q_exam_id or "", duration_minutes=effective_duration, config=config)
     _cache_validate(cache_key, resp)
     return resp
 
@@ -266,7 +266,7 @@ def _parse_exam_dt(raw) -> datetime | None:
         return None
 
 
-def _early_join_minutes(config: dict) -> int:
+def _early_join_minutes(config: dict[str, Any]) -> int:
     """Per-exam early-join lead time, clamped to a sane 0..240 min."""
     try:
         early = int(config.get("early_join_minutes") or 0)
@@ -275,14 +275,14 @@ def _early_join_minutes(config: dict) -> int:
     return max(0, min(early, 240))
 
 
-def _check_exam_window_closed(config: dict, now_utc: datetime) -> None:
+def _check_exam_window_closed(config: dict[str, Any], now_utc: datetime) -> None:
     """403 once the exam's end time has passed (shared by both gates)."""
     ends = _parse_exam_dt(config.get("ends_at"))
     if ends is not None and now_utc > ends:
         raise HTTPException(status_code=403, detail=f"The exam window has closed. It ended at {fmt_ist(config['ends_at'])}.")
 
 
-def _check_lobby_window(config: dict) -> None:
+def _check_lobby_window(config: dict[str, Any]) -> None:
     """Entry gate (validate_student). Opens the lobby early so students can
     finish ID + phone-camera verification before the scheduled start: entry is
     allowed from starts_at - early_join_minutes onward. Still 403s once ends_at
@@ -299,7 +299,7 @@ def _check_lobby_window(config: dict) -> None:
     _check_exam_window_closed(config, now_utc)
 
 
-def _check_exam_started(config: dict) -> None:
+def _check_exam_started(config: dict[str, Any]) -> None:
     """Hard START gate for the exam itself (GET /api/v1/questions). The lobby may
     be open for early verification, but the questions stay locked until starts_at.
 
@@ -314,7 +314,7 @@ def _check_exam_started(config: dict) -> None:
             detail=f"The exam begins at {fmt_ist(config['starts_at'])}. Please wait — you can finish verification meanwhile.")
 
 
-async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str, provided_teacher_id: str = "") -> tuple:
+async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str, provided_teacher_id: str = "") -> tuple[str | None, str | None]:
     """Resolve teacher_id and exam_id via access_code, exam, or fallback."""
     pre_tid = provided_teacher_id or None
     pre_exam_id = exam_id
@@ -370,7 +370,7 @@ async def _resolve_teacher(roll_upper: str, exam_id: str, provided_code: str, pr
     return pre_tid, pre_exam_id
 
 
-async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: str) -> tuple:
+async def _find_or_enroll_student(roll_upper: str, pre_tid: str | None, pre_exam_id: str | None) -> tuple[dict[str, Any], str | None, str | None]:
     """Look up student scoped by teacher_id; auto-enroll from invite if needed.
     Returns (student_dict, teacher_id, matched_invite_id)."""
     result_q = _atable("students").select("id,roll_number,full_name,email,phone,teacher_id,account_id,guardian_email,guardian_consent_granted_at,date_of_birth").eq("roll_number", roll_upper)
@@ -475,7 +475,7 @@ async def _find_or_enroll_student(roll_upper: str, pre_tid: str, pre_exam_id: st
         raise HTTPException(status_code=500, detail="Registration failed.")
 
 
-async def _validate_access_code(provided_code: str, student_tid: str, student: dict, exam_id: str) -> str:
+async def _validate_access_code(provided_code: str, student_tid: str, student: dict[str, Any], exam_id: str) -> str:
     """Check exam access code, returning matched_invite_id or None."""
     current_code = await _get_access_code(student_tid, exam_id=exam_id)
     if not current_code:
@@ -507,7 +507,7 @@ async def _validate_access_code(provided_code: str, student_tid: str, student: d
     raise HTTPException(status_code=403, detail="Invalid exam access code. Ask your examiner for the correct code.")
 
 
-async def _check_group_restrictions(student: dict, student_tid: str, exam_id: str) -> None:
+async def _check_group_restrictions(student: dict[str, Any], student_tid: str, exam_id: str) -> None:
     """Raise 403 if student is not in a group assigned to this exam."""
     if exam_id and student_tid:
         from ..repositories.sessions import check_group_access as _check_group_access
@@ -515,7 +515,7 @@ async def _check_group_restrictions(student: dict, student_tid: str, exam_id: st
             raise HTTPException(status_code=403, detail="You are not in a group or batch assigned to this exam.")
 
 
-async def _check_guardian_consent(student: dict) -> None:
+async def _check_guardian_consent(student: dict[str, Any]) -> None:
     """Raise 403 if the student is a minor and consent has not been granted.
 
     Minor = date_of_birth → age < 18. Legacy rows with NULL date_of_birth
@@ -550,7 +550,7 @@ async def _check_guardian_consent(student: dict) -> None:
         )
 
 
-async def _check_concurrent_exam_limit(student: dict, student_tid: str) -> None:
+async def _check_concurrent_exam_limit(student: dict[str, Any], student_tid: str) -> None:
     """Reject if the student already has an IN_PROGRESS or PAUSED session
     in ANY exam. Prevents taking two exams simultaneously in separate tabs.
     """
@@ -564,7 +564,7 @@ async def _check_concurrent_exam_limit(student: dict, student_tid: str) -> None:
             detail="You already have an active exam session. Complete or submit it before starting a new exam.")
 
 
-async def _check_existing_session(student: dict, student_tid: str, exam_id: str) -> str | None:
+async def _check_existing_session(student: dict[str, Any], student_tid: str, exam_id: str) -> str | None:
     """Return existing session_key if student has a completed or in-progress session, else None."""
     # H46: Check all terminal statuses — COMPLETED, FORCE_SUBMITTED, REJECTED, ABANDONED
     terminal = (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
@@ -605,7 +605,7 @@ async def _check_existing_session(student: dict, student_tid: str, exam_id: str)
     return in_progress[0]["session_key"] if in_progress else None
 
 
-def _build_validate_response(student: dict, student_tid: str, exam_id: str, existing_session: Optional[str] = None, duration_minutes: Optional[int] = None, config: Optional[dict] = None) -> dict:
+def _build_validate_response(student: dict[str, Any], student_tid: str, exam_id: str, existing_session: Optional[str] = None, duration_minutes: Optional[int] = None, config: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Build the standard validate-student response dict."""
     # Observability for the #1 cause of "the student started but never showed
     # up on the teacher's dashboard": a token minted WITHOUT a teacher_id (tid)
@@ -1185,7 +1185,7 @@ async def save_answer(body: AnswerIn, request: Request):
 
 async def _save_answers_bulk_to_db(
     session_id: str,
-    answers: dict,
+    answers: dict[str, Any],
     *,
     teacher_id: str | None = None,
     exam_id: str | None = None,
@@ -1937,7 +1937,7 @@ def _enqueue_s3_upload(safe_teacher_id: str, roll: str, filename: str,
 
 
 def _save_context_frames(student_dir: str, event_type: str | None,
-                         context_frames: list, flag_dt: datetime) -> list[str]:
+                         context_frames: list[Any], flag_dt: datetime) -> list[str]:
     """Save pre-violation context frames as ``ctx_<label>_<ts>.jpg`` with each
     timestamp derived as ``flag_dt - offset_ms`` so the timeline/PDF order them
     t-3s → t-1s ahead of the flag. The distinct ``ctx_`` prefix keeps them out
@@ -2289,7 +2289,7 @@ async def get_events(session_id: str, request: Request):
 
 @router.post("/api/v1/room-cam-token")
 @limiter.limit("10/minute")
-async def room_cam_token(request: Request, body: dict = Body(...)):
+async def room_cam_token(request: Request, body: dict[str, Any] = Body(...)):
     """Issue a time-bound room-cam JWT for phone pairing.
 
     Body: {"session_id": "ALICE001_abc-123"}

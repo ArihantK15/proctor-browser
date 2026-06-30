@@ -1,14 +1,14 @@
 """Idempotency key helper — prevents duplicate processing of the same request."""
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 log = logging.getLogger("idempotency")
 
 _IDEM_TTL = 300  # 5 minutes — key lives long enough for any retry window
 
 
-async def check_idempotency(key: str) -> dict | None:
+async def check_idempotency(key: str) -> dict[str, Any] | None:
     """Check if an idempotency key has already been processed.
     Returns the cached response dict if found, None otherwise.
     """
@@ -71,7 +71,7 @@ async def release_idempotency(key: str) -> None:
         log.debug("idempotency: release failed", exc_info=True)
 
 
-async def mark_idempotent(key: str, response: dict) -> None:
+async def mark_idempotent(key: str, response: dict[str, Any]) -> None:
     """Store the response for an idempotency key so future requests with the same
     key return the cached result. Overwrites the in-flight reservation marker."""
     try:

@@ -3,13 +3,15 @@ import logging
 import os
 import time
 
+from typing import Any
+
 import httpx
 
 from ..constants import RELEASE_REPO, RELEASE_TTL_SEC, GITHUB_TOKEN
 
 logger = logging.getLogger(__name__)
 
-_RELEASE_CACHE: dict = {"mac_arm": "", "mac_x64": "", "win": "", "tag": ""}
+_RELEASE_CACHE: dict[str, Any] = {"mac_arm": "", "mac_x64": "", "win": "", "tag": ""}
 _RELEASE_CACHE_EXPIRES: float = 0.0
 _RELEASE_CACHE_LOCK = asyncio.Lock()
 
@@ -36,7 +38,7 @@ def _match_win(name: str) -> bool:
     return n.endswith(".exe") and "setup" in n
 
 
-def _pick_release_assets(assets: list) -> dict:
+def _pick_release_assets(assets: list[Any]) -> dict[str, Any]:
     """Map a GitHub release's assets → {mac_arm, mac_x64, win} download URLs.
     Pure (no network) so the matcher logic is unit-testable in isolation — the
     mac matchers silently 404'd downloads across multiple releases when the
@@ -89,7 +91,7 @@ async def _refresh_release_cache() -> None:
     )
 
 
-def release_cache_snapshot() -> dict:
+def release_cache_snapshot() -> dict[str, Any]:
     """Live view of the resolved-asset cache + expiry. The debug endpoint MUST
     call this rather than importing _RELEASE_CACHE / _RELEASE_CACHE_EXPIRES by
     value: _refresh_release_cache REBINDS those module globals, so a

@@ -16,6 +16,8 @@ task context, so a value set during one request never leaks into another.
 """
 from __future__ import annotations
 
+from typing import Any
+
 import contextvars
 import os
 
@@ -50,7 +52,7 @@ if RLS_SESSION_CONTEXT:
 # sensible value so a malformed role can never widen access.
 _VALID_ROLES = frozenset({"superadmin", "admin", "owner", "teacher", "student", "system"})
 
-_ctx: contextvars.ContextVar[dict | None] = contextvars.ContextVar("rls_ctx", default=None)
+_ctx: contextvars.ContextVar[dict[str, str] | None] = contextvars.ContextVar("rls_ctx", default=None)
 
 
 def _norm_role(role: str | None, *, has_teacher: bool, has_account: bool) -> str:
@@ -67,7 +69,7 @@ def _norm_role(role: str | None, *, has_teacher: bool, has_account: bool) -> str
 
 
 def set_context(*, role: str | None = None, teacher_id=None, org_id=None,
-                account_id=None) -> contextvars.Token:
+                account_id=None) -> contextvars.Token[dict[str, str] | None]:
     """Set the tenant context for the current request/task. Returns a token for
     reset_context() (optional — task isolation usually makes reset unnecessary)."""
     ctx = {
@@ -79,7 +81,7 @@ def set_context(*, role: str | None = None, teacher_id=None, org_id=None,
     return _ctx.set(ctx)
 
 
-def set_system_context() -> contextvars.Token:
+def set_system_context() -> contextvars.Token[dict[str, str] | None]:
     """Full cross-tenant context for background work (reaper, billing, RQ jobs,
     reconciler) that legitimately operates across tenants."""
     return _ctx.set({"role": "system", "teacher_id": "", "org_id": "", "account_id": ""})
@@ -116,11 +118,11 @@ def system_context():
         reset_context(token)
 
 
-def current_context() -> dict | None:
+def current_context() -> dict[str, Any] | None:
     return _ctx.get()
 
 
-async def apply_to_connection(conn, ctx: dict) -> None:
+async def apply_to_connection(conn, ctx: dict[str, Any]) -> None:
     """Emit the context as transaction-local GUCs on ``conn``. Uses
     ``set_config(key, value, is_local := true)`` — the parameterized equivalent
     of ``SET LOCAL`` (plain SET LOCAL can't take bind params). Empty strings

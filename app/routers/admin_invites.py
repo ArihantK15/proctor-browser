@@ -2,7 +2,7 @@
 
 import logging
 import uuid as _uuid
-from typing import Optional
+from typing import Any, Optional
 from fastapi import APIRouter, Request, HTTPException, Body
 from ..auth import require_admin
 from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
@@ -53,7 +53,7 @@ def _exam_registration_url(base_url: str, teacher_id: str, exam_id: str) -> str:
 
 async def _mint_and_send_invite_for_student(
     *,
-    teacher: dict,
+    teacher: dict[str, Any],
     email: str,
     full_name: str,
     roll_number: str,
@@ -61,7 +61,7 @@ async def _mint_and_send_invite_for_student(
     exam_title: str,
     base_url: str,
     custom_message: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Mint a token + (idempotent) upsert student_invites + enqueue email.
 
     Returns a dict the caller can aggregate:

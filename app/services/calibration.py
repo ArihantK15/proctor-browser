@@ -25,7 +25,7 @@ except Exception:
     pass
 
 
-def parse_calibration_details(details: str) -> dict | None:
+def parse_calibration_details(details: str) -> dict[str, Any] | None:
     if not details:
         return None
     s = str(details).strip()
@@ -91,7 +91,7 @@ def parse_calibration_details(details: str) -> dict | None:
     return out
 
 
-def classify_calibration(parsed: dict | None) -> dict:
+def classify_calibration(parsed: dict[str, Any] | None) -> dict[str, Any]:
     if not parsed:
         return {"tier": "missing", "reason": "No calibration recorded.", "ranges": None}
     g_yaw, g_pitch = parsed["gaze_yaw_range"], parsed["gaze_pitch_range"]
@@ -111,13 +111,13 @@ def classify_calibration(parsed: dict | None) -> dict:
     return {"tier": "normal", "reason": "Calibration within typical envelope.", "ranges": parsed}
 
 
-async def get_calibration_quality(session_id: str, teacher_id: str | None = None) -> dict:
+async def get_calibration_quality(session_id: str, teacher_id: str | None = None) -> dict[str, Any]:
     cache_key = f"cal_quality:{session_id}"
     if _cache:
         from typing import cast
         cached = _cache.get(cache_key)
         if cached is not None:
-            return cast(dict, cached)
+            return cast(dict[str, Any], cached)
     q = (_atable("violations").select("details").eq("session_key", session_id)
          .eq("violation_type", "calibration_complete").order("id", desc=True).limit(1))
     if teacher_id:

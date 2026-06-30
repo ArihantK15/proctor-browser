@@ -11,6 +11,7 @@ import logging
 import os
 import time
 from collections.abc import AsyncGenerator
+from typing import Any
 
 try:
     import redis as _redis_mod
@@ -91,7 +92,7 @@ if not _HAS_REDIS:
     _event_log.warning("redis package not installed — event bus is a no-op")
 
 
-def publish(channel: str, payload: dict) -> None:
+def publish(channel: str, payload: dict[str, Any]) -> None:
     """Publish a JSON message to a Redis channel (sync, safe from sync endpoints)."""
     global _sync
     try:
@@ -104,7 +105,7 @@ def publish(channel: str, payload: dict) -> None:
         _event_log.error("[EventBus] publish error on %s: %s", channel, e)
 
 
-async def async_publish(channel: str, payload: dict) -> None:
+async def async_publish(channel: str, payload: dict[str, Any]) -> None:
     """Publish a JSON message to a Redis channel (async, for async endpoints)."""
     try:
         r = await _get_async()
@@ -116,7 +117,7 @@ async def async_publish(channel: str, payload: dict) -> None:
         _event_log.error("[EventBus] async publish error on %s: %s", safe(channel), safe(e))
 
 
-async def subscribe(channel: str, keepalive_sec: int = 15) -> AsyncGenerator[dict, None]:
+async def subscribe(channel: str, keepalive_sec: int = 15) -> AsyncGenerator[dict[str, Any], None]:
     """Async generator that yields messages from a Redis pub/sub channel.
 
     Yields a keepalive sentinel ``{"_keepalive": True}`` every *keepalive_sec*

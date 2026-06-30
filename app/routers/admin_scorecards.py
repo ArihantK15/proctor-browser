@@ -7,7 +7,7 @@ import logging
 import os
 import zipfile
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Request, HTTPException, Body
 from fastapi.responses import StreamingResponse
@@ -174,7 +174,7 @@ def _pdf_clean_details(details) -> str:
     return _html_escape(raw)
 
 
-async def _pdf_fetch_violations(session_id: str, tid: str) -> list[dict]:
+async def _pdf_fetch_violations(session_id: str, tid: str) -> list[dict[str, Any]]:
     result = await _atable("violations").select("*")\
         .eq("session_key", session_id)\
         .eq("teacher_id", str(tid))\
@@ -186,14 +186,14 @@ async def _pdf_fetch_violations(session_id: str, tid: str) -> list[dict]:
             if v["severity"] in ("high", "medium") and _is_violation(v["violation_type"])]
 
 
-async def _pdf_fetch_answers(session_id: str, tid: str) -> list[dict]:
+async def _pdf_fetch_answers(session_id: str, tid: str) -> list[dict[str, Any]]:
     result = await _atable("answers").select("*")\
         .eq("session_key", session_id)\
         .eq("teacher_id", str(tid)).execute()
     return result.data or []
 
 
-def _pdf_build_info_table(exam: dict, raw_violations: list, risk: dict):
+def _pdf_build_info_table(exam: dict[str, Any], raw_violations: list[Any], risk: dict[str, Any]):
     from reportlab.lib import colors as _c
     from reportlab.platypus import Table, TableStyle
     _score = exam.get("score", 0) or 0
@@ -226,7 +226,7 @@ def _pdf_build_info_table(exam: dict, raw_violations: list, risk: dict):
     return t
 
 
-def _pdf_build_violations_table(raw_violations: list):
+def _pdf_build_violations_table(raw_violations: list[Any]):
     from reportlab.lib import colors as _c
     from reportlab.platypus import Table, TableStyle
 
@@ -265,7 +265,7 @@ def _pdf_build_violations_table(raw_violations: list):
     return vt, total_conf_vals
 
 
-def _pdf_build_confidence_summary(total_conf_vals: list, raw_count: int):
+def _pdf_build_confidence_summary(total_conf_vals: list[Any], raw_count: int):
     from reportlab.lib import colors as _c
     from reportlab.platypus import Table, TableStyle
     if not total_conf_vals:
@@ -290,7 +290,7 @@ def _pdf_build_confidence_summary(total_conf_vals: list, raw_count: int):
     return ct
 
 
-def _pdf_find_evidence(session_id: str, exam: dict, raw_violations: list, tid: str) -> list:
+def _pdf_find_evidence(session_id: str, exam: dict[str, Any], raw_violations: list[Any], tid: str) -> list[Any]:
     roll = exam.get("roll_number") or (
         session_id.rsplit("_", 1)[0] if "_" in session_id else session_id[:20])
     paths = _collect_session_screenshots(roll, tid)
@@ -310,13 +310,13 @@ def _pdf_find_evidence(session_id: str, exam: dict, raw_violations: list, tid: s
     return items
 
 
-def _pdf_build_evidence_section(evidence_items: list, styles, evidence_caption_style):
+def _pdf_build_evidence_section(evidence_items: list[Any], styles, evidence_caption_style):
     from reportlab.lib.units import inch
     from reportlab.lib import colors as _colors
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.platypus import Paragraph, Spacer, Image, KeepTogether, Table, TableStyle
 
-    story: list = []
+    story: list[Any] = []
     for idx, v, img_path, room_path, context in evidence_items:
         ts_str = fmt_ist(v.get("created_at", ""))
         sev = v["severity"].upper()
@@ -401,7 +401,7 @@ async def export_pdf(session_id: str, request: Request):
         buf = io.BytesIO()
         doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=40, bottomMargin=40)
         styles = getSampleStyleSheet()
-        story: list = []
+        story: list[Any] = []
 
         story.append(Paragraph("AI Proctored Exam \u2014 Audit Report", styles["Title"]))
         story.append(Paragraph(
@@ -550,8 +550,8 @@ async def scorecard_zip(request: Request, exam_id: Optional[str] = None):
         # first session's exam. In a multi-teacher org the question bank can
         # differ per owner, so resolve them per-session below using each
         # row's own teacher_id.
-        _q_cache: dict[tuple, list] = {}
-        _cfg_cache: dict[tuple, dict | None] = {}
+        _q_cache: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        _cfg_cache: dict[tuple[str, str], dict[str, Any] | None] = {}
 
         async def _questions_for(owner_tid: str, ex_id):
             key = (owner_tid, ex_id)
@@ -589,7 +589,7 @@ async def scorecard_zip(request: Request, exam_id: Optional[str] = None):
                 pdf_buf = io.BytesIO()
                 doc = SimpleDocTemplate(pdf_buf, pagesize=A4, topMargin=40, bottomMargin=40)
                 styles = getSampleStyleSheet()
-                story: list = []
+                story: list[Any] = []
 
                 story.append(Paragraph(f"Scorecard — {exam_title}", styles["Title"]))
                 story.append(Spacer(1, 12))
@@ -741,7 +741,7 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
     failed = 0
     already_sent = 0
     skipped_no_email = 0
-    failures: list[dict] = []
+    failures: list[dict[str, Any]] = []
 
     async def _release_claim(sid: str, owner_tid: str) -> None:
         """Re-open a claimed-but-unsent scorecard so it can be retried without a
@@ -774,21 +774,10 @@ async def email_scorecards(exam_id: str, request: Request, body: EmailScorecards
 
         did_claim = False
         if not resend_all:
-            from ..database import is_postgres_backend
-            if is_postgres_backend():
-                claim = await _atable("exam_sessions").update({
-                    "scorecard_emailed_at": now_ist().isoformat(),
-                }).eq("session_key", sid).eq("teacher_id", owner_tid).is_("scorecard_emailed_at", "null").execute()
-                claimed = bool(claim.data)
-            else:
-                from ..database import supabase
-                claim = await asyncio.to_thread(
-                    lambda: supabase.rpc("claim_scorecard_email",
-                        {"p_session_key": sid, "p_teacher_id": owner_tid}).execute()
-                )
-                claimed = claim.data
-                if isinstance(claimed, list):
-                    claimed = claimed[0] if claimed else False
+            claim = await _atable("exam_sessions").update({
+                "scorecard_emailed_at": now_ist().isoformat(),
+            }).eq("session_key", sid).eq("teacher_id", owner_tid).is_("scorecard_emailed_at", "null").execute()
+            claimed = bool(claim.data)
             if not claimed:
                 already_sent += 1
                 continue

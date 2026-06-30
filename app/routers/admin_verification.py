@@ -14,7 +14,7 @@ from .. import cache as _cache
 from ..models import SessionStatus, VerificationStatus
 from ..models import IdDecisionIn, ID_REJECT_REASON_CODES
 from ..services.risk import _is_violation
-from typing import Optional
+from typing import Any, Optional
 
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
@@ -242,7 +242,7 @@ async def violation_clusters(request: Request, exam_id: str | None = None):
             return {"clusters": [], "total_active": 0, "exam_id": exam_id}
         # Supabase REST .in_ tops out around ~1k items reliably; chunk
         # the lookup if we're in the multi-thousand range.
-        rows: list[dict] = []
+        rows: list[dict[str, Any]] = []
         for i in range(0, len(session_keys), 800):
             chunk = session_keys[i:i + 800]
             r = await _new_violations_query().in_("session_key", chunk).execute()
@@ -260,7 +260,7 @@ async def violation_clusters(request: Request, exam_id: str | None = None):
     # event_type as violation_type. Those are audit rows, not cheat
     # signals — _is_violation() is the same canonical filter the scorecard
     # uses, so the Review clusters match what actually counts toward risk.
-    buckets: dict[tuple[str, str], dict] = {}
+    buckets: dict[tuple[str, str], dict[str, Any]] = {}
     for r in rows:
         vtype = r.get("violation_type") or "unknown"
         if not _is_violation(vtype):
@@ -297,7 +297,7 @@ async def violation_clusters(request: Request, exam_id: str | None = None):
 
 @router.post("/api/v1/admin/violations/bulk-dismiss")
 @limiter.limit("20/minute")
-async def violations_bulk_dismiss(request: Request, body: dict | None = None):
+async def violations_bulk_dismiss(request: Request, body: dict[str, Any] | None = None):
     """Mark every active (not-yet-dismissed) violation matching the
     cluster key as dismissed by the calling teacher.
 

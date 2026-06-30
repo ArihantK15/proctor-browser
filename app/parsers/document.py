@@ -7,6 +7,7 @@ Pure of the rest of the app — knows nothing about questions.
 import io
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger("qbank.document")
 
@@ -23,14 +24,14 @@ class UnreadableDocError(Exception):
 class DocLine:
     text: str
     page: int
-    bbox: list | None
-    fonts: set = field(default_factory=set)
+    bbox: list[float] | None
+    fonts: set[str] = field(default_factory=set)
     has_image: bool = False
 
 
 @dataclass
 class ExtractedDoc:
-    lines: list
+    lines: list[DocLine]
     pdf_bytes: bytes | None
     kind: str
 
@@ -44,7 +45,7 @@ _MIN_CHARS_FOR_TEXT_PDF = 20   # total extractable chars below this → scanned-
 
 def _extract_pdf(data: bytes) -> ExtractedDoc:
     import pdfplumber
-    lines: list = []
+    lines: list[DocLine] = []
     total_chars = 0
     try:
         with pdfplumber.open(io.BytesIO(data)) as pdf:
@@ -54,7 +55,7 @@ def _extract_pdf(data: bytes) -> ExtractedDoc:
                     use_text_flow=True, keep_blank_chars=False,
                     extra_attrs=["fontname"]) or []
                 # Cluster words into visual lines by their 'top' coordinate.
-                rows: dict = {}
+                rows: dict[float, list[dict[str, Any]]] = {}
                 for w in words:
                     key = round(w["top"] / 3.0)   # ~3pt bucket
                     rows.setdefault(key, []).append(w)
@@ -99,7 +100,7 @@ def _extract_pptx(data: bytes) -> ExtractedDoc:
         prs = Presentation(io.BytesIO(data))
     except Exception as e:
         raise UnreadableDocError("Couldn't open this file.") from e
-    lines: list = []
+    lines: list[DocLine] = []
     for sidx, slide in enumerate(prs.slides):
         for shape in slide.shapes:
             # Tables: pull each cell, row by row.

@@ -185,7 +185,7 @@ def issue_password_reset_token(
     return jwt.encode(payload, RESET_SIGNING_KEY, algorithm="HS256")
 
 
-def verify_password_reset_token(token: str, expected_kind: str | None = None) -> dict | None:
+def verify_password_reset_token(token: str, expected_kind: str | None = None) -> dict[str, Any] | None:
     try:
         claims = _decode_with_keys(token, RESET_SIGNING_KEYS)
     except JWTError:
@@ -214,7 +214,7 @@ def issue_unsubscribe_token(student_id: str, email: str) -> str:
     }, UNSUBSCRIBE_SIGNING_KEY, algorithm="HS256")
 
 
-def verify_unsubscribe_token(token: str) -> dict | None:
+def verify_unsubscribe_token(token: str) -> dict[str, Any] | None:
     """Decode and validate an unsubscribe token.
 
     Returns the claims dict on success (scope="unsubscribe", valid
@@ -229,7 +229,7 @@ def verify_unsubscribe_token(token: str) -> dict | None:
     return claims
 
 
-def _decode_with_keys(token: str, keys: list[str]) -> dict:
+def _decode_with_keys(token: str, keys: list[str]) -> dict[str, Any]:
     last_err: Exception | None = None
     for key in keys:
         try:

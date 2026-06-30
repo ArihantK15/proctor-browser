@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="")
 
 
-def _require_billing_admin(teacher: dict) -> str:
+def _require_billing_admin(teacher: dict[str, Any]) -> str:
     if teacher.get("org_role") not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Only admins can manage billing")
     org_id = teacher.get("org_id")
@@ -156,7 +156,7 @@ def _best_effort_cancel_razorpay(sub_id: str, *, reason: str) -> None:
 
 @router.post("/api/v1/billing/create-subscription")
 @limiter.limit("5/minute")
-async def create_subscription(body: dict, request: Request):
+async def create_subscription(body: dict[str, Any], request: Request):
     """Create a Razorpay subscription for the org.
 
     Body: { "plan_id": "growth", "billing_cycle": "monthly"|"annual" }
@@ -529,7 +529,7 @@ async def razorpay_webhook(request: Request):
     _sub_before = dict(row)
 
     try:
-        updates: dict = {}
+        updates: dict[str, Any] = {}
         newly_past_due = False
         if event_type in _SUB_GRANT:
             updates["status"] = _SUB_GRANT[event_type]

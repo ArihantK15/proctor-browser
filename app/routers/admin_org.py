@@ -6,6 +6,7 @@ import uuid as _uuid
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException
 
+from typing import Any
 from ..auth import require_admin
 from ..constants import SUPER_ADMIN_EMAIL
 from ..database import async_table as _atable
@@ -210,7 +211,7 @@ async def remove_member(teacher_id: str, request: Request):
 
 @router.patch("/api/v1/org/members/{teacher_id}/role")
 @limiter.limit("20/hour")
-async def set_member_role(teacher_id: str, body: dict, request: Request):
+async def set_member_role(teacher_id: str, body: dict[str, Any], request: Request):
     """Change a member's org role (admin only)."""
     teacher = await require_admin(request)
     if teacher.get("org_role") not in ("admin", "superadmin"):
@@ -264,7 +265,7 @@ async def set_member_role(teacher_id: str, body: dict, request: Request):
 
 @router.post("/api/v1/admin/teachers/{from_id}/reassign")
 @limiter.limit("10/hour")
-async def reassign_teacher(from_id: str, body: dict, request: Request):
+async def reassign_teacher(from_id: str, body: dict[str, Any], request: Request):
     """Transfer all teaching data from one teacher to another within the same org.
 
     Both teachers must belong to the admin's org.  The receiving teacher must
@@ -352,7 +353,7 @@ async def reassign_teacher(from_id: str, body: dict, request: Request):
 
 @router.patch("/api/v1/org")
 @limiter.limit("10/hour")
-async def update_org(body: dict, request: Request):
+async def update_org(body: dict[str, Any], request: Request):
     """Update org settings (name, logo).
 
     `logo_url` (optional): HTTPS URL to the org's logo, max 1024 chars.
@@ -373,7 +374,7 @@ async def update_org(body: dict, request: Request):
     if not name:
         raise HTTPException(status_code=400, detail="Organization name is required")
 
-    update_fields: dict = {}
+    update_fields: dict[str, Any] = {}
     import re
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:64]
     update_fields["name"] = name
@@ -395,7 +396,7 @@ async def update_org(body: dict, request: Request):
             update_fields["logo_url"] = None
 
     await _atable("organizations").update(update_fields).eq("id", str(org_id)).execute()
-    result: dict = {"ok": True, "name": name, "slug": slug}
+    result: dict[str, Any] = {"ok": True, "name": name, "slug": slug}
     if "logo_url" in update_fields:
         result["logo_url"] = update_fields["logo_url"]
     return result
@@ -692,7 +693,7 @@ async def list_all_orgs(request: Request, include_deleted: bool = False):
 
 @router.post("/api/v1/admin/orgs/{org_id}/limit-override")
 @limiter.limit("10/hour")
-async def set_limit_override(org_id: str, body: dict, request: Request):
+async def set_limit_override(org_id: str, body: dict[str, Any], request: Request):
     """Set or clear an org's max_students_override (superadmin only).
 
     The override persists across reconcile cycles because
@@ -742,7 +743,7 @@ async def set_limit_override(org_id: str, body: dict, request: Request):
 
 @router.post("/api/v1/admin/orgs/{org_id}/credit")
 @limiter.limit("10/hour")
-async def grant_credit(org_id: str, body: dict, request: Request):
+async def grant_credit(org_id: str, body: dict[str, Any], request: Request):
     """Grant or adjust billing credit for an org (superadmin only).
 
     ``amount_inr`` (int): positive adds to balance, negative subtracts

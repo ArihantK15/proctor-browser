@@ -22,6 +22,7 @@ import logging
 import os
 import time
 from datetime import datetime
+from typing import Any
 
 from ..constants import PLANS, OVERAGE_BILLING_ENABLED, OVERAGE_GRACE
 from ..database import async_table as _atable
@@ -51,7 +52,7 @@ def _sandbox_enabled() -> bool:
     return os.environ.get("RAZORPAY_SANDBOX_MODE", "").lower().strip() in {"1", "true", "yes", "on"}
 
 
-async def validate_coupon(code: str) -> dict | None:
+async def validate_coupon(code: str) -> dict[str, Any] | None:
     """Case-insensitive coupon lookup.
 
     Returns the row dict only if the coupon is active, not past expires_at,
@@ -88,7 +89,7 @@ def create_subscription(org_id: str, plan_id: str, gstin: str | None = None,
                         billing_cycle: str = "monthly",
                         coupon_code: str | None = None,
                         coupon_offer_id: str | None = None,
-                        trial_days: int = 0) -> dict:
+                        trial_days: int = 0) -> dict[str, Any]:
     """Create a Razorpay subscription and return checkout details.
 
     ``billing_cycle`` may be ``"monthly"`` (default) or ``"annual"``.
@@ -188,14 +189,14 @@ def verify_webhook(raw_body: bytes, signature: str) -> bool:
     return hmac.compare_digest(signature, expected)
 
 
-def get_plan_details(plan_id: str) -> dict | None:
+def get_plan_details(plan_id: str) -> dict[str, Any] | None:
     """Return plan details or None for unknown plan."""
     return PLANS.get(plan_id)
 
 
 # ─── Overage computation ──────────────────────────────────────────
 
-async def compute_overage(org_id: str, period_start: datetime, period_end: datetime) -> dict:
+async def compute_overage(org_id: str, period_start: datetime, period_end: datetime) -> dict[str, Any]:
     """Count distinct students across all org teachers within [period_start,
     period_end) and compute overage (used − cap) × overage_price_inr.
 
@@ -288,7 +289,7 @@ def compute_proration(old_plan: str, new_plan: str, period_start, period_end, no
     return round(diff * remaining / cycle)
 
 
-async def bill_cycle_overage(org_id: str, sub_row_before: dict) -> dict:
+async def bill_cycle_overage(org_id: str, sub_row_before: dict[str, Any]) -> dict[str, Any]:
     """Create a Razorpay add-on for the overage in the cycle that just ended.
 
     Called from the ``subscription.charged`` webhook branch **after** the
@@ -539,7 +540,7 @@ async def record_billing_event(*, event_id: str, org_id: str | None, event_type:
                                status: str, razorpay_subscription_id: str | None = None,
                                razorpay_payment_id: str | None = None,
                                amount: int | None = None, currency: str = "INR",
-                               payload: dict | None = None) -> bool:
+                               payload: dict[str, Any] | None = None) -> bool:
     """Append an immutable row to billing_events. The event_id UNIQUE
     constraint makes this the durable webhook-idempotency guard: returns
     False if this event_id was already recorded (duplicate delivery),

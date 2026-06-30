@@ -18,7 +18,7 @@ import asyncpg
 
 from . import db_context as _dbctx
 
-_pool: asyncpg.Pool | None = None
+_pool: Any | None = None
 # Guards pool creation so a burst of concurrent first-callers (e.g. the join
 # wave hitting before startup warm-up completed, or after a skipped startup
 # check) can't each run create_pool() and orphan all but the last pool —
@@ -69,7 +69,7 @@ def _database_url() -> str:
     return url
 
 
-async def get_pool() -> asyncpg.Pool:
+async def get_pool() -> Any:  # asyncpg.Pool (no stubs available)
     global _pool
     if _pool is not None:
         return _pool
@@ -200,7 +200,7 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
-def _row_dict(row: Any) -> dict:
+def _row_dict(row: Any) -> dict[str, Any]:
     return {k: _json_safe(v) for k, v in dict(row).items()}
 
 
@@ -258,7 +258,7 @@ class PostgresTable:
         self._offset_val: int | None = None
         self._on_conflict: str | None = None
         self._op: str | None = None
-        self._payload: list | dict | None = None
+        self._payload: list[Any] | dict[str, Any] | None = None
         self._single = False
 
     @property
@@ -381,7 +381,7 @@ class PostgresTable:
         self._on_conflict = on_conflict
         return self
 
-    def update(self, fields: dict) -> PostgresTable:
+    def update(self, fields: dict[str, Any]) -> PostgresTable:
         self._op = "update"
         self._payload = fields
         return self

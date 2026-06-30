@@ -23,7 +23,11 @@ from ..database import async_table as _atable
 from .key import sign_jwt_payload, get_kid
 from .registration import find_registration, is_deployment_authorized
 
+from typing import Any
+
 logger = logging.getLogger(__name__)
+
+__all__ = ["find_registration", "is_deployment_authorized", "_fetch_platform_jwks"]
 
 # Fixed namespace for deriving a stable, deterministic org id from an LTI
 # tenant tuple (issuer|client_id|deployment_id). Same tenant → same org id,
@@ -33,13 +37,12 @@ logger = logging.getLogger(__name__)
 _LTI_ORG_NAMESPACE = uuid.UUID("a3f1c2d4-5e6f-4a7b-8c9d-0e1f2a3b4c5d")
 
 # ── Nonce / state management ──────────────────────────────────────
-_lti_contexts: dict[str, dict] = {}
+_lti_contexts: dict[str, dict[str, Any]] = {}
 
 # In-memory fallback (used when Redis cache is unavailable)
-_nonces: dict[str, dict] = {}
-_states: dict[str, dict] = {}
+_nonces: dict[str, dict[str, Any]] = {}
+_states: dict[str, dict[str, Any]] = {}
 
-from typing import Any
 _cache: Any = None
 try:
     from .. import cache as _cache_src
@@ -122,7 +125,7 @@ def _consume_nonce(nonce: str) -> bool:
     return False
 
 
-def _store_state(state: str, data: dict):
+def _store_state(state: str, data: dict[str, Any]):
     expires = time.time() + _STATE_TTL
     payload = {**data, "expires": expires}
     if _redis() is not None:
@@ -133,7 +136,7 @@ def _store_state(state: str, data: dict):
     _states[state] = payload
 
 
-def _consume_state(state: str) -> dict | None:
+def _consume_state(state: str) -> dict[str, Any] | None:
     """Atomically consume an OIDC state value — returns the stored
     data exactly once per state, or None if missing/already consumed.
 
@@ -184,13 +187,13 @@ def _consume_state(state: str) -> dict | None:
 
 
 # ── JWKS fetching (platform public keys) ─────────────────────────
-_jwks_cache: dict[str, dict] = {}
+_jwks_cache: dict[str, dict[str, Any]] = {}
 _jwks_cache_ttl: dict[str, float] = {}
 
 _HTTP_TIMEOUT = 15
 
 
-async def _fetch_platform_jwks(key_set_url: str) -> dict | None:
+async def _fetch_platform_jwks(key_set_url: str) -> dict[str, Any] | None:
     now = time.time()
     if key_set_url in _jwks_cache and _jwks_cache_ttl.get(key_set_url, 0) > now:
         return _jwks_cache[key_set_url]
@@ -274,7 +277,7 @@ def _parse_lti_roles(roles) -> str:
     return "learner"
 
 
-async def validate_id_token(id_token: str, state: str) -> dict:
+async def validate_id_token(id_token: str, state: str) -> dict[str, Any]:
     """Validate an LTI 1.3 id_token JWT.
 
     Steps:
@@ -438,7 +441,7 @@ def _get_ctx_key(iss: str, deployment_id: str) -> str:
     return f"lti_ctx:{iss}|{deployment_id}"
 
 
-async def _store_ags_nrps_context(claims: dict):
+async def _store_ags_nrps_context(claims: dict[str, Any]):
     """Extract and store AGS/NRPS endpoint URLs from launch claims.
 
     Stored in cache/Redis so the exam completion flow can later push
@@ -488,31 +491,31 @@ async def _store_ags_nrps_context(claims: dict):
     )
 
 
-def get_ags_context(iss: str, deployment_id: str) -> dict | None:
+def get_ags_context(iss: str, deployment_id: str) -> dict[str, Any] | None:
     """Retrieve stored AGS context for a deployment."""
     key = _get_ctx_key(iss, deployment_id)
     if _cache:
         from typing import cast
-        return cast("dict | None", _cache.get(key))
+        return cast("dict[str, Any] | None", _cache.get(key))
     entry = _lti_contexts.get(key)
     if entry and entry.get("expires", 0) > time.time():
         return entry
     return None
 
 
-def get_nrps_context(iss: str, deployment_id: str) -> dict | None:
+def get_nrps_context(iss: str, deployment_id: str) -> dict[str, Any] | None:
     """Retrieve stored NRPS context for a deployment."""
     key = _get_ctx_key(iss, deployment_id)
     if _cache:
         from typing import cast
-        return cast("dict | None", _cache.get(key))
+        return cast("dict[str, Any] | None", _cache.get(key))
     entry = _lti_contexts.get(key)
     if entry and entry.get("expires", 0) > time.time():
         return entry
     return None
 
 
-def get_lti_student_context(lti_user_id: str) -> dict | None:
+def get_lti_student_context(lti_user_id: str) -> dict[str, Any] | None:
     """Retrieve stored LTI context for a specific student.
 
     Returns {iss, deployment_id, sub} if found, or None.
@@ -520,14 +523,14 @@ def get_lti_student_context(lti_user_id: str) -> dict | None:
     key = f"lti_student:{lti_user_id}"
     if _cache:
         from typing import cast
-        return cast("dict | None", _cache.get(key))
+        return cast("dict[str, Any] | None", _cache.get(key))
     entry = _lti_contexts.get(key)
     if entry and entry.get("expires", 0) > time.time():
         return entry
     return None
 
 
-async def store_lti_student_context(claims: dict, lti_user_id: str):
+async def store_lti_student_context(claims: dict[str, Any], lti_user_id: str):
     """Store per-student LTI context for later grade passback.
 
     Saves issuer + deployment_id + sub so the exam submission flow
@@ -634,7 +637,7 @@ async def _resolve_org_for_launch(
 
 
 # ── Session creation ──────────────────────────────────────────────
-async def find_or_create_lti_user(claims: dict) -> dict:
+async def find_or_create_lti_user(claims: dict[str, Any]) -> dict[str, Any]:
     """Find or create a teacher/student record from LTI claims.
 
     Returns a dict with user info suitable for creating a session.
@@ -773,7 +776,7 @@ async def find_or_create_lti_user(claims: dict) -> dict:
         raise
 
 
-def issue_lti_session_token(user: dict, target_link_uri: str) -> str:
+def issue_lti_session_token(user: dict[str, Any], target_link_uri: str) -> str:
     """Issue a short-lived JWT for the user to access the exam/dashboard."""
     from ..auth.tokens import issue_admin_token, issue_student_auth_token
     from ..auth import create_token

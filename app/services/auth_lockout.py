@@ -8,6 +8,7 @@ only (won't cross workers) but is better than no protection at all.
 import threading
 import time
 import logging
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,7 @@ _REDIS_PREFIX = "auth:fail:"
 _USER_TTL = _LOCKOUT_WINDOW + 60  # extra 60s buffer
 
 # In-memory fallback: { key: {"count": int, "first_at": float} }
-_FALLBACK: dict[str, dict] = {}
+_FALLBACK: dict[str, dict[str, Any]] = {}
 _FALLBACK_LOCK = threading.Lock()
 
 
@@ -106,7 +107,7 @@ async def record_failure(kind: str, identifier: str) -> int:
         r = _client()
         if r is None:
             raise RuntimeError("Redis client unavailable")
-        count: int = r.incr(key)  # type: ignore[assignment, union-attr]
+        count: int = r.incr(key)  # type: ignore[assignment]
         r.expire(key, _LOCKOUT_WINDOW)
         return count
     except Exception as e:

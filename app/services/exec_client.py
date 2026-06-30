@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -53,7 +53,7 @@ class ExecResult:
     compile_error: str | None
 
 
-def _post(url: str, json: dict, headers: dict, timeout: float):
+def _post(url: str, json: dict[str, Any], headers: dict[str, Any], timeout: float):
     """Isolated so tests can patch a single call site instead of mocking
     httpx internals."""
     with httpx.Client(timeout=timeout) as client:

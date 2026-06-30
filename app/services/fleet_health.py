@@ -21,6 +21,8 @@ import logging
 import os
 from datetime import datetime, timezone, timedelta
 
+from typing import Any
+
 from ..database import async_table as _atable
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,7 @@ async def _count(vtype: str, since: str) -> int:
     return r.count or 0
 
 
-async def proctor_fleet_health(window_mins: int = WINDOW_MINS) -> dict:
+async def proctor_fleet_health(window_mins: int = WINDOW_MINS) -> dict[str, Any]:
     """Recent on-device failure rates. Cheap (3 COUNT queries on an indexed
     column). Returns rates + a `degraded` verdict the caller can act on."""
     since = (datetime.now(timezone.utc) - timedelta(minutes=window_mins)).isoformat()
@@ -63,7 +65,7 @@ async def proctor_fleet_health(window_mins: int = WINDOW_MINS) -> dict:
     }
 
 
-def _alert_message(ph: dict) -> str:
+def _alert_message(ph: dict[str, Any]) -> str:
     return (
         f"Fleet proctor health DEGRADED: camera_failed={ph['camera_failed_pct']}% "
         f"({ph['camera_failed']}), model_load_failed={ph['model_load_failed_pct']}% "

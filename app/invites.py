@@ -59,63 +59,16 @@ async def _claim_and_bump_cap(teacher_id: str, batch_size: int) -> tuple[bool, i
             return (True, INVITE_DAILY_CAP)
     except Exception:
         pass
-    from .database import is_postgres_backend
-    if is_postgres_backend():
-        # Production backend. Use the atomic row-locked claim (NOT the racy
-        # legacy read-then-write). We run the SQL inline via asyncpg rather
-        # than calling the claim_invite_cap() PG function, because that
-        # function declares p_teacher_id as `text` and compares it to the
-        # `uuid` teacher_id column (uuid = text has no built-in operator) —
-        # which is why this path historically fell back to the racy version.
-        # The inline statements cast explicitly with $1::uuid.
-        try:
-            return await _claim_and_bump_cap_postgres(teacher_id, batch_size)
-        except Exception as e:
-            _dep_log.error("[invites] atomic postgres cap claim failed — "
-                           "falling back to legacy: %s", e)
-            return await _claim_and_bump_cap_legacy(teacher_id, batch_size)
+    # Atomic row-locked claim (NOT the racy legacy read-then-write). We run
+    # the SQL inline via asyncpg rather than calling the claim_invite_cap()
+    # PG function, because that function declares p_teacher_id as `text` and
+    # compares it to the `uuid` teacher_id column (uuid = text has no
+    # built-in operator). The inline statements cast explicitly with $1::uuid.
     try:
-        from .database import supabase
-        result = await asyncio.to_thread(
-            lambda: supabase.rpc(
-                "claim_invite_cap",
-                {"p_teacher_id": teacher_id,
-                 "p_batch": batch_size,
-                 "p_cap": INVITE_DAILY_CAP},
-            ).execute()
-        )
-        data = result.data
-        if isinstance(data, list) and data:
-            data = data[0].get("claim_invite_cap", data[0]) if isinstance(data[0], dict) else data[0]
-        remaining = int(data)
-        if remaining < 0:
-            try:
-                row = (await _atable("invite_send_counters")
-                       .select("count").eq("teacher_id", teacher_id)
-                       .eq("day", datetime.now(timezone.utc).date().isoformat())
-                       .execute()).data
-                used = (row[0]["count"] if row else 0)
-                return (False, max(INVITE_DAILY_CAP - used, 0))
-            except Exception:
-                return (False, 0)
-        return (True, remaining)
+        return await _claim_and_bump_cap_postgres(teacher_id, batch_size)
     except Exception as e:
-        # Fall back to the legacy read-then-write path on ANY RPC error,
-        # not just the "function does not exist" case. The previous
-        # narrow check left a silent fail path where any other Postgres
-        # error (permissions, type mismatch, transient connection issue)
-        # caused the route to return a misleading "Daily cap exceeded.
-        # 0 remaining, 1 requested" — the catch-all was returning
-        # (False, 0) while the actual table sat at count=0. User
-        # screenshotted exactly that: cap-status said "0 / 5000 used"
-        # but send said "0 remaining." Always trying the legacy path
-        # means a real cap exhaustion still blocks (legacy reads the
-        # same counter row), but RPC bugs no longer fake the symptom.
-        msg = str(e).lower()
-        if "claim_invite_cap" in msg or "pgrst202" in msg or "function" in msg:
-            _dep_log.warning("[invites] RPC missing, falling back to RACY check-and-bump. Run migrations/phase15_invite_cap_rpc.sql to fix. (%s)", e)
-        else:
-            _dep_log.error("[invites] RPC errored — falling back to legacy path: %s", e)
+        _dep_log.error("[invites] atomic postgres cap claim failed — "
+                       "falling back to legacy: %s", e)
         return await _claim_and_bump_cap_legacy(teacher_id, batch_size)
 
 

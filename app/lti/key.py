@@ -15,13 +15,14 @@ import logging
 import os
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.asymmetric import rsa
+from typing import Any
 from cryptography.hazmat.backends import default_backend
 
 logger = logging.getLogger(__name__)
 
 _keys: dict[str, str] = {}     # kid → private key PEM
 _public_keys: dict[str, str] = {}  # kid → public key PEM
-_jwks_cache: dict | None = None
+_jwks_cache: dict[str, Any] | None = None
 _jwks_cache_ts: float = 0.0
 _JWKS_CACHE_TTL: float = 3600.0  # 1 hour — prevent stale keys without permanent cache
 
@@ -139,7 +140,7 @@ def get_all_kids() -> list[str]:
     return list(_keys.keys())
 
 
-def generate_jwks() -> dict:
+def generate_jwks() -> dict[str, Any]:
     """Generate JWKS with all configured keys."""
     import time
     global _jwks_cache, _jwks_cache_ts
@@ -173,7 +174,7 @@ def generate_jwks() -> dict:
     return _jwks_cache
 
 
-def sign_jwt_payload(payload: dict, kid: str | None = None) -> str:
+def sign_jwt_payload(payload: dict[str, Any], kid: str | None = None) -> str:
     """Sign a JWT payload with a private key using RS256.
 
     Falls back to the default KID if none specified.

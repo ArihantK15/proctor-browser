@@ -1,7 +1,7 @@
 """Email-related background job functions."""
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from .helpers import _run_coro_in_sync
 
@@ -44,7 +44,7 @@ def send_invite_email_job(
     exam_ends_at: str | None = None,
     custom_message: str | None = None,
     teacher_name: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     from .. import emailer
     result = emailer.send_invite_email(
         to_email=to_email, to_name=to_name, exam_title=exam_title,
@@ -70,7 +70,7 @@ def send_cohort_link_email_job(
     download_url: str,
     batch: str,
     teacher_name: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     from .. import emailer
     result = emailer.send_cohort_link_email(
         to_email=to_email, to_name=to_name, cohort_url=cohort_url,
@@ -91,7 +91,7 @@ def send_trial_started_email_job(
     plan: str,
     trial_end: str,
     billing_url: str,
-) -> dict:
+) -> dict[str, Any]:
     from .. import emailer
     result = emailer.send_trial_started_email(
         to_email=to_email, to_name=to_name, plan=plan,
@@ -113,7 +113,7 @@ def send_controller_breach_notification_job(
     description: str,
     data_categories: str,
     discovered_at: str,
-) -> dict:
+) -> dict[str, Any]:
     from .. import emailer
     result = emailer.send_controller_breach_notification(
         to_email=to_email, to_name=to_name, org_name=org_name,
@@ -134,7 +134,7 @@ def send_data_subject_breach_notification_job(
     to_name: str,
     description: str,
     data_categories: str,
-) -> dict:
+) -> dict[str, Any]:
     from .. import emailer
     result = emailer.send_data_subject_breach_notification(
         to_email=to_email, to_name=to_name,
@@ -156,7 +156,7 @@ def send_objection_to_controller_notice_job(
     user_type: str,
     grounds: str,
     scope: str,
-) -> dict:
+) -> dict[str, Any]:
     from .. import emailer
     result = emailer.send_objection_to_controller_notice(
         to_email=to_email, to_name=to_name, org_name=org_name,
@@ -177,7 +177,7 @@ def send_demo_request_notification_job(
     institution: str,
     role: str,
     message: str = "",
-) -> dict:
+) -> dict[str, Any]:
     from .. import emailer
     result = emailer.send_demo_request_notification(
         name=name, email=email, institution=institution,
@@ -200,7 +200,7 @@ def send_scorecard_email_job(
     teacher_name: str,
     custom_message: str | None = None,
     resend_all: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     from ..services.scorecard import _build_scorecard_pdf
 
     async def _run():
@@ -246,7 +246,7 @@ def send_org_invite_email_job(
     invite_url: str,
     org_name: str,
     invited_by_name: str = "Your admin",
-) -> dict:
+) -> dict[str, Any]:
     from .. import emailer
     result = emailer.send_org_invite_email(
         to_email=to_email, invite_url=invite_url,
@@ -265,7 +265,7 @@ def send_new_account_notification_job(
     account_type: str,
     name: str,
     email: str,
-) -> dict:
+) -> dict[str, Any]:
     from .. import emailer
     result = emailer.send_new_account_notification(
         account_type=account_type, name=name, email=email,
@@ -289,7 +289,7 @@ def send_guardian_consent_request_job(
     to_name: str,
     student_name: str,
     consent_url: str,
-) -> dict:
+) -> dict[str, Any]:
     from .. import emailer
     result = emailer.send_guardian_consent_request(
         to_email=to_email, to_name=to_name,

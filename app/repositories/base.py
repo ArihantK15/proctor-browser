@@ -58,7 +58,7 @@ class QueryBuilder:
         self._limit_val: int | None = None
         self._offset_val: int | None = None
         self._single: bool = False
-        self._data: dict | None = None  # for insert/update
+        self._data: dict[str, Any] | None = None  # for insert/update
 
     def eq(self, column: str, value: Any) -> QueryBuilder:
         self._filters.append((column, "eq", value))
@@ -162,12 +162,12 @@ class Repository(Generic[T]):
     def select(self, columns: str = "*") -> QueryBuilder:
         return QueryBuilder(self.table, "select", columns)
 
-    def insert(self, data: dict) -> QueryBuilder:
+    def insert(self, data: dict[str, Any]) -> QueryBuilder:
         b = QueryBuilder(self.table, "insert")
         b._data = data
         return b
 
-    def update(self, data: dict) -> QueryBuilder:
+    def update(self, data: dict[str, Any]) -> QueryBuilder:
         b = QueryBuilder(self.table, "update")
         b._data = data
         return b
@@ -187,11 +187,11 @@ class Repository(Generic[T]):
         result = await self.get(**filters)
         return result.first
 
-    async def create(self, data: dict) -> QueryResult:
+    async def create(self, data: dict[str, Any]) -> QueryResult:
         b = self.insert(data)
         return await b.execute()
 
-    async def upsert(self, data: dict, on_conflict: str = "id") -> QueryResult:
+    async def upsert(self, data: dict[str, Any], on_conflict: str = "id") -> QueryResult:
         """Insert or update on conflict. Uses Supabase's upsert via raw query."""
         q = _atable(self.table)
         if on_conflict:

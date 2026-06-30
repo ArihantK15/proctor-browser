@@ -29,6 +29,8 @@ on the email send.
 
 from __future__ import annotations
 
+from typing import Any
+
 from ..log_safe import mask_email, safe
 
 import logging
@@ -61,7 +63,7 @@ def _ip_to_subnet(ip: str) -> str:
     return ""
 
 
-async def _recent_logins(user_kind: str, user_id: str) -> list[dict]:
+async def _recent_logins(user_kind: str, user_id: str) -> list[dict[str, Any]]:
     """Fetch successful logins for this user from the last 30 days."""
     cutoff = (datetime.now(timezone.utc) - timedelta(days=_LOOKBACK_DAYS)).isoformat()
     try:
@@ -79,7 +81,7 @@ async def _recent_logins(user_kind: str, user_id: str) -> list[dict]:
         return []
 
 
-def _is_new_device(events: list[dict], cur_subnet: str, cur_ua: str) -> bool:
+def _is_new_device(events: list[dict[str, Any]], cur_subnet: str, cur_ua: str) -> bool:
     """Determine if (subnet, ua) is unseen in the recent-logins set.
 
     We require BOTH to be different from every prior event. A user

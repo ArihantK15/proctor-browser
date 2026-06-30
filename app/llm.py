@@ -40,7 +40,7 @@ import hashlib
 import json
 import os
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import httpx
 
@@ -83,7 +83,7 @@ def is_configured() -> bool:
 
 
 async def _chat_json(system: str, user: str, *, max_tokens: int = 4000,
-                     temperature: float = 0.7) -> dict:
+                     temperature: float = 0.7) -> dict[str, Any]:
     """Single-shot chat completion that returns parsed JSON.
 
     Raises a generic Exception on transport / JSON / API errors so the
@@ -171,7 +171,7 @@ async def generate_questions(
     question_type: str = "mcq_single",
     source_text: str | None = None,
     grade_level: str | None = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Generate question-bank-shaped dicts ready for the import endpoint.
 
     Returns rows in the same shape ``import_bank_questions`` expects:
@@ -231,7 +231,7 @@ Return JSON in exactly this shape (no extra keys, no commentary):
     # Defensive normalisation — Llama occasionally drops a key or
     # returns ``correct`` as a full option string instead of a letter.
     # We coerce here so the import endpoint never sees garbage.
-    cleaned: list[dict] = []
+    cleaned: list[dict[str, Any]] = []
     for q in qs[:count]:
         if not isinstance(q, dict):
             continue
@@ -284,7 +284,7 @@ async def generate_coding_question(
     difficulty: str = "medium",
     language: str = "javascript",
     grade_level: str | None = None,
-) -> dict:
+) -> dict[str, Any]:
     """Draft ONE coding question (statement + reference solution + test cases) for the
     teacher to REVIEW before publishing. stdin/stdout model. Returns the shape the
     authoring endpoint (POST /api/v1/admin/coding-question) accepts, plus
@@ -328,7 +328,7 @@ Return JSON in exactly this shape (no extra keys, no commentary):
     if not isinstance(raw_cases, list) or not raw_cases:
         raise RuntimeError("LLM returned no test_cases")
 
-    cases: list[dict] = []
+    cases: list[dict[str, Any]] = []
     for c in raw_cases:
         if not isinstance(c, dict) or "expected_output" not in c:
             continue
@@ -378,7 +378,7 @@ Rules:
 - No emojis. No exclamation marks. No "great job!"-style filler."""
 
 
-async def scorecard_insight(summary: dict, per_question: list[dict]) -> str:
+async def scorecard_insight(summary: dict[str, Any], per_question: list[dict[str, Any]]) -> str:
     """Generate a 2-4 sentence personalised note for a student's scorecard.
 
     ``summary`` is the dict from ``_build_scorecard_pdf`` — has score,
@@ -444,7 +444,7 @@ def _looks_like_multi(s: str) -> bool:
 
 # ── Auto-tag (one-shot) ──────────────────────────────────────────────
 
-async def suggest_tags(question: str, options: dict, correct: str) -> list[str]:
+async def suggest_tags(question: str, options: dict[str, Any], correct: str) -> list[str]:
     """Return 3-5 lowercase tags for a single question. Used by the
     'Generate tags' button on Save-to-Bank — turns a chore into a
     one-click action and produces consistent taxonomy across the
@@ -483,7 +483,7 @@ Banned phrases: "appears to", "may indicate", "suggests that", "could be", \
 Output JSON: {"summary": "..."}"""
 
 
-async def live_risk_triage(session_meta: dict, violations: list[dict]) -> str:
+async def live_risk_triage(session_meta: dict[str, Any], violations: list[dict[str, Any]]) -> str:
     """One-line TL;DR of a live exam session for the teacher's
     dashboard. The teacher needs to scan 50 students fast — this
     sentence is what they read instead of clicking each row open
@@ -583,20 +583,9 @@ do NOT speculate which option SHOULD be correct unless you're certain — false 
 corrections are worse than no review. Maximum 25 words per note."""
 
 
-async def lint_questions(questions: list[dict]) -> list[dict]:
+async def lint_questions(questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Review a batch of questions for ambiguity / unbalanced options /
     wrong correct-answer keys. Returns per-question issue lists.
-
-    ``questions``: list of dicts with keys
-        idx, question, options (dict A/B/C/D → text), correct (letter)
-
-    Returns: list of {idx, issues: [{type, severity, note}]}
-        — same length as input. Empty issues list = clean question.
-
-    On any failure (LLM down, bad JSON, empty input) returns
-    [] — caller treats empty as "skip linting" rather than "all
-    clean" so a Groq blip doesn't silently mark every question as
-    fine. UI shows "Lint unavailable" in that case.
     """
     if not is_configured() or not questions:
         return []
@@ -672,7 +661,7 @@ Return JSON:
 }"""
 
 
-async def generate_rubric(question: str, reference_answer: str, max_score: int = 5) -> dict:
+async def generate_rubric(question: str, reference_answer: str, max_score: int = 5) -> dict[str, Any]:
     """Generate a grading rubric for a short-answer question.
 
     Returns ``{rubric, max_score, criteria}`` suitable for storing in
@@ -737,7 +726,7 @@ Output JSON: {"score": N, "feedback": "...", "confidence": "high|medium|low"}"""
 
 
 async def grade_short_answer(question: str, reference: str, rubric: str,
-                       student_answer: str, max_score: float = 1.0) -> dict:
+                        student_answer: str, max_score: float = 1.0) -> dict[str, Any]:
     """Grade one short-answer response against a teacher's reference.
 
     Returns ``{score, feedback, confidence}`` where score is a number

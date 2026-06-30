@@ -1,6 +1,6 @@
 """Persistent auth audit log — every auth event recorded in auth_events table."""
 import logging
-from typing import Optional
+from typing import Any, Optional
 from fastapi import Request
 from ..database import async_table as _atable
 
@@ -13,7 +13,7 @@ async def record(
     user_kind: str = "",
     user_id: str = "",
     email: str = "",
-    meta: dict | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> None:
     """Insert an auth event into the audit log. Best-effort — never raises."""
     try:

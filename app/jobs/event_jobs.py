@@ -38,7 +38,7 @@ from .helpers import _run_coro_in_sync
 logger = logging.getLogger("event_jobs")
 
 
-async def _record_violation_async(viol_row: dict[str, Any]) -> dict:
+async def _record_violation_async(viol_row: dict[str, Any]) -> dict[str, Any]:
     """Insert a single violation row asynchronously."""
     from ..database import async_table as _atable
 
@@ -71,7 +71,7 @@ async def _record_violation_async(viol_row: dict[str, Any]) -> dict:
         return {"status": "failed", "error": str(e)}
 
 
-def record_violation_job(viol_row: dict[str, Any]) -> dict:
+def record_violation_job(viol_row: dict[str, Any]) -> dict[str, Any]:
     """Sync wrapper called by the RQ worker process.
 
     viol_row is a dict of primitives (str/int/None). All fields are

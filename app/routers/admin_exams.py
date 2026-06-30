@@ -4,6 +4,7 @@ import logging
 import uuid as _uuid
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException, Body
+from typing import Any
 from ..auth import require_admin
 from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope, assert_can_author
 from ..database import async_table as _atable
@@ -155,7 +156,7 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
 
 @router.post("/api/v1/admin/phone-camera-config")
 @limiter.limit("30/minute")
-async def set_phone_camera_config(body: dict, request: Request):
+async def set_phone_camera_config(body: dict[str, Any], request: Request):
     """Enable/disable phone camera requirement for an exam."""
     teacher = await require_admin(request)
     exam_id = (body.get("exam_id") or "").strip()
@@ -491,7 +492,7 @@ async def get_analytics(request: Request):
     q_analysis = []
     if questions:
         skeys = [s["session_key"] for s in sessions]
-        all_answers: dict[str, dict] = {sk: {} for sk in skeys}
+        all_answers: dict[str, dict[str, Any]] = {sk: {} for sk in skeys}
         for i in range(0, len(skeys), 50):
             chunk = skeys[i:i+50]
             ans_q = (_atable("answers")
@@ -801,7 +802,7 @@ async def list_exam_batches(exam_id: str, request: Request):
 
 @router.post("/api/v1/admin/exams/{exam_id}/batches")
 @limiter.limit("20/minute")
-async def assign_exam_batches(exam_id: str, request: Request, body: dict = Body(...)):
+async def assign_exam_batches(exam_id: str, request: Request, body: dict[str, Any] = Body(...)):
     """Set the exam's assigned batches (full replace). Body: {"batches": [...]}.
 
     Sending an empty list clears all batch restrictions for the exam.

@@ -30,8 +30,15 @@ body.auth-active > :not(#auth-checking):not(script):not(style){display:none !imp
   color:var(--accent);margin-left:4px;text-transform:uppercase;
   letter-spacing:0.03em;background:rgba(99,102,241,0.12);
   padding:0 5px;border-radius:4px;line-height:1.6}
-.archived-toggle{user-select:none}
-.archived-toggle input{accent-color:var(--accent)}
+/* align-self:center stops the phone .exam-bar{display:grid;align-items:stretch}
+   rule from stretching this label (and the checkbox inside it) to fill its
+   grid row's full height — without it, the label vertically stretches to
+   match a taller sibling in the same row, and the native checkbox stretches
+   along with it into a tall pill with a distorted, repeated checkmark. The
+   explicit width/height on the checkbox itself is a second guard so it
+   stays a normal checkbox size regardless of what the label around it does. */
+.archived-toggle{user-select:none;align-self:center}
+.archived-toggle input{accent-color:var(--accent);width:16px;height:16px;flex-shrink:0}
 
 /* ── Create Exam Modal ───────────────────────────────────────── */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9998;

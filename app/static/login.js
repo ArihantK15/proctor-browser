@@ -35,7 +35,7 @@
       reset: "/api/v1/auth/password-reset",
       dest: "/dashboard",
       sub: "Sign in to manage exams and monitor sessions.",
-      signup: '<span class="muted">Need an account?</span> <a href="https://procta.net/">Create one</a>',
+      signup: '<span class="muted">Need an account?</span> <a href="https://procta.net/signup">Create one</a>',
     },
   };
 

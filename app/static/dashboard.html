@@ -18,16 +18,6 @@
 <link rel="stylesheet" href="/static/theme.css">
 <link rel="stylesheet" href="/static/dashboard.css">
 <script src="/static/_safe.js"></script>
-<!-- Cloudflare Turnstile — invisible/Managed mode. Renders no UI 99%
-     of the time; challenges only on high bot-signal requests.
-     See https://developers.cloudflare.com/turnstile/ -->
-<!-- No SRI hash: Cloudflare ships Turnstile's api.js with rolling
-     content (anti-bot signature updates) without a stable hash.
-     Pinning a hash would break the script the next time CF rotates
-     it. Cloudflare's documented integration uses the unhashed script
-     URL — same as every Turnstile-protected site. -->
-<!-- nosemgrep: html.security.audit.missing-integrity.missing-integrity -->
-<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>
   .qx-toolbar-top input[type="text"], .qx-toolbar-top input[type="number"]{
     background:var(--surface-1);border:1px solid var(--border-subtle);
@@ -2298,16 +2288,6 @@
         <div class="tool-card-actions">
           <button class="btn btn-secondary btn-sm" data-action="profileChangePassword">Change password</button>
           <span id="profile-pwd-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
-          <!-- Turnstile mount for profileChangePassword() — the backend's
-               password-reset endpoint requires a captcha_token unconditionally
-               (see verify_or_403 in app/routers/auth.py), even for this
-               already-authenticated in-app flow. This used to be the login
-               form's widget (id kept as-is so dashboard-app.js's
-               _initTurnstile()/_resetTurnstile() need no changes); relocated
-               here 2026-07-01 when the embedded login form was retired.
-               Turnstile's managed/invisible mode renders no UI 99% of the
-               time, so this sits quietly until a challenge is needed. -->
-          <div id="cf-turnstile-login" style="margin-top:8px"></div>
         </div>
       </div>
       <div class="tool-card">

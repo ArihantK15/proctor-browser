@@ -1026,6 +1026,38 @@ async def teacher_password_reset(body: PasswordResetIn, request: Request):
     return {"status": "ok", "message": "If that email is registered, a reset link has been sent."}
 
 
+@router.post("/api/v1/auth/change-password")
+@limiter.limit("3/minute")
+async def teacher_change_password(request: Request):
+    """Send a password reset email to the CALLER's own address.
+
+    Same email/token machinery as teacher_password_reset above, but for the
+    already-authenticated "Change password" button in the dashboard Profile
+    tab — the caller's cookie already proves identity, so this skips the
+    Turnstile captcha that the anonymous/logged-out endpoint requires as an
+    email-bombing guard. Rate limiting still applies, and the caller can't
+    name a target email (always their own), so it isn't a bombing vector.
+    """
+    teacher = await require_admin(request)
+    email = str(teacher.get("email") or "").strip().lower()
+    if email and local_password_auth_enabled():
+        user = await _get_teacher_by_email_for_auth(email)
+        if user:
+            from ..emailer import send_password_reset_email
+            from ..invites import _get_invite_base_url
+            token = issue_password_reset_token(
+                user["id"], email, "teacher",
+                password_changed_at=_stringify_pwc(user.get("password_changed_at")),
+            )
+            base = _get_invite_base_url()
+            send_password_reset_email(
+                email,
+                user.get("full_name", ""),
+                f"{base}/reset-password?token={token}",
+            )
+    return {"status": "ok", "message": "Check your email for a secure reset link."}
+
+
 # ─── ORG INVITE ACCEPTANCE ───────────────────────────────────────
 
 _INVITE_PAGE = """\

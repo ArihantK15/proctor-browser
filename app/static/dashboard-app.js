@@ -68,21 +68,6 @@ let _csrfTokenMemory = '';
 
 // ── AUTH ─────────────────────────────────────────────────────────
 
-// Turnstile state — loaded from /api/v1/public-config on init.
-// Token is null when Turnstile is not configured (dev sandbox).
-let _turnstileToken = null;
-let _turnstileSiteKey = '';
-
-async function _loadPublicConfig() {
-  try {
-    const r = await fetchWithTimeout(`${BASE}/api/v1/public-config`);
-    if (r.ok) {
-      const cfg = await r.json();
-      _turnstileSiteKey = cfg.turnstile_site_key || '';
-    }
-  } catch(e) {}
-}
-
 async function fetchWithTimeout(url, opts={}, timeoutMs=30000){
   const ctrl = new AbortController();
   const timer = setTimeout(()=>ctrl.abort(), timeoutMs);
@@ -103,29 +88,6 @@ async function fetchWithTimeout(url, opts={}, timeoutMs=30000){
     throw e;
   }finally{
     clearTimeout(timer);
-  }
-}
-
-function _initTurnstile() {
-  if (!_turnstileSiteKey) return;  // dev sandbox — skip
-  const el = document.getElementById('cf-turnstile-login');
-  if (!el || el.dataset.rendered) return;
-  el.dataset.rendered = '1';
-  if (window.turnstile) {
-    window.turnstile.render(el, {
-      sitekey: _turnstileSiteKey,
-      theme: 'dark',
-      callback: (token) => { _turnstileToken = token; },
-      'expired-callback': () => { _turnstileToken = null; },
-      'error-callback': () => { _turnstileToken = null; },
-    });
-  }
-}
-
-function _resetTurnstile() {
-  _turnstileToken = null;
-  if (_turnstileSiteKey && window.turnstile) {
-    try { window.turnstile.reset(document.getElementById('cf-turnstile-login')); } catch(e) {}
   }
 }
 
@@ -780,15 +742,6 @@ async function authFetch(url, opts={}){
   return r;
 }
 
-// Load public config (e.g. Turnstile site key) early so it's ready by the
-// time anything needs it. NOT chained into _initTurnstile() here — its
-// mount point (#cf-turnstile-login) now lives inside the Profile tab's
-// password card, which is display:none until that tab is switched to, and
-// Turnstile can't render properly into a hidden container. _initTurnstile()
-// is instead called from switchTab's profile branch (_dispatchTabLoad),
-// once the container is actually visible.
-_loadPublicConfig().catch(()=>{});
-
 // Auto-login on page load
 _tryAutoLogin();
 
@@ -1150,7 +1103,7 @@ function _dispatchTabLoad(tab){
    }
   if(tab==='org') loadOrgOverview();
   if(tab==='security') loadSecurity();
-  if(tab==='profile'){ loadProfile(); _initTurnstile(); }
+  if(tab==='profile'){ loadProfile(); }
   if(tab==='members') loadMembers();
   if(tab==='billing') loadBilling();
   if(tab==='org-settings') loadOrgSettings();
@@ -1963,12 +1916,9 @@ async function saveProfileName(){
 }
 async function profileChangePassword(){
   const res = document.getElementById('profile-pwd-result');
-  const email = (currentTeacherProfile && currentTeacherProfile.email) || '';
-  if(!email){ if(res) res.textContent = 'No email on file.'; return; }
   if(res) res.textContent = 'Sending…';
   try{
-    const body = { email }; if(typeof _turnstileToken !== 'undefined' && _turnstileToken) body.captcha_token = _turnstileToken;
-    await authFetch(`${BASE}/api/v1/auth/password-reset`, { method:'POST', body: JSON.stringify(body) });
+    await authFetch(`${BASE}/api/v1/auth/change-password`, { method:'POST' });
   }catch(_){ }
   if(res) res.textContent = '✅ Check your email for a secure reset link.';
 }

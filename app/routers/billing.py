@@ -203,8 +203,17 @@ async def create_subscription(body: dict[str, Any], request: Request):
     # real charge at trial end. A later plan change/re-subscribe charges
     # immediately. Only in the card-on-signup model; legacy upgrades from the
     # free trial keep charging immediately (trial_days=0).
+    #
+    # "First setup" means no ENTITLING subscription has ever existed — not
+    # merely "no subscription row on file". A customer who opened checkout
+    # but abandoned it before authorizing payment leaves behind a 'created'
+    # row with a real razorpay_subscription_id (see _stale_rzp_sub_id below);
+    # that row never actually got a mandate, so retrying still counts as
+    # their first setup and still earns the trial (#19 — checking for a bare
+    # razorpay_subscription_id here previously silently dropped the trial on
+    # any retry of an abandoned first attempt).
     from ..constants import CARD_ON_SIGNUP_ENFORCED, TRIAL_DAYS
-    _first_setup = not ((existing_sub[0].get("razorpay_subscription_id") or "").strip() if existing_sub else False)
+    _first_setup = (not existing_sub) or (existing_sub[0].get("status") or "").strip().lower() == "created"
     trial_days = TRIAL_DAYS if (CARD_ON_SIGNUP_ENFORCED and _first_setup) else 0
 
     # A previous abandoned checkout can leave a non-entitling 'created' Razorpay

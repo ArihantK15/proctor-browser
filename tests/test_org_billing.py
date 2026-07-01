@@ -444,6 +444,46 @@ class TestCreateSubscription:
         assert resp.status_code == 409
         mk.assert_not_called()   # no Razorpay subscription created
 
+    def test_trial_survives_retry_of_abandoned_checkout(self, client):
+        # #19: a customer who opened checkout but abandoned it before
+        # authorizing payment leaves a non-entitling 'created' row with a
+        # real razorpay_subscription_id on file. Retrying must still count
+        # as their first setup and earn the trial — checking for a bare
+        # razorpay_subscription_id (instead of status) previously zeroed
+        # trial_days on any such retry.
+        data_map = {"subscriptions": [{"id": "sub_1", "org_id": "org-1", "status": "created",
+                                        "razorpay_subscription_id": "rzp_sub_abandoned"}],
+                    "organizations": []}
+        with _admin_patch(), \
+             patch("app.constants.CARD_ON_SIGNUP_ENFORCED", True), \
+             patch("app.routers.billing.billing_create_subscription",
+                   return_value=self.MOCK_RESULT) as mk, \
+             contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/create-subscription",
+                               json={"plan_id": "growth"}, headers=admin_headers())
+        assert resp.status_code == 200
+        assert mk.call_args.kwargs["trial_days"] == 14
+
+    def test_no_trial_on_retry_with_real_prior_subscription(self, client):
+        # A returning customer whose PRIOR subscription actually activated
+        # (not merely 'created') must not get a second trial on re-subscribe.
+        data_map = {"subscriptions": [{"id": "sub_1", "org_id": "org-1", "status": "cancelled",
+                                        "razorpay_subscription_id": "rzp_sub_real"}],
+                    "organizations": []}
+        with _admin_patch(), \
+             patch("app.constants.CARD_ON_SIGNUP_ENFORCED", True), \
+             patch("app.routers.billing.billing_create_subscription",
+                   return_value=self.MOCK_RESULT) as mk, \
+             contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/create-subscription",
+                               json={"plan_id": "growth"}, headers=admin_headers())
+        assert resp.status_code == 200
+        assert mk.call_args.kwargs["trial_days"] == 0
+
     def test_value_error_400(self, client):
         with _admin_patch(), \
              patch("app.routers.billing.billing_create_subscription",

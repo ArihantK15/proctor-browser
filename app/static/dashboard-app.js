@@ -554,8 +554,15 @@ async function _tryAutoLogin(){
   try{
     // Cookie auth is primary. Bearer is only kept for one-shot OAuth/LTI
     // fragments before the backend sets HttpOnly cookies.
+    // cache: 'no-store' on both /auth/me calls below — without it, a
+    // browser that cached a 401 from an earlier unauthenticated visit to
+    // this exact URL can replay that stale 401 right after a real login
+    // succeeds (standard HTTP caching doesn't vary on the Cookie header),
+    // making a real login look like it silently failed and bounced back
+    // to /login. Confirmed on the student side; fixed here defensively
+    // since the same fetch pattern is used.
     let r = await fetchWithTimeout(`${BASE}/api/v1/auth/me`, {
-      credentials:'include',
+      credentials:'include', cache:'no-store',
       headers: authToken ? {'Authorization':'Bearer '+authToken} : {},
     });
     if(r.ok){
@@ -577,7 +584,7 @@ async function _tryAutoLogin(){
 
     // Retry with fresh token
     r = await fetchWithTimeout(`${BASE}/api/v1/auth/me`, {
-      credentials:'include',
+      credentials:'include', cache:'no-store',
       headers: rd.access_token ? {'Authorization':'Bearer '+rd.access_token} : {},
     });
     if(r.ok){ _onAuthed(await r.json()); return; }

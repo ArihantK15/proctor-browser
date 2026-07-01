@@ -16,7 +16,13 @@
 
   // ── Auth ────────────────────────────────────────────────────────
   function checkAuthAndLoad(){
-    fetch('/api/v1/student/auth/me', { credentials: 'include' })
+    // cache: 'no-store' — without it, a browser that cached the 401 from
+    // this exact URL (e.g. an earlier unauthenticated visit that bounced
+    // to /login) can replay that stale 401 right after a real login
+    // succeeds, since standard HTTP caching doesn't vary on the Cookie
+    // header. Bug: looked like login "succeeded" then instantly bounced
+    // back to /login.
+    fetch('/api/v1/student/auth/me', { credentials: 'include', cache: 'no-store' })
       .then(function(r){
         if (r.ok) return r.json().then(showDashboard);
         goToLogin();

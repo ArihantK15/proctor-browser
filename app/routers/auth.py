@@ -1,5 +1,5 @@
 from ..log_safe import mask_email, safe
-from fastapi import APIRouter, Body, HTTPException, Request
+from fastapi import APIRouter, Body, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 import asyncio
 import logging
@@ -889,11 +889,19 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
 
 @router.get("/api/v1/auth/me")
 @limiter.limit("30/minute")
-async def teacher_me(request: Request):
+async def teacher_me(request: Request, response: Response):
     """Get current teacher profile from Bearer token. Shape matches the
     `teacher` object returned by /login so the React dashboard can refresh
     role state on every page load without remembering whether it has the
     login response or the /me response."""
+    # no-store on the success path: this response carries one teacher's
+    # profile and must never be cached and replayed to a different session
+    # later. Doesn't cover the 401 path — FastAPI builds HTTPException
+    # responses separately and discards headers set here before the raise,
+    # so the real fix for "cached 401 replayed right after a fresh login"
+    # is the cache:'no-store' fetch option on the client (dashboard-app.js
+    # _tryAutoLogin / student-dashboard.js checkAuthAndLoad).
+    response.headers["Cache-Control"] = "no-store"
     teacher = await require_admin(request)
     return {
         "id": teacher["id"],
@@ -1425,7 +1433,11 @@ async def student_login(body: StudentLoginIn, request: Request):
 
 @router.get("/api/v1/student/auth/me")
 @limiter.limit("30/minute")
-async def student_me(request: Request):
+async def student_me(request: Request, response: Response):
+    # no-store on the success path — see teacher_me's identical comment
+    # above for why this doesn't cover the 401 path too (that's fixed
+    # client-side, in student-dashboard.js's checkAuthAndLoad).
+    response.headers["Cache-Control"] = "no-store"
     account = await require_student_account(request)
     return {
         "id":        account["id"],

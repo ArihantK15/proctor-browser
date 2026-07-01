@@ -6,7 +6,12 @@
 //             200 -> sets student cookies -> /student-dashboard
 //   Teacher : POST /api/v1/auth/login {email,password,captcha_token,email_otp_code?}
 //             401 {error:"EMAIL_2FA_REQUIRED"} -> reveal OTP, resubmit with code
-//             200 -> sets teacher cookies -> /dashboard-next
+//             200 -> sets teacher cookies -> /dashboard
+//             (was /dashboard-next until 2026-07-01 — that's the unfinished
+//             rebuild reverted to non-default on 2026-06-27; every teacher
+//             login through this page landed on it by mistake since this
+//             file was written, /dashboard-next never actually ran an auth
+//             check so nothing ever visibly failed)
 //
 // Both endpoints verify a Cloudflare Turnstile token (single-use, so we reset
 // the widget after every attempt). Sign-UP is intentionally NOT here — it is
@@ -28,7 +33,7 @@
     teacher: {
       endpoint: "/api/v1/auth/login",
       reset: "/api/v1/auth/password-reset",
-      dest: "/dashboard-next",
+      dest: "/dashboard",
       sub: "Sign in to manage exams and monitor sessions.",
       signup: '<span class="muted">Need an account?</span> <a href="https://procta.net/">Create one</a>',
     },

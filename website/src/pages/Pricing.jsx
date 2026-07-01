@@ -13,6 +13,27 @@ import { APP_URL } from '../config'
 // endpoint reads PLANS at request time, so a drift would surface as
 // "your plan says 30 students but the page advertises 50" UX bugs.
 
+// Every self-serve tier runs the exact same product — nothing here is
+// feature-gated server-side (billing.py only checks student-count caps and
+// price). Tiers used to be written as a cascading "Everything in X, plus:"
+// feature list, which implied Starter customers couldn't use AI grading,
+// LTI, live camera view, etc. — they always could. That's now one shared
+// list (INCLUDED_IN_EVERY_PLAN, rendered once) and each tier below only
+// lists what actually differs: student capacity and support level.
+const INCLUDED_IN_EVERY_PLAN = [
+  'AI proctoring (face, gaze, object detection)',
+  'MCQ, numeric, short-answer & auto-graded coding questions',
+  'Real-time risk scoring (0-100)',
+  'Phone camera room monitoring',
+  'AI short-answer grading',
+  'Live camera view (teacher peek) & real-time chat with students',
+  'LTI 1.3 integration (Canvas, Moodle)',
+  'Student groups, scheduling & duplicate exams across batches',
+  'Advanced analytics & violation breakdown',
+  'Auto-save & offline resilience',
+  'PDF scorecards, CSV export, email invites & access codes',
+]
+
 const plans = [
   {
     id: 'starter',
@@ -22,14 +43,6 @@ const plans = [
     students: 30,
     desc: 'For small classes & tutorials',
     features: [
-      'Up to 30 students',
-      'AI proctoring (face, gaze, object detection)',
-      'MCQ, numeric, short-answer & auto-graded coding questions',
-      'Real-time risk scoring (0-100)',
-      'Auto-save & offline resilience',
-      'PDF scorecards per student',
-      'CSV export of results',
-      'Email invites & access codes',
       'Email support',
     ],
     cta: 'Start Free Trial',
@@ -44,13 +57,6 @@ const plans = [
     students: 150,
     desc: 'For departments & mid-size programs',
     features: [
-      'Up to 150 students',
-      'Everything in Starter, plus:',
-      'Phone camera room monitoring',
-      'AI short-answer grading',
-      'LTI 1.3 integration (Canvas, Moodle)',
-      'Student groups & scheduling',
-      'Duplicate exams across batches',
       'Priority email support',
     ],
     cta: 'Start Free Trial',
@@ -65,14 +71,8 @@ const plans = [
     students: 500,
     desc: 'For large universities & institutions',
     features: [
-      'Up to 500 students',
-      'Everything in Growth, plus:',
-      'Live camera view (teacher peek)',
-      'Real-time chat with students',
-      'Bulk exam scheduling',
-      'Advanced analytics & violation breakdown',
-      'Self-hosted option available',
       'Phone & email support',
+      'Self-hosted option available',
     ],
     cta: 'Start Free Trial',
     href: '/signup?plan=pro',
@@ -87,7 +87,6 @@ const plans = [
     desc: 'For exam boards, govt bodies, large coaching networks',
     features: [
       'Unlimited students',
-      'Everything in Pro, plus:',
       'Dedicated infrastructure',
       'SLA + 24×7 support',
       'On-prem / private cloud deployment',
@@ -161,8 +160,28 @@ export default function Pricing() {
             Simple pricing. No hidden fees.
           </h1>
           <p className="mx-auto mt-4 max-w-xl text-lg text-slate-400">
-            Start free, upgrade when you need more. All plans include full AI proctoring, real-time monitoring, and automated scorecards.
+            Every plan runs the complete platform — full AI proctoring, live monitoring, grading, and integrations. Plans differ only in student capacity and support level.
           </p>
+        </motion.div>
+      </section>
+
+      {/* Included in every plan — shown once, above the tier grid, so the
+          cards below aren't read as feature-gating (they aren't; every tier
+          runs the same product, see INCLUDED_IN_EVERY_PLAN above). */}
+      <section id="included" className="pb-16">
+        <motion.div className="mx-auto max-w-4xl px-6" variants={childVar} {...inViewProps}>
+          <div className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-8 md:p-10">
+            <h2 className="text-lg font-semibold text-white">Included in every plan</h2>
+            <p className="mt-1 text-sm text-slate-400">No feature gating — Starter gets the same product as Enterprise.</p>
+            <ul className="mt-6 grid gap-x-8 gap-y-3 sm:grid-cols-2">
+              {INCLUDED_IN_EVERY_PLAN.map((f, i) => (
+                <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
+                  <Check size={16} className="mt-0.5 shrink-0 text-accent" />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </motion.div>
       </section>
 
@@ -191,7 +210,7 @@ export default function Pricing() {
                   <p className="mt-1 text-xs text-slate-500">Up to {p.students} students</p>
                 </div>
 
-                <ul className="mb-8 flex-1 space-y-3">
+                <ul className="mb-4 space-y-3">
                   {p.features.map((f, i) => (
                     <li key={i} className="flex items-start gap-3 text-sm text-slate-300">
                       <Check size={16} className="mt-0.5 shrink-0 text-accent" />
@@ -199,6 +218,10 @@ export default function Pricing() {
                     </li>
                   ))}
                 </ul>
+                <p className="mb-8 flex-1 text-sm text-slate-500">
+                  Plus every core feature — AI proctoring, grading, LTI, live monitoring & more.{' '}
+                  <a href="#included" className="text-accent-light hover:text-accent no-underline">See what's included ↑</a>
+                </p>
 
                 {p.href.startsWith('mailto:') ? (
                   <a

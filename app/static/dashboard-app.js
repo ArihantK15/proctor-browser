@@ -1456,18 +1456,21 @@ async function loadMembers(){
     if(!r.ok) return;
     const d = await r.json();
     const tbody = document.getElementById('members-tbody');
+    const cardsWrap = document.getElementById('members-cards');
     const members = d.members || [];
     _membersData = members;
     const countEl = document.getElementById('members-count');
     if(countEl) countEl.textContent = String(members.length);
-    tbody.innerHTML = members.map(m => {
+    const tableRows = [];
+    const cards = [];
+    members.forEach(m => {
       let actions = '';
       if(m.org_role==='teacher'){
         // Only teachers author teaching data, so only they can be offboarded.
         actions = `<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 8px;margin-right:6px" data-action="openTeacherTransferModal" data-args='${_jsonArgsForAttr(m.id)}'>Transfer data / Offboard</button>`
           + `<button class="btn btn-secondary btn-sm" style="color:var(--red);font-size:11px;padding:4px 8px" data-action="removeOrgMember" data-args='${_jsonArgsForAttr(m.id)}'>Remove</button>`;
       }
-      return `
+      tableRows.push(`
       <tr>
         <td>${_escHtml(m.full_name||'--')}</td>
         <td>${_escHtml(m.email)}</td>
@@ -1475,8 +1478,19 @@ async function loadMembers(){
         <td>${m.created_at||'--'}</td>
         <td style="white-space:nowrap">${actions}</td>
       </tr>
-    `;
-    }).join('');
+    `);
+      cards.push(`<div class="mcard">
+        <div class="mcard-top">
+          <span class="mcard-id">${_escHtml(m.full_name||'--')}</span>
+          <span class="badge">${_escHtml(m.org_role)}</span>
+        </div>
+        <div class="mcard-row"><span class="mcard-k">Email</span><span>${_escHtml(m.email)}</span></div>
+        <div class="mcard-row"><span class="mcard-k">Joined</span><span>${m.created_at||'--'}</span></div>
+        ${actions ? `<div class="mcard-actions">${actions}</div>` : ''}
+      </div>`);
+    });
+    tbody.innerHTML = tableRows.join('');
+    if(cardsWrap) cardsWrap.innerHTML = cards.join('') || '<div class="mcard-empty">No members found.</div>';
   }catch(_){}
 }
 

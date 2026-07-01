@@ -309,6 +309,16 @@ body.auth-active > :not(#auth-checking):not(script):not(style){display:none !imp
 .container{padding:24px;max-width:1400px;margin:0 auto;width:100%;min-width:0}
 .panel{display:none}
 .panel.active{display:block}
+/* Only 4 of the ~18 tabs (Live/Results/History/Questions) actually live
+   inside .container in the markup — the rest (Profile, Tools, Billing,
+   Chat, etc.) are separate top-level .panel siblings. When one of those
+   is the active tab, .container's own children are all display:none, but
+   .container itself still rendered its padding (10-24px top + up to 84px
+   bottom, reserved to clear the mobile bottom-nav) as a big empty gap
+   above the real panel. :has() beats every breakpoint's `.container{padding}`
+   on specificity regardless of source order, so one rule collapses it at
+   every width whenever it isn't actually framing the active panel. */
+.container:not(:has(> .panel.active)){padding:0}
 
 /* ── Panel header — Hero-style top banner for each tab ──────────
    Composed of a display title + lede on the left, a streaming

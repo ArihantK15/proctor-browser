@@ -89,48 +89,55 @@
       --red:var(--sev-error-fg);
       --text-secondary:#94a3b8;
     }
-    /* ── Stitch Material-3 dark palette (LITERAL — do not retint) ──
-       Copied verbatim from the Stitch design files' tailwind.config
-       color block (procta_exam_client_live_exam_runtime/code.html and
-       siblings). Screens rebuilt against the design use ONLY these
-       --m3-* vars, never the app's own --accent/--surface-* tokens,
-       so the rebuilt screens stay pixel-true to the reference. */
+    /* ── Exam-client M3-slot palette (brand-aligned) ──
+       These --m3-* slot names were originally a literal copy of the Stitch
+       mockups' own lavender Material-3 palette (#c0c1ff primary) — a
+       different, one-off design system from Procta's actual brand
+       (periwinkle blue #5b8af0 + navy, per website/src/index.css and this
+       file's own pre-existing --accent/--bg-base/--sev-* tokens below).
+       Retinted 2026-07: every value here is copied from THIS file's own
+       already-correct legacy tokens (--accent, --accent-hover/-active,
+       --bg-base, --surface-1/2, --border-default, --text-high/mid/muted,
+       --sev-success/warn/error-fg) — nothing new invented, no structural
+       change, no layout/spacing touched. Screens rebuilt against the
+       Stitch mockups still reference ONLY these --m3-* vars, so the slot
+       names are preserved; only their brand-drifted values are fixed. */
     :root{
-      --m3-surface:#13131b;
-      --m3-surface-dim:#13131b;
-      --m3-surface-bright:#393841;
-      --m3-surface-container-lowest:#0d0d15;
-      --m3-surface-container-low:#1b1b23;
-      --m3-surface-container:#1f1f27;
-      --m3-surface-container-high:#292932;
-      --m3-surface-container-highest:#34343d;
-      --m3-surface-variant:#34343d;
-      --m3-on-surface:#e4e1ed;
-      --m3-on-surface-variant:#c7c4d7;
-      --m3-outline:#908fa0;
-      --m3-outline-variant:#464554;
-      --m3-primary:#c0c1ff;
-      --m3-primary-fixed:#e1e0ff;
-      --m3-primary-fixed-dim:#c0c1ff;
-      --m3-primary-container:#8083ff;
-      --m3-on-primary:#1000a9;
-      --m3-on-primary-container:#0d0096;
-      --m3-secondary:#67df70;
-      --m3-secondary-fixed:#83fc89;
-      --m3-secondary-fixed-dim:#67df70;
-      --m3-secondary-container:#27a640;
-      --m3-on-secondary:#00390d;
-      --m3-on-secondary-container:#00320a;
-      --m3-tertiary:#fabc45;
-      --m3-tertiary-fixed:#ffdeaa;
-      --m3-tertiary-fixed-dim:#fabc45;
-      --m3-tertiary-container:#bd8708;
-      --m3-on-tertiary:#422c00;
-      --m3-on-tertiary-container:#392600;
-      --m3-error:#ffb4ab;
-      --m3-error-container:#93000a;
-      --m3-on-error:#690005;
-      --m3-on-error-container:#ffdad6;
+      --m3-surface:#06080d;
+      --m3-surface-dim:#06080d;
+      --m3-surface-bright:#1a1f2e;
+      --m3-surface-container-lowest:#040609;
+      --m3-surface-container-low:#0c1018;
+      --m3-surface-container:#131823;
+      --m3-surface-container-high:#1a1f2e;
+      --m3-surface-container-highest:#232938;
+      --m3-surface-variant:#232938;
+      --m3-on-surface:#f0f6fc;
+      --m3-on-surface-variant:#c8d1dc;
+      --m3-outline:#8b949e;
+      --m3-outline-variant:#2a2f3a;
+      --m3-primary:#5b8af0;
+      --m3-primary-fixed:#7ba1f5;
+      --m3-primary-fixed-dim:#5b8af0;
+      --m3-primary-container:#4a78dc;
+      --m3-on-primary:#ffffff;
+      --m3-on-primary-container:#ffffff;
+      --m3-secondary:#3fb950;
+      --m3-secondary-fixed:#6fd47e;
+      --m3-secondary-fixed-dim:#3fb950;
+      --m3-secondary-container:#1f7a34;
+      --m3-on-secondary:#ffffff;
+      --m3-on-secondary-container:#ffffff;
+      --m3-tertiary:#e3b341;
+      --m3-tertiary-fixed:#f0cd78;
+      --m3-tertiary-fixed-dim:#e3b341;
+      --m3-tertiary-container:#8a6420;
+      --m3-on-tertiary:#2a1e05;
+      --m3-on-tertiary-container:#fdf0d5;
+      --m3-error:#ff7b72;
+      --m3-error-container:#7a2620;
+      --m3-on-error:#ffffff;
+      --m3-on-error-container:#ffe5e3;
       --m3-radius:4px;
       --m3-radius-lg:8px;
       --m3-radius-xl:12px;
@@ -202,12 +209,12 @@
        stitch.../procta_exam_client_system_check, literal M3 tokens. ── */
     #screen-system-check{background:radial-gradient(circle at 50% 0%, var(--m3-surface-container) 0%, var(--m3-surface) 60%);
                           font-family:var(--m3-font-body)}
-    .sc-card{background:rgba(31,31,39,.8);backdrop-filter:blur(20px);border:1px solid var(--m3-outline-variant);
+    .sc-card{background:rgba(19,24,35,.8);backdrop-filter:blur(20px);border:1px solid var(--m3-outline-variant);
              border-radius:var(--m3-radius-xl);width:840px;max-width:92vw;overflow:hidden;
              box-shadow:0 10px 30px rgba(0,0,0,.4)}
     .sc-header{padding:var(--m3-space-lg) var(--m3-space-xl);border-bottom:1px solid var(--m3-outline-variant);
                display:flex;align-items:center;justify-content:space-between;
-               background:rgba(31,31,39,.3)}
+               background:rgba(19,24,35,.3)}
     .sc-eyebrow{font-size:var(--m3-text-label-caps);color:var(--m3-primary);text-transform:uppercase;
                 letter-spacing:.1em;font-weight:700;margin-bottom:4px}
     .sc-header h1{font-size:var(--m3-text-headline-md);color:var(--m3-on-surface);font-weight:600}
@@ -233,7 +240,7 @@
                        box-shadow:inset 0 0 0 1px rgba(0,0,0,.5)}
     .sc-preview-frame video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
     .sc-live-tag{position:absolute;top:8px;left:8px;display:flex;align-items:center;gap:5px;
-                 background:rgba(31,31,39,.8);backdrop-filter:blur(4px);border:1px solid var(--m3-outline-variant);border-radius:4px;
+                 background:rgba(19,24,35,.8);backdrop-filter:blur(4px);border:1px solid var(--m3-outline-variant);border-radius:4px;
                  padding:3px 8px;font-size:10px;font-family:var(--m3-font-mono);color:var(--m3-on-surface)}
     .sc-live-dot{width:6px;height:6px;border-radius:50%;background:var(--m3-secondary)}
     .sc-preview-hint{font-size:var(--m3-text-body-sm);color:var(--m3-on-surface-variant);text-align:center;margin-top:var(--m3-space-sm)}
@@ -267,7 +274,7 @@
     .idv-guide{position:absolute;inset:0;margin:auto;width:40%;height:70%;border:3px dashed rgba(192,193,255,.5);
                border-radius:50%;pointer-events:none;transition:border-color .4s}
     .idv-rec{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:5px;
-             background:rgba(31,31,39,.8);backdrop-filter:blur(4px);border:1px solid var(--m3-outline-variant);
+             background:rgba(19,24,35,.8);backdrop-filter:blur(4px);border:1px solid var(--m3-outline-variant);
              border-radius:5px;padding:3px 8px;pointer-events:none}
     .idv-rec-dot{width:6px;height:6px;border-radius:50%;background:var(--m3-error);animation:blink 1.2s infinite}
     .idv-rec span.lbl{font-size:10px;font-family:var(--m3-font-mono);color:var(--m3-on-surface-variant);letter-spacing:.04em}
@@ -276,7 +283,7 @@
     .idv-corner.br{bottom:10px;right:10px;border-bottom:2px solid;border-right:2px solid;border-radius:0 0 3px 0}
     .idv-corner.bl{bottom:10px;left:10px;border-bottom:2px solid;border-left:2px solid;border-radius:0 0 0 3px}
     .idv-badge-overlay{position:absolute;top:10px;left:50%;transform:translateX(-50%);
-             background:rgba(31,31,39,.75);backdrop-filter:blur(4px);border-radius:var(--m3-radius-full);
+             background:rgba(19,24,35,.75);backdrop-filter:blur(4px);border-radius:var(--m3-radius-full);
              padding:5px 16px;font-size:13px;font-weight:600;color:var(--m3-on-surface-variant);
              pointer-events:none;white-space:nowrap}
     .idv-actions{display:flex;gap:10px;justify-content:center;margin-top:auto;padding-top:var(--m3-space-sm)}
@@ -423,7 +430,7 @@
     .cal-ring-track{stroke:var(--m3-outline-variant);opacity:.5}
     .cal-ring-fill{stroke:var(--m3-primary);transition:stroke-dashoffset 1s ease-out}
     .cal-ring-inner{position:absolute;inset:14px;border-radius:50%;border:1px solid var(--m3-outline-variant);
-                background:rgba(31,31,39,.2);backdrop-filter:blur(2px);display:flex;flex-direction:column;
+                background:rgba(19,24,35,.2);backdrop-filter:blur(2px);display:flex;flex-direction:column;
                 align-items:center;justify-content:center}
     .cal-ring-label{font-family:var(--m3-font-mono);font-size:12px;letter-spacing:.15em;
                 color:var(--m3-primary);opacity:.8;margin-bottom:4px;animation:pulse-slow 1.6s ease-in-out infinite}

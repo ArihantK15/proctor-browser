@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional, Literal
 
 from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from ..auth import require_admin, require_student_account
 from ..database import async_table as _atable
@@ -34,7 +34,21 @@ class AppealIn(BaseModel):
     # Optional: dispute ONE specific flag. NULL keeps the legacy session-
     # level appeal (whole-session grade/other). When set, accepting the
     # appeal dismisses exactly this violation and recomputes the score.
-    violation_id: str | None = None
+    # violations.id is BIGINT (see phase147), so this is an int. The client
+    # (student-app.js) sends it as a STRING, so coerce str→int before strict
+    # validation; empty/None → None (session-level); non-numeric → 422 rather
+    # than a downstream 500.
+    violation_id: int | None = None
+
+    @field_validator("violation_id", mode="before")
+    @classmethod
+    def _coerce_violation_id(cls, v: Any) -> int | None:
+        if v is None or v == "":
+            return None
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            raise ValueError("violation_id must be an integer flag id")
 
 
 class AppealResolveIn(BaseModel):

@@ -439,7 +439,9 @@ CREATE TABLE IF NOT EXISTS appeals (
     teacher_id     UUID,
     session_key    TEXT,
     appeal_type    TEXT,
-    status         TEXT DEFAULT 'open'
+    status         TEXT DEFAULT 'open',
+    -- BIGINT to match violations.id (phase147; phase94 wrongly made it UUID).
+    violation_id   BIGINT
 );
 
 CREATE TABLE IF NOT EXISTS grading_audit (

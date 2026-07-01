@@ -193,7 +193,8 @@ class TestFlagLinkedAppeals:
     """Phase 94 — flag-linked appeals + remediation hook."""
 
     def test_appeal_with_unknown_flag_404(self, student_headers, mock_student_account):
-        """Disputing a violation_id that isn't on this session → 404."""
+        """Disputing a numeric violation_id that isn't on this session → 404.
+        (violation ids are BIGINT since phase147.)"""
         session_row = MagicMock(data=[{"student_id": "student-1", "email": "alice@test.com",
                                        "teacher_id": "teacher-1", "exam_id": "exam-1"}])
         empty = MagicMock(data=[])
@@ -213,15 +214,83 @@ class TestFlagLinkedAppeals:
                 "session_key": "owned_session",
                 "appeal_type": "violation",
                 "description": "dispute this specific flag",
-                "violation_id": "viol-does-not-exist",
+                "violation_id": "999999",
             }, headers=student_headers)
             assert r.status_code == 404, r.text
+
+    def test_flag_specific_appeal_succeeds_and_inserts_int(self, student_headers, mock_student_account):
+        """Regression for PYTHON-W: a flag-specific appeal with a numeric
+        violation_id (sent as a STRING by the client, per student-app.js) now
+        submits cleanly and stores an INT violation_id — previously 500'd
+        because appeals.violation_id was uuid vs violations.id bigint."""
+        session_row = MagicMock(data=[{"student_id": "student-1", "email": "alice@test.com",
+                                       "teacher_id": "teacher-1", "exam_id": "exam-1"}])
+        violation_hit = MagicMock(data=[{"id": 52010}])
+        captured = {}
+
+        def mock_atable(table_name):
+            m = MagicMock()
+            for attr in ("select", "eq", "limit"):
+                getattr(m, attr).return_value = m
+
+            def _insert(row):
+                captured["row"] = row
+                return m
+            m.insert.side_effect = _insert
+            if table_name == "exam_sessions":
+                m.execute = AsyncMock(return_value=session_row)
+            elif table_name == "violations":
+                m.execute = AsyncMock(return_value=violation_hit)
+            else:  # appeals insert
+                m.execute = AsyncMock(return_value=MagicMock(data=[{"id": "ap-new"}]))
+            return m
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable):
+            r = client.post("/api/v1/student/appeal", json={
+                "session_key": "owned_session",
+                "appeal_type": "violation",
+                "description": "dispute this specific flag",
+                "violation_id": "52010",  # client sends a string
+            }, headers=student_headers)
+            assert r.status_code == 200, r.text
+            # The stored violation_id must be the coerced INT, not the raw string.
+            assert captured["row"]["violation_id"] == 52010
+            assert isinstance(captured["row"]["violation_id"], int)
+
+
+class TestAppealInModel:
+    """AppealIn.violation_id coercion (str→int) — see phase147 / PYTHON-W."""
+
+    def test_numeric_string_coerces_to_int(self):
+        from app.routers.appeals import AppealIn
+        m = AppealIn(session_key="s", appeal_type="violation", description="d",
+                     violation_id="52010")  # type: ignore[arg-type]
+        assert m.violation_id == 52010 and isinstance(m.violation_id, int)
+
+    def test_int_passes_through(self):
+        from app.routers.appeals import AppealIn
+        m = AppealIn(session_key="s", appeal_type="grade", description="d", violation_id=7)
+        assert m.violation_id == 7
+
+    def test_none_and_empty_become_none(self):
+        from app.routers.appeals import AppealIn
+        assert AppealIn(session_key="s", appeal_type="other", description="d").violation_id is None
+        assert AppealIn(session_key="s", appeal_type="other", description="d",
+                        violation_id="").violation_id is None  # type: ignore[arg-type]
+
+    def test_non_numeric_rejected(self):
+        import pytest as _pytest
+        from pydantic import ValidationError
+        from app.routers.appeals import AppealIn
+        with _pytest.raises(ValidationError):
+            AppealIn(session_key="s", appeal_type="violation", description="d",
+                     violation_id="viol-abc")  # type: ignore[arg-type]
 
     def test_resolve_accept_dismisses_flag_and_audits(self, admin_headers, mock_teacher):
         """Accepting a flag-linked appeal dismisses the flag, recomputes risk,
         records resolution + an audit row, and returns the new score."""
         appeal_row = MagicMock(data=[{
-            "id": "appeal-1", "teacher_id": "teacher-1", "violation_id": "viol-1",
+            "id": "appeal-1", "teacher_id": "teacher-1", "violation_id": 1,
             "session_key": "sess-1", "status": "pending",
         }])
         seen = {"violations_update": 0}
@@ -264,7 +333,7 @@ class TestFlagLinkedAppeals:
     def test_resolve_reject_leaves_flag_untouched(self, admin_headers, mock_teacher):
         """Rejecting (or a session-level appeal) does no remediation."""
         appeal_row = MagicMock(data=[{
-            "id": "appeal-2", "teacher_id": "teacher-1", "violation_id": "viol-9",
+            "id": "appeal-2", "teacher_id": "teacher-1", "violation_id": 9,
             "session_key": "sess-2", "status": "pending",
         }])
         seen = {"violations_update": 0}
@@ -348,9 +417,9 @@ class TestTeacherAppeals:
         shape as the forensics timeline) so the teacher adjudicates inline."""
         from pathlib import Path
 
-        violation = {"id": "v1", "violation_type": "phone_in_hand",
+        violation = {"id": 1, "violation_type": "phone_in_hand",
                      "created_at": "2026-01-01T12:00:05+00:00"}
-        appeal = {"id": "ap1", "violation_id": "v1", "roll_number": "ALICE001",
+        appeal = {"id": "ap1", "violation_id": 1, "roll_number": "ALICE001",
                   "teacher_id": "teacher-1", "session_key": "ALICE001_sess",
                   "exam_id": "exam-1", "appeal_type": "violation",
                   "description": "I dropped a pen", "status": "pending",

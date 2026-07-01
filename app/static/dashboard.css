@@ -1006,6 +1006,17 @@ html,body{overflow-x:hidden;max-width:100vw}
 .tl-dot{position:absolute;top:50%;transform:translate(-50%,-50%);width:10px;height:10px;
   border-radius:50%;cursor:pointer;z-index:2;transition:transform .15s}
 .tl-dot:hover{transform:translate(-50%,-50%) scale(1.6)}
+/* The onclick handler already works fine on touch — no drag, no hover
+   dependency — but a 10x10px visual dot is far under the 44px touch-target
+   minimum, and several dots can sit close together on the same timeline.
+   Expand the tappable area via an invisible ::before on touch devices only,
+   so desktop's mouse-precision experience with closely-spaced dots is
+   unaffected. Capped at 28px (not the full 44px) since the scrubber track
+   itself is only 40px tall. */
+@media(hover:none) and (pointer:coarse){
+  .tl-dot::before{content:'';position:absolute;top:50%;left:50%;
+    transform:translate(-50%,-50%);width:28px;height:28px}
+}
 .tl-dot.sev-high{background:var(--red)}
 .tl-dot.sev-medium{background:var(--amber)}
 .tl-dot.sev-low{background:var(--muted)}
@@ -1124,6 +1135,13 @@ html,body{overflow-x:hidden;max-width:100vw}
 .roomcam-tile .rc-approve{background:var(--emerald,#238636);color:#fff}
 .roomcam-tile .rc-reject{background:rgba(239,68,68,.14);color:#ff7b72}
 .roomcam-tile .rc-actions button:hover{opacity:.88}
+/* Approve/Reject a student's camera during a live exam is a safety-critical
+   action — these buttons don't use the generic .btn/.btn-sm classes
+   components.css already enforces a 36-44px touch minimum on, so they were
+   left at ~24px (6px padding + text) on touch devices. */
+@media(hover:none) and (pointer:coarse){
+  .roomcam-tile .rc-actions button{min-height:44px;padding:10px 8px}
+}
 /* actionable stat tile (e.g. "Phone cams waiting") */
 .stat-tile-action{cursor:pointer;font:inherit;text-align:left;appearance:none;
   border:1px solid var(--amber,#f59e0b);background:var(--card)}

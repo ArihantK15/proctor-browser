@@ -224,6 +224,20 @@ async def lifespan(_app) -> AsyncIterator[None]:
         )
         print(f"[startup] proctor-health alert loop started ({worker_name})", flush=True)
 
+    # Overage add-on retry sweeper — retries overage_charges rows stuck
+    # 'failed' after a transient Razorpay API error at cycle-close, so a
+    # blip doesn't permanently drop that month's overage revenue (#20).
+    _overage_sweeper_task = None
+    if is_leader and os.environ.get("OVERAGE_SWEEPER_DISABLED", "") != "1":
+        from .services.overage_retry_sweeper import overage_retry_sweeper_loop
+        _overage_sweeper_task = asyncio.create_task(overage_retry_sweeper_loop())
+        _overage_sweeper_task.add_done_callback(
+            lambda t: print(f"[startup] overage retry sweeper ended: {t.exception()}", flush=True)
+            if not t.cancelled() and t.exception()
+            else None
+        )
+        print(f"[startup] overage retry sweeper started ({worker_name})", flush=True)
+
     yield  # ── APP RUNNING ────────────────────────────────────────
 
     # ── SHUTDOWN ──────────────────────────────────────────────────
@@ -248,9 +262,12 @@ async def lifespan(_app) -> AsyncIterator[None]:
     if _reconciler_task is not None and not _reconciler_task.done():
         _reconciler_task.cancel()
         log.info("[shutdown] Cancelled session reconciler task")
+    if _overage_sweeper_task is not None and not _overage_sweeper_task.done():
+        _overage_sweeper_task.cancel()
+        log.info("[shutdown] Cancelled overage retry sweeper task")
 
     # Await cancelled tasks so they can run finally blocks
-    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _ttl_sweeper_task, _reminder_task, _proctor_health_task, _reconciler_task]
+    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _ttl_sweeper_task, _reminder_task, _proctor_health_task, _reconciler_task, _overage_sweeper_task]
     for t in cancelled_tasks:
         if t is not None:
             try:

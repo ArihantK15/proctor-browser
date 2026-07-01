@@ -289,6 +289,23 @@ def compute_proration(old_plan: str, new_plan: str, period_start, period_end, no
     return round(diff * remaining / cycle)
 
 
+def _create_overage_addon(client, sub_id: str, overage_count: int, net_amount_inr: int) -> str | None:
+    """Create the Razorpay add-on for one overage charge. Raises on API failure —
+    callers decide how to record/retry a failure. Shared by bill_cycle_overage
+    (first attempt, inline on the subscription.charged webhook) and the
+    overage retry sweeper (follow-up attempts on a previously-failed row), so
+    a retry creates the exact same add-on shape as the original attempt."""
+    addon = client.subscription.createAddon(str(sub_id), {
+        "item": {
+            "name": f"Overage: {overage_count} student{'s' if overage_count != 1 else ''}",
+            "amount": net_amount_inr * 100,  # paise
+            "currency": "INR",
+        },
+        "quantity": 1,
+    })
+    return str(addon.get("id", "")) or None
+
+
 async def bill_cycle_overage(org_id: str, sub_row_before: dict[str, Any]) -> dict[str, Any]:
     """Create a Razorpay add-on for the overage in the cycle that just ended.
 
@@ -407,15 +424,7 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict[str, Any]) -> dic
         status = "charged"
         try:
             if sub_id:
-                addon = client.subscription.createAddon(str(sub_id), {  # type: ignore[union-attr]
-                    "item": {
-                        "name": f"Overage: {res['overage_count']} student{'s' if res['overage_count'] != 1 else ''}",
-                        "amount": net * 100,  # paise (net of credit)
-                        "currency": "INR",
-                    },
-                    "quantity": 1,
-                })
-                addon_id = str(addon.get("id", "")) or None
+                addon_id = _create_overage_addon(client, sub_id, res["overage_count"], net)
         except Exception:
             logger.exception("Razorpay add-on creation failed for org=%s", oid)
             status = "failed"

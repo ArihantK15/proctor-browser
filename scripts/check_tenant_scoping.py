@@ -70,6 +70,37 @@ def _is_router_decorator(dec: ast.AST) -> bool:
             and dec.func.attr in ("get", "post", "put", "delete", "patch"))
 
 
+def _called_names(node: ast.AST) -> set[str]:
+    """Bare-name function calls inside a node, e.g. `await _do_x(...)` -> {"_do_x"}."""
+    out: set[str] = set()
+    for c in ast.walk(node):
+        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name):
+            out.add(c.func.id)
+    return out
+
+
+def _effective_body(name: str, funcs: dict[str, tuple[ast.AST, str]]) -> str:
+    """Source of `name` plus, transitively, the source of every same-file
+    function it calls. A @router handler that is just a thin wrapper delegating
+    to an undecorated helper would otherwise hide the real auth + tenancy (or
+    the ABSENCE of tenancy) from this guard — letting an unscoped, cross-tenant-
+    leaking endpoint slip past. Following same-file callees folds that logic back
+    into view. Bounded to this file's own defs; imported/stdlib calls are ignored.
+    """
+    seen: set[str] = set()
+    parts: list[str] = []
+    stack = [name]
+    while stack:
+        fn = stack.pop()
+        if fn in seen or fn not in funcs:
+            continue
+        seen.add(fn)
+        node, fsrc = funcs[fn]
+        parts.append(fsrc)
+        stack.extend(_called_names(node) - seen)
+    return "\n".join(parts)
+
+
 def main() -> int:
     flagged: list[tuple[str, str, list[str]]] = []
     stale_allow: set[tuple[str, str]] = set(ALLOWLIST)
@@ -80,12 +111,16 @@ def main() -> int:
             tree = ast.parse(src)
         except SyntaxError:
             continue
+        funcs: dict[str, tuple[ast.AST, str]] = {}
+        for f in ast.walk(tree):
+            if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                funcs[f.name] = (f, ast.get_source_segment(src, f) or "")
         for n in ast.walk(tree):
             if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             if not any(_is_router_decorator(d) for d in n.decorator_list):
                 continue
-            body = ast.get_source_segment(src, n) or ""
+            body = _effective_body(n.name, funcs)
             tables = {m.group(1) for m in _ATABLE.finditer(body)} & TENANT_TABLES
             if not tables:
                 continue

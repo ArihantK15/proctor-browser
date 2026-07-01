@@ -79,12 +79,9 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("admin_exams.py", "assign_exam_groups"):    "binds own groups to own exam",
     ("admin_exams.py", "unassign_exam_group"):   "unbinds own group from own exam",
     ("admin_students.py", "delete_student_from_roster"): "deletes from own roster",
-    # NOTE: google_sync_roster's @router handler is now a thin try/except wrapper
-    # that delegates to the undecorated helper _do_google_sync_roster, so the
-    # guard (which only inspects @router handlers) no longer sees it own-lock and
-    # this allowlist entry went stale. The owner-only own-lock still lives in the
-    # helper — a deliberate "sync into your OWN roster" action — but it's now
-    # outside this guard's view. Dropped per the guard's stale-entry instruction.
+    ("admin_students.py", "admin_bulk_register"): "registers students into own roster — owner-only mutation",
+    ("admin_students.py", "import_students_csv"): "imports students into own roster — owner-only mutation (same semantics as admin_bulk_register)",
+    ("google_classroom.py", "google_sync_roster"): "syncs into own roster from Classroom — owner-only (logic in _do_google_sync_roster helper)",
     ("google_classroom.py", "google_link_exam"): "links own exam to Classroom",
     # ── invite mutations (own exam invites) ──
     ("admin_invites.py", "send_invites"):        "sends invites for own exam",
@@ -96,6 +93,9 @@ ALLOWLIST: dict[tuple[str, str], str] = {
     ("admin_sessions.py", "reset_exam_attempts"): "re-opens own exam's finished attempts (reschedule retake) — owner-only by design",
     ("admin_sessions.py", "session_resume"):     "resumes own session",
     ("admin_sessions.py", "request_recalibration"): "recalibrates own session",
+    ("admin_sessions.py", "clear_live_sessions"): "clears OWN live sessions — intentionally self-scoped destructive action (P1.6), logic in _clear_* helpers",
+    # ── privacy self-service (own account) ──
+    ("privacy.py", "delete_account"):            "erases the caller's OWN account + data (DPDP §13 / GDPR Art 17) — self-service by definition",
     # ── grading mutations (own answers) ──
     ("grading.py", "grade_suggest"):             "AI-grades own answers",
     ("grading.py", "grade_confirm"):             "confirms grade on own answer",
@@ -122,6 +122,38 @@ def _is_router_decorator(dec: ast.AST) -> bool:
             and dec.func.attr in ("get", "post", "put", "delete", "patch"))
 
 
+def _called_names(node: ast.AST) -> set[str]:
+    """Bare-name function calls inside a node, e.g. `await _do_x(...)` -> {"_do_x"}."""
+    out: set[str] = set()
+    for c in ast.walk(node):
+        if isinstance(c, ast.Call) and isinstance(c.func, ast.Name):
+            out.add(c.func.id)
+    return out
+
+
+def _effective_body(name: str, funcs: dict[str, tuple[ast.AST, str]]) -> str:
+    """Source of `name` plus, transitively, the source of every same-file
+    function it calls. A @router handler that is just a thin wrapper delegating
+    to an undecorated helper (e.g. google_sync_roster -> _do_google_sync_roster)
+    would otherwise hide the real require_admin / _atable / own-lock logic from
+    this guard. Following same-file callees folds that logic back into view so
+    the wrapper+helper pattern can't smuggle an under-scoped endpoint past the
+    check. Bounded to this file's own defs; stdlib/other-module calls are ignored.
+    """
+    seen: set[str] = set()
+    parts: list[str] = []
+    stack = [name]
+    while stack:
+        fn = stack.pop()
+        if fn in seen or fn not in funcs:
+            continue
+        seen.add(fn)
+        node, fsrc = funcs[fn]
+        parts.append(fsrc)
+        stack.extend(_called_names(node) - seen)
+    return "\n".join(parts)
+
+
 def main() -> int:
     flagged: list[tuple[str, str, list[str]]] = []
     stale_allow: set[tuple[str, str]] = set(ALLOWLIST)
@@ -132,12 +164,18 @@ def main() -> int:
             tree = ast.parse(src)
         except SyntaxError:
             continue
+        # Index every function in the file (decorated handlers AND undecorated
+        # helpers) so a delegating wrapper can be followed into its helper.
+        funcs: dict[str, tuple[ast.AST, str]] = {}
+        for f in ast.walk(tree):
+            if isinstance(f, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                funcs[f.name] = (f, ast.get_source_segment(src, f) or "")
         for n in ast.walk(tree):
             if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             if not any(_is_router_decorator(d) for d in n.decorator_list):
                 continue
-            body = ast.get_source_segment(src, n) or ""
+            body = _effective_body(n.name, funcs)
             if "require_admin" not in body:
                 continue
             tables = {m.group(1) or m.group(2) for m in _ATABLE.finditer(body)} & TENANT_TABLES

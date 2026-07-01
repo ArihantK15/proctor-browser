@@ -930,9 +930,9 @@
           <!-- BANK pane — list + import-into-exam button. Hidden by
                default; setAITab('bank') reveals it. -->
           <div data-aipane="bank" style="display:none">
-            <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px">
+            <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
               <input type="text" id="bank-search" placeholder="Search bank or filter by tag…" data-input-action="filterBank"
-                style="flex:1;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:6px 10px;color:var(--text-high);font-size:12px;font-family:inherit">
+                style="flex:1;min-width:120px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:6px 10px;color:var(--text-high);font-size:12px;font-family:inherit">
               <button class="btn btn-secondary btn-sm" data-action="exportBank" title="Download bank as JSON">Export</button>
             </div>
             <div id="bank-list" style="max-height:50vh;overflow-y:auto"></div>
@@ -1225,9 +1225,9 @@
           <div style="display:flex;flex-direction:column;gap:12px;margin-top:12px">
             <div>
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Registration Link</label>
-              <div style="display:flex;gap:8px;align-items:center">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <input type="text" id="share-register-link" readonly
-                  style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
+                  style="flex:1;min-width:160px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
                 <button class="btn btn-primary btn-sm" data-action="copyLink" data-args='["share-register-link"]' style="white-space:nowrap;padding:10px 16px">Copy</button>
                 <button class="btn btn-secondary btn-sm" data-action="toggleRegQR" style="white-space:nowrap;padding:10px 16px">QR</button>
               </div>
@@ -1241,9 +1241,9 @@
             </div>
             <div>
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Download Link</label>
-              <div style="display:flex;gap:8px;align-items:center">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                 <input type="text" id="share-download-link" readonly
-                  style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
+                  style="flex:1;min-width:160px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
                 <button class="btn btn-primary btn-sm" data-action="copyLink" data-args='["share-download-link"]' style="white-space:nowrap;padding:10px 16px">Copy</button>
               </div>
             </div>
@@ -1586,9 +1586,9 @@
           <p>Create groups and assign students. Restrict exam access so only students in assigned groups can enter.</p>
           <div id="groups-list" style="margin-top:12px"></div>
            <div id="groups-empty" style="color:var(--muted);font-size:13px;margin-top:8px">No groups yet — enter a name above and click Create Group.</div>
-          <div style="margin-top:14px;display:flex;gap:8px;align-items:center">
+          <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <input type="text" id="new-group-name" placeholder="New group name"
-              style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              style="flex:1;min-width:140px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
             <button class="btn btn-primary btn-sm" data-action="createGroup" style="white-space:nowrap">Create Group</button>
           </div>
           <div id="group-status" style="font-size:12px;min-height:18px;margin-top:8px;color:var(--emerald)"></div>
@@ -1601,9 +1601,9 @@
             </div>
             <div id="group-members-list" style="margin-bottom:12px"></div>
             <div id="group-members-empty" style="color:var(--muted);font-size:12px;margin-bottom:10px">No members yet — enter roll numbers above and click Add.</div>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <input type="text" id="add-member-rolls" placeholder="Roll numbers (comma-separated)"
-                style="flex:1;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+                style="flex:1;min-width:140px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
               <button class="btn btn-primary btn-sm" data-action="addGroupMembers" style="white-space:nowrap">Add</button>
             </div>
           </div>
@@ -1613,9 +1613,9 @@
             <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Exam Access Restriction</div>
             <div id="exam-groups-list" style="margin-bottom:8px"></div>
             <div id="exam-groups-none" style="color:var(--muted);font-size:12px;margin-bottom:8px">All students can access this exam (no group restriction).</div>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <select id="assign-group-select"
-                style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+                style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
                 <option value="">Select a group to restrict access...</option>
               </select>
               <button class="btn btn-primary btn-sm" data-action="assignGroupToExam" style="white-space:nowrap">Assign</button>
@@ -1627,9 +1627,9 @@
             <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Restrict to Batches / Cohorts</div>
             <div id="exam-batches-list" style="margin-bottom:8px"></div>
             <div id="exam-batches-none" style="color:var(--muted);font-size:12px;margin-bottom:8px">No batch restriction on this exam.</div>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <select id="assign-batch-select"
-                style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+                style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
                 <option value="">Select a batch to restrict access...</option>
               </select>
               <button class="btn btn-primary btn-sm" data-action="assignBatchToExam" style="white-space:nowrap">Assign</button>
@@ -1641,9 +1641,9 @@
           <div style="margin-top:16px;padding-top:16px;border-top:1px solid var(--border)">
             <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Cohort Enrollment Link</div>
             <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Share a link that enrolls students straight into a batch (no exam needed). They're then eligible for every exam you assign to that batch.</div>
-            <div style="display:flex;gap:8px;align-items:center">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <select id="cohort-link-batch-select"
-                style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+                style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
                 <option value="">Select a batch…</option>
               </select>
               <button class="btn btn-secondary btn-sm" data-action="copyCohortLink" style="white-space:nowrap">Copy link</button>
@@ -1660,12 +1660,12 @@
           <h3>Exam Templates</h3>
           <p>Save exam configurations as reusable templates. Clone a template to instantly create a new exam with the same settings and questions — perfect for running the same exam across multiple batches.</p>
           <div style="margin-top:14px">
-            <div style="display:flex;gap:8px;margin-bottom:12px">
-              <select id="template-source-exam" style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+            <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+              <select id="template-source-exam" style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
                 <option value="">Select exam to save as template…</option>
               </select>
-              <input type="text" id="template-name-input" placeholder="Template name (e.g. Math Midterm v2)" style="flex:1;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
-              <button class="btn btn-primary btn-sm" data-action="saveTemplate">Save Template</button>
+              <input type="text" id="template-name-input" placeholder="Template name (e.g. Math Midterm v2)" style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <button class="btn btn-primary btn-sm" data-action="saveTemplate" style="white-space:nowrap">Save Template</button>
             </div>
             <div id="templates-list" style="border-top:1px solid var(--border);padding-top:12px"></div>
             <div id="templates-empty" style="color:var(--muted);font-size:13px">No templates yet — configure an exam above and click Save Template.</div>

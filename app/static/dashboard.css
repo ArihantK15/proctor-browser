@@ -460,253 +460,6 @@ tr:hover td{background:rgba(61,217,168,.04)}
 .bd-bar{height:100%;border-radius:4px;transition:width .5s ease}
 .bd-count{width:50px;font-size:11px;color:var(--muted);text-align:right;flex-shrink:0}
 
-/* ── Responsive ───────────────────────────────────────────────── */
-@media(max-width:1024px){
-  .container{padding:18px}
-  .topbar{padding:12px 16px;flex-wrap:wrap;row-gap:8px}
-  .tabs{padding:0 12px;flex-wrap:nowrap}
-  .tab{flex-shrink:0}
-  .chat-wrap{grid-template-columns:240px 1fr;
-    height:calc(100vh - 260px);min-height:420px}
-  .topbar-status{display:none}
-}
-/* Profile + Security tabs' 2-column card grids (was inline
-   style="display:grid;grid-template-columns:1fr 1fr" — moved to a class
-   so the phone override below can actually win; an inline style attribute
-   outranks any non-!important stylesheet rule). */
-.profile-grid-2col{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
-@media(max-width:768px){
-  .profile-grid-2col{ grid-template-columns:1fr; }
-}
-@media(max-width:768px){
-  /* Bottom nav replaces the horizontal tab strip on phones — see the
-     "Bottom nav + More sheet" component block above for the nav itself. */
-  .tabs{display:none}
-  .container{padding:12px 12px calc(12px + 58px + env(safe-area-inset-bottom))}
-  .panel-header{flex-direction:column;gap:var(--space-2);padding:var(--space-5) 0 var(--space-4)}
-  .panel-title{font-size:24px}
-  .panel-lede{font-size:13px}
-  .panel-status{margin-top:0}
-  .exam-bar{padding:10px 12px;align-items:stretch}
-  .exam-bar .exam-label,.exam-bar .exam-count{width:100%}
-  .exam-bar select{min-width:0;flex:1 1 180px}
-  .detail-grid{grid-template-columns:1fr}
-  .stats{grid-template-columns:1fr 1fr}
-  .toolbar input{width:100%;min-width:0}
-  .toolbar{flex-wrap:wrap}
-  .modal{padding:16px;width:100%;max-width:100%;border-radius:10px}
-  .modal-bg{align-items:flex-end;padding:8px}
-  /* Chat tab on phone — stack roster above thread, keep both
-     usable inside the viewport. With the sticky topbar+tabs+exam-bar
-     eating ~140px, the chat thread now sizes to the remaining space
-     instead of an arbitrary 60vh that could overflow on shorter
-     phones (e.g. iPhone SE 1st-gen 568px viewport). */
-  .chat-wrap{grid-template-columns:1fr;
-    height:auto;min-height:0;gap:var(--space-2)}
-  .chat-roster{max-height:180px;overflow-y:auto;
-    -webkit-overflow-scrolling:touch;border-radius:10px}
-  .chat-roster-body{overflow-y:auto}
-  .chat-thread{height:calc(100dvh - 360px);min-height:340px}
-  .chat-thread-body{padding:12px;gap:10px}
-  .chat-thread-head{padding:10px 14px}
-  .chat-thread-title{font-size:13px}
-  .chat-thread-sub{font-size:11px}
-  .chat-msg{max-width:84%;font-size:13px}
-  /* Composer needs explicit row so the send button is reachable. */
-  .chat-composer{padding:8px;gap:8px}
-  .topbar-teacher{padding-left:0;border-left:none}
-  /* Settings two-pane collapses to a stacked layout: the category rail
-     becomes a horizontally-scrollable chip row above the content. */
-  .settings-layout{flex-direction:column;gap:var(--space-3)}
-  .settings-nav{flex-basis:auto;width:100%;position:static;flex-direction:row;
-    overflow-x:auto;scrollbar-width:none}
-  .settings-nav::-webkit-scrollbar{display:none}
-  .settings-nav-item{width:auto;white-space:nowrap}
-  .tools-grid{grid-template-columns:1fr}
-  .q-opts{grid-template-columns:1fr}
-  table{font-size:12px}
-  th,td{padding:8px 8px}
-  .topbar-right{gap:8px;flex-wrap:wrap}
-  .topbar-right .btn{padding:6px 10px;font-size:11px}
-  .stats-bar{padding:var(--space-2) var(--space-3);overflow-x:auto;
-             scrollbar-width:none}
-  .stats-bar::-webkit-scrollbar{display:none}
-  .stat-tile{padding:0 var(--space-3)}
-  .stat-tile-value{font-size:var(--text-md)}
-  .table-toolbar{flex-direction:column;align-items:stretch;gap:var(--space-2);
-                 padding:var(--space-2) var(--space-3)}
-  .search-wrap{max-width:100%}
-  .toolbar-right{margin-left:0;justify-content:flex-end;flex-wrap:wrap}
-  .toolbar-right .btn{flex:1 1 auto;min-width:96px}
-  .filter-select{width:100%}
-  #panel-live .table-wrap tbody tr.row-critical,
-  #panel-live .table-wrap tbody tr.row-error,
-  #panel-live .table-wrap tbody tr.row-warn{box-shadow:inset 2px 0 0 currentColor}
-  .analytics-section{padding:14px}
-  .analytics-section-header{flex-direction:column;align-items:flex-start;gap:var(--space-1)}
-  #bank-generate-area .gen-grid{grid-template-columns:1fr 1fr !important}
-  #liveview-modal .modal{max-width:96vw;padding:14px}
-}
-@media(max-width:480px){
-  .container{padding:8px}
-  .stats{grid-template-columns:1fr}
-  .topbar{padding:10px 12px;align-items:flex-start}
-  .topbar-brand{width:100%}
-  .topbar-actions{width:100%;justify-content:space-between;gap:8px}
-  .topbar-teacher{max-width:calc(100vw - 120px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .topbar .logo{font-size:15px}
-  .topbar .logo img{width:24px;height:24px}
-  table{font-size:11px}
-  th,td{padding:6px 6px;white-space:nowrap}
-  .modal{padding:14px;width:100%;max-width:100%;border-radius:12px 12px 0 0;max-height:92dvh}
-  .modal-card{width:100%;max-width:100%;border-radius:12px;max-height:92dvh}
-  .tool-card{padding:16px}
-  .tool-card p{font-size:12px}
-  .q-card{padding:14px}
-  .stats-bar{padding:var(--space-1-5) var(--space-2)}
-  .stat-tile{padding:0 var(--space-2);min-width:88px}
-  .stat-tile-value{font-size:var(--text-base)}
-  .stat-tile-label{font-size:9px}
-  #bank-generate-area .gen-grid{grid-template-columns:1fr !important}
-  .chat-composer{flex-direction:column;align-items:stretch}
-  .chat-msg{max-width:88%}
-  .tl-event{gap:8px;padding:10px 8px}
-  .tl-time{width:54px;font-size:10px}
-  .tl-thumb{width:64px;height:48px}
-  .id-review-card{display:block}
-  .id-review-photos{margin:10px 0;overflow-x:auto}
-  .id-review-actions{flex-wrap:wrap}
-}
-
-/* ── Mobile responsiveness for components added 2026-05-24 ────────
-   Plan tiles, org/billing stats wrappers, issues layout, panel
-   header — none of these existed when the earlier breakpoints were
-   authored, so they get their own pass here. P2.10 from the audit. */
-@media(max-width:768px){
-  /* Stats wrappers used by Billing, Org Overview, Members, Org
-     Settings: 4-tile flex row → 2-column grid; border-right on tile
-     becomes a bottom hairline so the stacked layout still reads as
-     separated cells. */
-  .billing-stats,.org-stats{
-    grid-template-columns:1fr 1fr;
-    gap:var(--space-2);
-    padding:var(--space-3) var(--space-3);
-  }
-  .billing-stats .stat-tile,.org-stats .stat-tile{
-    border-right:none;
-    border-bottom:1px solid rgba(255,255,255,0.06);
-    padding-bottom:var(--space-2);
-  }
-  .billing-stats .stat-tile:nth-last-child(-n+2),
-  .org-stats .stat-tile:nth-last-child(-n+2){
-    border-bottom:none;
-    padding-bottom:0;
-  }
-  /* Billing/org wraps shouldn't add their own gutter on top of the
-     container's 12px padding-mobile-fix. */
-  .billing-wrap,.org-wrap{padding:6px 0 20px}
-  /* Plan grid already uses minmax(260px,1fr) so it collapses to one
-     column < 540px viewport, but the "Recommended" ribbon at top-right
-     of the middle tile overflows on a 375-380px viewport with the new
-     padding. Shrink + reposition. */
-  .plan-tile{padding:22px 18px}
-  .plan-ribbon{right:10px;font-size:9px;letter-spacing:0.05em;padding:4px 8px 3px}
-  .plan-amount{font-size:32px}
-  .plan-name{font-size:18px}
-  /* Issues panel — table + side-panel detail need to stack vertically. */
-  .issues-layout{grid-template-columns:1fr !important;gap:12px !important}
-  .issue-detail{position:static;width:100% !important;max-height:none}
-  /* Panel header: hide the decorative glow on phones (it gets cut by
-     the 100vw constraint and looks like an artefact) and tighten
-     spacing. */
-  .panel-glow{display:none}
-  .panel-header{padding:var(--space-4) 0 var(--space-3);margin-bottom:var(--space-3)}
-  .panel-title{font-size:22px;letter-spacing:-0.01em}
-  .panel-lede{line-height:1.5}
-  /* Floating Report-Issue button — keep clickable but smaller, and raised
-     to clear the phone bottom-nav (58px + safe-area + 16px breathing room)
-     instead of sitting flush at the viewport corner. */
-  .flag-fab{bottom:calc(58px + 16px + env(safe-area-inset-bottom)) !important;right:16px !important;padding:10px 14px !important;font-size:12px !important}
-  /* Topbar role badge wraps to a new row instead of squeezing. */
-  .topbar-role{order:99;flex-basis:100%;text-align:center}
-}
-@media(max-width:480px){
-  .billing-stats,.org-stats{grid-template-columns:1fr}
-  .billing-stats .stat-tile,.org-stats .stat-tile{
-    border-bottom:1px solid rgba(255,255,255,0.06);
-    padding-bottom:var(--space-2);
-  }
-  .billing-stats .stat-tile:last-child,
-  .org-stats .stat-tile:last-child{border-bottom:none;padding-bottom:0}
-  .plan-tile{padding:18px 14px}
-  .plan-amount{font-size:28px}
-  .panel-title{font-size:20px}
-  .panel-lede{font-size:12px}
-}
-
-/* Phone demo hardening for the legacy /dashboard route. Keep the
-   primary controls reachable while the teacher scrolls long tables. */
-@media(max-width:768px){
-  .tabs{position:sticky;top:calc(60px + env(safe-area-inset-top));z-index:45;background:var(--bg)}
-  .exam-bar{position:sticky;top:calc(104px + env(safe-area-inset-top));z-index:40;background:var(--card)}
-  .table-wrap table{min-width:720px}
-  .exam-bar .btn{min-height:42px}
-  .toolbar-right .btn,.table-toolbar .btn{min-height:40px}
-}
-@media(max-width:480px){
-  .tabs{top:calc(92px + env(safe-area-inset-top))}
-  .exam-bar{top:calc(136px + env(safe-area-inset-top))}
-  .table-wrap table{min-width:660px}
-}
-
-html,body{overflow-x:hidden;max-width:100vw}
-
-/* ── Mobile touch targets ──────────────────────────────────────────── */
-@media(hover:none) and (pointer:coarse){
-  .tab{padding:12px 18px}
-  .topbar .btn{padding:8px 14px;min-height:38px}
-  .toolbar button{min-height:38px}
-  .search-input{min-height:38px;font-size:16px !important}
-  .filter-select{min-height:38px;font-size:16px !important}
-  .exam-bar select{min-height:38px;font-size:16px !important}
-  .modal input:not([type=checkbox]):not([type=radio]),.modal select{min-height:44px;font-size:16px !important}
-  .modal-box input:not([type=checkbox]):not([type=radio]),.modal-box select,.modal-box textarea{min-height:44px;font-size:16px !important}
-  .modal-card input:not([type=checkbox]):not([type=radio]),.modal-card select,.modal-card textarea{min-height:44px;font-size:16px !important}
-  /* Live table row → "open this session" tap. The row itself is the
-     hit target; ensure the row has enough vertical room and any
-     in-row mini-buttons (intervention warn/pause/etc, view-cam icon)
-     hit the WCAG-recommended 44x44 minimum. */
-  #panel-live .table-wrap tbody tr{cursor:pointer}
-  #panel-live .table-wrap td{padding-top:12px;padding-bottom:12px}
-  #panel-live .row-btn,#panel-live .row-cam-btn,
-  .intervention-bar .btn,.intervention-bar button{
-    min-height:44px;min-width:44px;padding:8px 12px;font-size:13px
-  }
-  /* Camera pop-in modal — when the teacher taps a flagged student to
-     see their camera, the modal needs to fill the phone viewport
-     comfortably and the close button must be tappable. */
-  #liveview-modal .modal{max-width:96vw;max-height:88dvh;padding:12px}
-  #liveview-modal .modal img,#liveview-modal .modal video{
-    max-width:100%;max-height:60vh;object-fit:contain
-  }
-  /* Chat composer on phone — the send button was a thin row before;
-     bump to proper tap height. */
-  .chat-composer button{min-height:44px;padding:10px 16px}
-  .chat-composer textarea{min-height:44px;font-size:16px !important}
-}
-
-/* ── Print ──────────────────────────────────────────────────────── */
-@media print {
-  body { background:#fff !important; color:#000 !important; padding-top:0 !important; }
-  .modal-overlay, .tabs, .topbar, .exam-bar,
-  .btn, .tool-card-actions, #chat-fab, #chat-panel,
-  #practice-banner, [role="dialog"] { display:none !important; }
-  .panel:not(.active) { display:none !important; }
-  table { page-break-inside:auto; }
-  tr { page-break-inside:avoid; page-break-after:auto; }
-  a { color:#000 !important; text-decoration:none; }
-}
-
 /* ── Loading ──────────────────────────────────────────────────── */
 .loading-msg{text-align:center;padding:40px;color:var(--muted);font-size:14px}
 
@@ -1665,151 +1418,6 @@ html,body{overflow-x:hidden;max-width:100vw}
   background:var(--surface-2);
   border-color:var(--border-subtle);
 }
-@media(max-width:900px){
-  .flag-fab{right:16px;bottom:16px}
-  .issues-layout{grid-template-columns:1fr;padding:0 14px 18px}
-  .issue-detail{position:static}
-  .billing-grid,.org-grid,.plans-grid{grid-template-columns:1fr}
-  .billing-wrap,.org-wrap{padding-inline:0}
-  #panel-results .table-wrap{max-height:none}
-}
-
-/* ── HTML dashboard mobile hardening ───────────────────────────────
-   The legacy dashboard is now the primary teacher surface. These
-   overrides keep the existing desktop design intact while making the
-   wrapped topbar, tab rail, exam controls, tables, tools, modals, and
-   questions workspace usable from 320px phones through tablets. */
-.topbar,.tabs,.exam-bar,.container,.panel,.table-toolbar,.toolbar-right,
-.stats-bar,.settings-layout,.tools-grid,.qx-main,.q-content,.q-aipanel,
-.q-sidebar,.chat-wrap,.modal-card,.modal-box{min-width:0}
-.brand-name,.topbar-teacher,.tab,.exam-bar select,.search-input,.filter-select{
-  min-width:0;
-}
-.table-wrap{max-width:100%;overscroll-behavior-x:contain}
-.table-wrap table{width:100%}
-.tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
-.tabs::-webkit-scrollbar{display:none}
-.tab{scroll-snap-align:start}
-
-@media(max-width:900px){
-  .container{max-width:100vw}
-  .topbar-status{display:none}
-  .topbar-actions{gap:10px}
-  .exam-bar{gap:10px}
-  .exam-bar select{flex:1 1 260px}
-  .tools-grid{grid-template-columns:minmax(0,1fr)}
-  .tool-card-actions{display:flex;flex-wrap:wrap;gap:8px}
-  .tool-card-actions .btn{flex:1 1 150px;justify-content:center}
-  .settings-nav{scroll-snap-type:x proximity}
-  .settings-nav-item{scroll-snap-align:start}
-  .qx-toolbar-top{align-items:stretch}
-  .qx-toolbar-top > input,
-  .qx-toolbar-top > label{flex:1 1 180px;min-width:0}
-  .qx-toolbar-top .btn{flex:1 1 110px;justify-content:center}
-  .q-content-toolbar{position:static;flex-wrap:wrap;padding:10px 12px}
-  .q-content-toolbar .toolbar-spacer{display:none}
-  .q-content-toolbar .qct-btn{flex:1 1 130px;justify-content:center}
-  .q-content-scroll{padding:14px 0}
-  .q-sidebar,.q-aipanel{position:static;top:auto;max-height:none}
-  .q-sidebar{border:1px solid var(--border-subtle);border-radius:var(--radius-md)}
-  .q-list-wrap{max-height:240px}
-}
-
-@media(max-width:768px){
-  body{min-height:100dvh}
-  .topbar{position:sticky;top:0;z-index:70;align-items:flex-start}
-  /* The earlier mobile pass stacked topbar + tabs + exam-bar with
-     fixed top offsets. Once the topbar wraps, those offsets overlap;
-     keep only the topbar sticky and let the controls scroll naturally. */
-  .tabs,.exam-bar{position:relative;top:auto;z-index:auto}
-  .tabs{padding:0 8px;background:var(--bg);border-bottom:1px solid var(--border)}
-  .tab{padding:12px 14px;font-size:12px;min-height:44px}
-  .topbar{padding:10px 12px;gap:10px}
-  .topbar-brand{max-width:100%;flex:1 1 auto}
-  .brand-name{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .topbar-actions{width:100%;justify-content:flex-start;gap:8px}
-  .theme-switch{order:0}
-  .topbar-teacher{max-width:42vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .topbar-role{flex-basis:auto;order:0}
-  .topbar .btn{min-height:40px}
-  .topbar .topbar-help{width:40px;height:40px}
-  .exam-bar{display:grid;grid-template-columns:1fr 1fr;padding:10px 12px}
-  .exam-bar .exam-label,.exam-bar select,.exam-bar .exam-count{
-    grid-column:1 / -1;width:100%;
-  }
-  .exam-bar select{min-height:44px;font-size:16px}
-  .exam-bar .btn{width:100%;justify-content:center}
-  .container{padding:10px 12px 84px}
-  .panel-header{align-items:flex-start}
-  .panel-title{font-size:clamp(22px,7vw,28px);line-height:1.1}
-  .panel-lede{max-width:100%;line-height:1.55}
-  .panel-status{align-self:flex-start}
-  .stats-bar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;overflow:visible}
-  .stat-tile{min-width:0;border-right:0;border-bottom:1px solid var(--border-subtle)}
-  .stat-tile:nth-last-child(-n+2){border-bottom:0}
-  .table-toolbar{border-radius:var(--radius-lg);gap:10px}
-  .search-wrap,.filter-select,.teacher-filter{width:100%;max-width:100%}
-  .toolbar-right{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  .toolbar-right .btn,.table-toolbar .btn{width:100%;min-width:0}
-  .table-wrap{border-radius:var(--radius-lg);margin-inline:0}
-  .table-wrap table{min-width:720px}
-  .modal-overlay,.modal-bg{align-items:flex-end;padding:10px}
-  .modal,.modal-card,.modal-box{
-    width:100%;max-width:100%;max-height:calc(100dvh - 20px);
-    border-radius:16px 16px 0 0;
-  }
-  .modal-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  .modal-actions .btn,.modal-actions button,.modal-btn{width:100%;justify-content:center}
-  #alert-toast-container{
-    top:auto;left:10px;right:10px;bottom:calc(78px + env(safe-area-inset-bottom));
-    width:auto;
-  }
-  .live-alert-toast{padding:10px 12px;border-radius:12px}
-  /* bottom raised to clear the new phone bottom-nav (58px + safe-area +
-     12px breathing room) — it used to sit flush at the viewport corner,
-     which the nav bar now occupies. */
-  .flag-fab{right:12px !important;bottom:calc(58px + 12px + env(safe-area-inset-bottom)) !important;max-width:calc(100vw - 24px)}
-}
-
-@media(max-width:560px){
-  .topbar-actions{display:grid;grid-template-columns:auto auto auto 1fr;align-items:center}
-  .topbar-teacher{grid-column:1 / -1;max-width:100%;padding:2px 0}
-  .topbar-role{justify-self:start}
-  #topbar-trial-badge{justify-self:start}
-  .topbar-logout{justify-self:end}
-  .exam-bar{grid-template-columns:1fr}
-  .stats-bar{grid-template-columns:1fr 1fr}
-  .stat-tile:nth-last-child(-n+2){border-bottom:1px solid var(--border-subtle)}
-  .stat-tile:last-child{border-bottom:0}
-  .toolbar-right{grid-template-columns:1fr}
-  .table-wrap table{min-width:660px}
-  .chat-thread{height:auto;min-height:420px}
-  .settings-content{min-width:0}
-  .tool-card{padding:16px}
-  .tool-card-actions .btn{flex-basis:100%}
-  .qx-toolbar-top{display:grid;grid-template-columns:1fr;gap:8px}
-  .qx-toolbar-top > input,
-  .qx-toolbar-top > label,
-  .qx-toolbar-top .btn{width:100%;min-width:0}
-  .q-sidebar-header{padding:12px}
-  .q-sidebar-filter{padding:8px 12px}
-  .q-content-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .q-content-toolbar .qct-btn{width:100%;min-width:0}
-  .q-aipanel-body{padding:12px}
-}
-
-@media(max-width:380px){
-  .topbar-actions{grid-template-columns:auto auto 1fr}
-  .topbar .btn:not(.topbar-help):not(.topbar-logout){padding-inline:10px}
-  .topbar-logout{grid-column:3;min-width:0;padding-inline:10px}
-  .tab{padding-inline:12px}
-  .container{padding-inline:8px}
-  .stats-bar{grid-template-columns:1fr}
-  .stat-tile{border-bottom:1px solid var(--border-subtle)}
-  .stat-tile:last-child{border-bottom:0}
-  .modal-actions{grid-template-columns:1fr}
-}
-
 /* ── Cosmetic refinement pass — teacher/admin dashboard ─────────────
    Design-only polish for the legacy HTML dashboard. No markup,
    behavior, or data-flow changes: this layer only improves hierarchy,
@@ -2275,6 +1883,16 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
 .appeal-thumb{max-width:104px;max-height:78px;border-radius:6px;cursor:pointer;
   border:1px solid var(--border)}
 
+/* collapse (in-rail) + expand (floating) toggles — desktop-only via the rules
+   below. Declared BEFORE the media query (not after, as it used to be) so
+   the media query's `display:flex` actually wins at >=1025px instead of
+   being silently cancelled by this base `display:none` — same
+   equal-specificity/source-order issue as everything else fixed today. */
+.sidebar-collapse{ display:none; align-self:flex-end; align-items:center; justify-content:center;
+  width:30px; height:30px; margin-bottom:6px; background:none; border:1px solid var(--border);
+  border-radius:6px; color:var(--text-muted); cursor:pointer; font-size:15px; line-height:1; flex-shrink:0; }
+.sidebar-collapse:hover{ color:var(--text-high); border-color:var(--accent); }
+
 /* ── Left sidebar nav (desktop ≥1025px) ───────────────────────────────
    The section tabs ("section change" row) move to a collapsible left rail.
    The topbar stays exactly as designed — only made sticky so it pins above
@@ -2313,12 +1931,6 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
   .tabs{position:sticky;top:60px;z-index:55;background:var(--bg)}
   .exam-bar{position:sticky;top:calc(104px + env(safe-area-inset-top));z-index:50;background:var(--card)}
 }
-
-/* collapse (in-rail) + expand (floating) toggles — desktop-only via the rules above */
-.sidebar-collapse{ display:none; align-self:flex-end; align-items:center; justify-content:center;
-  width:30px; height:30px; margin-bottom:6px; background:none; border:1px solid var(--border);
-  border-radius:6px; color:var(--text-muted); cursor:pointer; font-size:15px; line-height:1; flex-shrink:0; }
-.sidebar-collapse:hover{ color:var(--text-high); border-color:var(--accent); }
 .sidebar-expand{ display:none; position:fixed; top:70px; left:8px; z-index:58;
   width:34px; height:34px; align-items:center; justify-content:center; background:var(--card);
   border:1px solid var(--border); border-radius:8px; color:var(--text-high); cursor:pointer;
@@ -2432,3 +2044,420 @@ body:has(.more-sheet.open) .flag-fab{ display:none; }
 .mcard-actions .btn{ flex:1 1 auto; }
 .mcard-empty{ text-align:center; color:var(--text-muted); padding:24px 12px; font-size:13px; }
 .mcard-active{ background:rgba(91,138,240,0.08); border-color:var(--accent-border); }
+
+/* ── Responsive (relocated 2026-07-01) ──────────────────────────────
+   This whole block used to sit right after "Risk breakdown bar chart"
+   (originally line 463), but dozens of the same selectors it sets
+   mobile/print/touch overrides for (.tabs, .chat-wrap, .tools-grid,
+   .billing-stats, .panel-header, body, etc.) get unconditionally
+   redeclared later in this file by the per-component "redesign" passes
+   added afterward — at equal specificity, CSS cascade goes by source
+   order, so those later unconditional rules were silently winning and
+   canceling most of this block's mobile behavior everywhere (reported
+   live: broken Chat layout, missing tab-bar hide on phones, Tools/
+   Billing overflow, panel-header spacing). Moved to the end of the file
+   so it always wins by source order instead of hunting down and fixing
+   ~70 individual selector conflicts one at a time.
+   */
+/* ── Responsive ───────────────────────────────────────────────── */
+@media(max-width:1024px){
+  .container{padding:18px}
+  .topbar{padding:12px 16px;flex-wrap:wrap;row-gap:8px}
+  .tabs{padding:0 12px;flex-wrap:nowrap}
+  .tab{flex-shrink:0}
+  .chat-wrap{grid-template-columns:240px 1fr;
+    height:calc(100vh - 260px);min-height:420px}
+  .topbar-status{display:none}
+}
+/* Profile + Security tabs' 2-column card grids (was inline
+   style="display:grid;grid-template-columns:1fr 1fr" — moved to a class
+   so the phone override below can actually win; an inline style attribute
+   outranks any non-!important stylesheet rule). */
+.profile-grid-2col{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+@media(max-width:768px){
+  .profile-grid-2col{ grid-template-columns:1fr; }
+}
+@media(max-width:768px){
+  /* Bottom nav replaces the horizontal tab strip on phones — see the
+     "Bottom nav + More sheet" component block above for the nav itself. */
+  .tabs{display:none}
+  .container{padding:12px 12px calc(12px + 58px + env(safe-area-inset-bottom))}
+  .panel-header{flex-direction:column;gap:var(--space-2);padding:var(--space-5) 0 var(--space-4)}
+  .panel-title{font-size:24px}
+  .panel-lede{font-size:13px}
+  .panel-status{margin-top:0}
+  .exam-bar{padding:10px 12px;align-items:stretch}
+  .exam-bar .exam-label,.exam-bar .exam-count{width:100%}
+  .exam-bar select{min-width:0;flex:1 1 180px}
+  .detail-grid{grid-template-columns:1fr}
+  .stats{grid-template-columns:1fr 1fr}
+  .toolbar input{width:100%;min-width:0}
+  .toolbar{flex-wrap:wrap}
+  .modal{padding:16px;width:100%;max-width:100%;border-radius:10px}
+  .modal-bg{align-items:flex-end;padding:8px}
+  /* Chat tab on phone — stack roster above thread, keep both
+     usable inside the viewport. With the sticky topbar+tabs+exam-bar
+     eating ~140px, the chat thread now sizes to the remaining space
+     instead of an arbitrary 60vh that could overflow on shorter
+     phones (e.g. iPhone SE 1st-gen 568px viewport). */
+  .chat-wrap{grid-template-columns:1fr;
+    height:auto;min-height:0;gap:var(--space-2)}
+  .chat-roster{max-height:180px;overflow-y:auto;
+    -webkit-overflow-scrolling:touch;border-radius:10px}
+  .chat-roster-body{overflow-y:auto}
+  .chat-thread{height:calc(100dvh - 360px);min-height:340px}
+  .chat-thread-body{padding:12px;gap:10px}
+  .chat-thread-head{padding:10px 14px}
+  .chat-thread-title{font-size:13px}
+  .chat-thread-sub{font-size:11px}
+  .chat-msg{max-width:84%;font-size:13px}
+  /* Composer needs explicit row so the send button is reachable. */
+  .chat-composer{padding:8px;gap:8px}
+  .topbar-teacher{padding-left:0;border-left:none}
+  /* Settings two-pane collapses to a stacked layout: the category rail
+     becomes a horizontally-scrollable chip row above the content. */
+  .settings-layout{flex-direction:column;gap:var(--space-3)}
+  .settings-nav{flex-basis:auto;width:100%;position:static;flex-direction:row;
+    overflow-x:auto;scrollbar-width:none}
+  .settings-nav::-webkit-scrollbar{display:none}
+  .settings-nav-item{width:auto;white-space:nowrap}
+  .tools-grid{grid-template-columns:1fr}
+  .q-opts{grid-template-columns:1fr}
+  table{font-size:12px}
+  th,td{padding:8px 8px}
+  .topbar-right{gap:8px;flex-wrap:wrap}
+  .topbar-right .btn{padding:6px 10px;font-size:11px}
+  .stats-bar{padding:var(--space-2) var(--space-3);overflow-x:auto;
+             scrollbar-width:none}
+  .stats-bar::-webkit-scrollbar{display:none}
+  .stat-tile{padding:0 var(--space-3)}
+  .stat-tile-value{font-size:var(--text-md)}
+  .table-toolbar{flex-direction:column;align-items:stretch;gap:var(--space-2);
+                 padding:var(--space-2) var(--space-3)}
+  .search-wrap{max-width:100%}
+  .toolbar-right{margin-left:0;justify-content:flex-end;flex-wrap:wrap}
+  .toolbar-right .btn{flex:1 1 auto;min-width:96px}
+  .filter-select{width:100%}
+  #panel-live .table-wrap tbody tr.row-critical,
+  #panel-live .table-wrap tbody tr.row-error,
+  #panel-live .table-wrap tbody tr.row-warn{box-shadow:inset 2px 0 0 currentColor}
+  .analytics-section{padding:14px}
+  .analytics-section-header{flex-direction:column;align-items:flex-start;gap:var(--space-1)}
+  #bank-generate-area .gen-grid{grid-template-columns:1fr 1fr !important}
+  #liveview-modal .modal{max-width:96vw;padding:14px}
+}
+@media(max-width:480px){
+  .container{padding:8px}
+  .stats{grid-template-columns:1fr}
+  .topbar{padding:10px 12px;align-items:flex-start}
+  .topbar-brand{width:100%}
+  .topbar-actions{width:100%;justify-content:space-between;gap:8px}
+  .topbar-teacher{max-width:calc(100vw - 120px);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .topbar .logo{font-size:15px}
+  .topbar .logo img{width:24px;height:24px}
+  table{font-size:11px}
+  th,td{padding:6px 6px;white-space:nowrap}
+  .modal{padding:14px;width:100%;max-width:100%;border-radius:12px 12px 0 0;max-height:92dvh}
+  .modal-card{width:100%;max-width:100%;border-radius:12px;max-height:92dvh}
+  .tool-card{padding:16px}
+  .tool-card p{font-size:12px}
+  .q-card{padding:14px}
+  .stats-bar{padding:var(--space-1-5) var(--space-2)}
+  .stat-tile{padding:0 var(--space-2);min-width:88px}
+  .stat-tile-value{font-size:var(--text-base)}
+  .stat-tile-label{font-size:9px}
+  #bank-generate-area .gen-grid{grid-template-columns:1fr !important}
+  .chat-composer{flex-direction:column;align-items:stretch}
+  .chat-msg{max-width:88%}
+  .tl-event{gap:8px;padding:10px 8px}
+  .tl-time{width:54px;font-size:10px}
+  .tl-thumb{width:64px;height:48px}
+  .id-review-card{display:block}
+  .id-review-photos{margin:10px 0;overflow-x:auto}
+  .id-review-actions{flex-wrap:wrap}
+}
+
+/* ── Mobile responsiveness for components added 2026-05-24 ────────
+   Plan tiles, org/billing stats wrappers, issues layout, panel
+   header — none of these existed when the earlier breakpoints were
+   authored, so they get their own pass here. P2.10 from the audit. */
+@media(max-width:768px){
+  /* Stats wrappers used by Billing, Org Overview, Members, Org
+     Settings: 4-tile flex row → 2-column grid; border-right on tile
+     becomes a bottom hairline so the stacked layout still reads as
+     separated cells. */
+  .billing-stats,.org-stats{
+    grid-template-columns:1fr 1fr;
+    gap:var(--space-2);
+    padding:var(--space-3) var(--space-3);
+  }
+  .billing-stats .stat-tile,.org-stats .stat-tile{
+    border-right:none;
+    border-bottom:1px solid rgba(255,255,255,0.06);
+    padding-bottom:var(--space-2);
+  }
+  .billing-stats .stat-tile:nth-last-child(-n+2),
+  .org-stats .stat-tile:nth-last-child(-n+2){
+    border-bottom:none;
+    padding-bottom:0;
+  }
+  /* Billing/org wraps shouldn't add their own gutter on top of the
+     container's 12px padding-mobile-fix. */
+  .billing-wrap,.org-wrap{padding:6px 0 20px}
+  /* Plan grid already uses minmax(260px,1fr) so it collapses to one
+     column < 540px viewport, but the "Recommended" ribbon at top-right
+     of the middle tile overflows on a 375-380px viewport with the new
+     padding. Shrink + reposition. */
+  .plan-tile{padding:22px 18px}
+  .plan-ribbon{right:10px;font-size:9px;letter-spacing:0.05em;padding:4px 8px 3px}
+  .plan-amount{font-size:32px}
+  .plan-name{font-size:18px}
+  /* Issues panel — table + side-panel detail need to stack vertically. */
+  .issues-layout{grid-template-columns:1fr !important;gap:12px !important}
+  .issue-detail{position:static;width:100% !important;max-height:none}
+  /* Panel header: hide the decorative glow on phones (it gets cut by
+     the 100vw constraint and looks like an artefact) and tighten
+     spacing. */
+  .panel-glow{display:none}
+  .panel-header{padding:var(--space-4) 0 var(--space-3);margin-bottom:var(--space-3)}
+  .panel-title{font-size:22px;letter-spacing:-0.01em}
+  .panel-lede{line-height:1.5}
+  /* Floating Report-Issue button — keep clickable but smaller, and raised
+     to clear the phone bottom-nav (58px + safe-area + 16px breathing room)
+     instead of sitting flush at the viewport corner. */
+  .flag-fab{bottom:calc(58px + 16px + env(safe-area-inset-bottom)) !important;right:16px !important;padding:10px 14px !important;font-size:12px !important}
+  /* Topbar role badge wraps to a new row instead of squeezing. */
+  .topbar-role{order:99;flex-basis:100%;text-align:center}
+}
+@media(max-width:480px){
+  .billing-stats,.org-stats{grid-template-columns:1fr}
+  .billing-stats .stat-tile,.org-stats .stat-tile{
+    border-bottom:1px solid rgba(255,255,255,0.06);
+    padding-bottom:var(--space-2);
+  }
+  .billing-stats .stat-tile:last-child,
+  .org-stats .stat-tile:last-child{border-bottom:none;padding-bottom:0}
+  .plan-tile{padding:18px 14px}
+  .plan-amount{font-size:28px}
+  .panel-title{font-size:20px}
+  .panel-lede{font-size:12px}
+}
+
+/* Phone demo hardening for the legacy /dashboard route. Keep the
+   primary controls reachable while the teacher scrolls long tables. */
+@media(max-width:768px){
+  .tabs{position:sticky;top:calc(60px + env(safe-area-inset-top));z-index:45;background:var(--bg)}
+  .exam-bar{position:sticky;top:calc(104px + env(safe-area-inset-top));z-index:40;background:var(--card)}
+  .table-wrap table{min-width:720px}
+  .exam-bar .btn{min-height:42px}
+  .toolbar-right .btn,.table-toolbar .btn{min-height:40px}
+}
+@media(max-width:480px){
+  .tabs{top:calc(92px + env(safe-area-inset-top))}
+  .exam-bar{top:calc(136px + env(safe-area-inset-top))}
+  .table-wrap table{min-width:660px}
+}
+
+html,body{overflow-x:hidden;max-width:100vw}
+
+/* ── Mobile touch targets ──────────────────────────────────────────── */
+@media(hover:none) and (pointer:coarse){
+  .tab{padding:12px 18px}
+  .topbar .btn{padding:8px 14px;min-height:38px}
+  .toolbar button{min-height:38px}
+  .search-input{min-height:38px;font-size:16px !important}
+  .filter-select{min-height:38px;font-size:16px !important}
+  .exam-bar select{min-height:38px;font-size:16px !important}
+  .modal input:not([type=checkbox]):not([type=radio]),.modal select{min-height:44px;font-size:16px !important}
+  .modal-box input:not([type=checkbox]):not([type=radio]),.modal-box select,.modal-box textarea{min-height:44px;font-size:16px !important}
+  .modal-card input:not([type=checkbox]):not([type=radio]),.modal-card select,.modal-card textarea{min-height:44px;font-size:16px !important}
+  /* Live table row → "open this session" tap. The row itself is the
+     hit target; ensure the row has enough vertical room and any
+     in-row mini-buttons (intervention warn/pause/etc, view-cam icon)
+     hit the WCAG-recommended 44x44 minimum. */
+  #panel-live .table-wrap tbody tr{cursor:pointer}
+  #panel-live .table-wrap td{padding-top:12px;padding-bottom:12px}
+  #panel-live .row-btn,#panel-live .row-cam-btn,
+  .intervention-bar .btn,.intervention-bar button{
+    min-height:44px;min-width:44px;padding:8px 12px;font-size:13px
+  }
+  /* Camera pop-in modal — when the teacher taps a flagged student to
+     see their camera, the modal needs to fill the phone viewport
+     comfortably and the close button must be tappable. */
+  #liveview-modal .modal{max-width:96vw;max-height:88dvh;padding:12px}
+  #liveview-modal .modal img,#liveview-modal .modal video{
+    max-width:100%;max-height:60vh;object-fit:contain
+  }
+  /* Chat composer on phone — the send button was a thin row before;
+     bump to proper tap height. */
+  .chat-composer button{min-height:44px;padding:10px 16px}
+  .chat-composer textarea{min-height:44px;font-size:16px !important}
+}
+
+/* ── Print ──────────────────────────────────────────────────────── */
+@media print {
+  body { background:#fff !important; color:#000 !important; padding-top:0 !important; }
+  .modal-overlay, .tabs, .topbar, .exam-bar,
+  .btn, .tool-card-actions, #chat-fab, #chat-panel,
+  #practice-banner, [role="dialog"] { display:none !important; }
+  .panel:not(.active) { display:none !important; }
+  table { page-break-inside:auto; }
+  tr { page-break-inside:avoid; page-break-after:auto; }
+  a { color:#000 !important; text-decoration:none; }
+}
+
+
+/* ── Issues panel + HTML dashboard mobile hardening (relocated 2026-07-01) ──
+   Same problem as the "Responsive (relocated)" block above: these mobile
+   rules sat between the Issues-panel and Cosmetic-refinement sections,
+   but the Cosmetic-refinement pass right after them unconditionally
+   redeclared several of the same selectors (.panel-header, .tools-grid,
+   .q-sidebar, .q-aipanel, body, etc.), silently winning by source order
+   despite being a pure visual-polish pass with no responsive intent.
+   Moved here, after the first relocated block, so both mobile passes
+   win over every unconditional redeclaration in between.
+   */
+@media(max-width:900px){
+  .flag-fab{right:16px;bottom:16px}
+  .issues-layout{grid-template-columns:1fr;padding:0 14px 18px}
+  .issue-detail{position:static}
+  .billing-grid,.org-grid,.plans-grid{grid-template-columns:1fr}
+  .billing-wrap,.org-wrap{padding-inline:0}
+  #panel-results .table-wrap{max-height:none}
+}
+
+/* ── HTML dashboard mobile hardening ───────────────────────────────
+   The legacy dashboard is now the primary teacher surface. These
+   overrides keep the existing desktop design intact while making the
+   wrapped topbar, tab rail, exam controls, tables, tools, modals, and
+   questions workspace usable from 320px phones through tablets. */
+.topbar,.tabs,.exam-bar,.container,.panel,.table-toolbar,.toolbar-right,
+.stats-bar,.settings-layout,.tools-grid,.qx-main,.q-content,.q-aipanel,
+.q-sidebar,.chat-wrap,.modal-card,.modal-box{min-width:0}
+.brand-name,.topbar-teacher,.tab,.exam-bar select,.search-input,.filter-select{
+  min-width:0;
+}
+.table-wrap{max-width:100%;overscroll-behavior-x:contain}
+.table-wrap table{width:100%}
+.tabs{overflow-x:auto;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity}
+.tabs::-webkit-scrollbar{display:none}
+.tab{scroll-snap-align:start}
+
+@media(max-width:900px){
+  .container{max-width:100vw}
+  .topbar-status{display:none}
+  .topbar-actions{gap:10px}
+  .exam-bar{gap:10px}
+  .exam-bar select{flex:1 1 260px}
+  .tools-grid{grid-template-columns:minmax(0,1fr)}
+  .tool-card-actions{display:flex;flex-wrap:wrap;gap:8px}
+  .tool-card-actions .btn{flex:1 1 150px;justify-content:center}
+  .settings-nav{scroll-snap-type:x proximity}
+  .settings-nav-item{scroll-snap-align:start}
+  .qx-toolbar-top{align-items:stretch}
+  .qx-toolbar-top > input,
+  .qx-toolbar-top > label{flex:1 1 180px;min-width:0}
+  .qx-toolbar-top .btn{flex:1 1 110px;justify-content:center}
+  .q-content-toolbar{position:static;flex-wrap:wrap;padding:10px 12px}
+  .q-content-toolbar .toolbar-spacer{display:none}
+  .q-content-toolbar .qct-btn{flex:1 1 130px;justify-content:center}
+  .q-content-scroll{padding:14px 0}
+  .q-sidebar,.q-aipanel{position:static;top:auto;max-height:none}
+  .q-sidebar{border:1px solid var(--border-subtle);border-radius:var(--radius-md)}
+  .q-list-wrap{max-height:240px}
+}
+
+@media(max-width:768px){
+  body{min-height:100dvh}
+  .topbar{position:sticky;top:0;z-index:70;align-items:flex-start}
+  /* The earlier mobile pass stacked topbar + tabs + exam-bar with
+     fixed top offsets. Once the topbar wraps, those offsets overlap;
+     keep only the topbar sticky and let the controls scroll naturally. */
+  .tabs,.exam-bar{position:relative;top:auto;z-index:auto}
+  .tabs{padding:0 8px;background:var(--bg);border-bottom:1px solid var(--border)}
+  .tab{padding:12px 14px;font-size:12px;min-height:44px}
+  .topbar{padding:10px 12px;gap:10px}
+  .topbar-brand{max-width:100%;flex:1 1 auto}
+  .brand-name{font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .topbar-actions{width:100%;justify-content:flex-start;gap:8px}
+  .theme-switch{order:0}
+  .topbar-teacher{max-width:42vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .topbar-role{flex-basis:auto;order:0}
+  .topbar .btn{min-height:40px}
+  .topbar .topbar-help{width:40px;height:40px}
+  .exam-bar{display:grid;grid-template-columns:1fr 1fr;padding:10px 12px}
+  .exam-bar .exam-label,.exam-bar select,.exam-bar .exam-count{
+    grid-column:1 / -1;width:100%;
+  }
+  .exam-bar select{min-height:44px;font-size:16px}
+  .exam-bar .btn{width:100%;justify-content:center}
+  .container{padding:10px 12px 84px}
+  .panel-header{align-items:flex-start}
+  .panel-title{font-size:clamp(22px,7vw,28px);line-height:1.1}
+  .panel-lede{max-width:100%;line-height:1.55}
+  .panel-status{align-self:flex-start}
+  .stats-bar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0;overflow:visible}
+  .stat-tile{min-width:0;border-right:0;border-bottom:1px solid var(--border-subtle)}
+  .stat-tile:nth-last-child(-n+2){border-bottom:0}
+  .table-toolbar{border-radius:var(--radius-lg);gap:10px}
+  .search-wrap,.filter-select,.teacher-filter{width:100%;max-width:100%}
+  .toolbar-right{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .toolbar-right .btn,.table-toolbar .btn{width:100%;min-width:0}
+  .table-wrap{border-radius:var(--radius-lg);margin-inline:0}
+  .table-wrap table{min-width:720px}
+  .modal-overlay,.modal-bg{align-items:flex-end;padding:10px}
+  .modal,.modal-card,.modal-box{
+    width:100%;max-width:100%;max-height:calc(100dvh - 20px);
+    border-radius:16px 16px 0 0;
+  }
+  .modal-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .modal-actions .btn,.modal-actions button,.modal-btn{width:100%;justify-content:center}
+  #alert-toast-container{
+    top:auto;left:10px;right:10px;bottom:calc(78px + env(safe-area-inset-bottom));
+    width:auto;
+  }
+  .live-alert-toast{padding:10px 12px;border-radius:12px}
+  /* bottom raised to clear the new phone bottom-nav (58px + safe-area +
+     12px breathing room) — it used to sit flush at the viewport corner,
+     which the nav bar now occupies. */
+  .flag-fab{right:12px !important;bottom:calc(58px + 12px + env(safe-area-inset-bottom)) !important;max-width:calc(100vw - 24px)}
+}
+
+@media(max-width:560px){
+  .topbar-actions{display:grid;grid-template-columns:auto auto auto 1fr;align-items:center}
+  .topbar-teacher{grid-column:1 / -1;max-width:100%;padding:2px 0}
+  .topbar-role{justify-self:start}
+  #topbar-trial-badge{justify-self:start}
+  .topbar-logout{justify-self:end}
+  .exam-bar{grid-template-columns:1fr}
+  .stats-bar{grid-template-columns:1fr 1fr}
+  .stat-tile:nth-last-child(-n+2){border-bottom:1px solid var(--border-subtle)}
+  .stat-tile:last-child{border-bottom:0}
+  .toolbar-right{grid-template-columns:1fr}
+  .table-wrap table{min-width:660px}
+  .chat-thread{height:auto;min-height:420px}
+  .settings-content{min-width:0}
+  .tool-card{padding:16px}
+  .tool-card-actions .btn{flex-basis:100%}
+  .qx-toolbar-top{display:grid;grid-template-columns:1fr;gap:8px}
+  .qx-toolbar-top > input,
+  .qx-toolbar-top > label,
+  .qx-toolbar-top .btn{width:100%;min-width:0}
+  .q-sidebar-header{padding:12px}
+  .q-sidebar-filter{padding:8px 12px}
+  .q-content-toolbar{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .q-content-toolbar .qct-btn{width:100%;min-width:0}
+  .q-aipanel-body{padding:12px}
+}
+
+@media(max-width:380px){
+  .topbar-actions{grid-template-columns:auto auto 1fr}
+  .topbar .btn:not(.topbar-help):not(.topbar-logout){padding-inline:10px}
+  .topbar-logout{grid-column:3;min-width:0;padding-inline:10px}
+  .tab{padding-inline:12px}
+  .container{padding-inline:8px}
+  .stats-bar{grid-template-columns:1fr}
+  .stat-tile{border-bottom:1px solid var(--border-subtle)}
+  .stat-tile:last-child{border-bottom:0}
+  .modal-actions{grid-template-columns:1fr}
+}

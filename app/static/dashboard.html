@@ -599,6 +599,11 @@
         <tbody id="live-body"></tbody>
       </table>
     </div>
+    <!-- Phone card equivalent of the table above — renderLive() populates
+         both from the same computed row data (dashboard-app.js), CSS shows
+         exactly one via the generic .mcard-list/table-wrap breakpoint pair
+         (see "Table <-> cards" component block in dashboard.css). -->
+    <div class="mcard-list" id="live-cards"></div>
     <!-- Recent Activity (Historical Log) — recently ENDED sessions, newest first.
          Live shows in-progress only; this fills the "what just happened" gap. -->
     <div style="margin-top:16px;border-top:1px solid var(--border-subtle,rgba(255,255,255,.08));padding-top:12px">
@@ -674,6 +679,7 @@
         <tbody id="results-body"></tbody>
       </table>
     </div>
+    <div class="mcard-list" id="results-cards"></div>
     <div id="post-exam-cta" style="display:none;margin-top:14px;padding:14px 18px;background:var(--accent-bg);border:1px solid var(--accent);border-radius:var(--radius-md);font-size:13px;color:var(--accent-fg);text-align:center">
       🎉 First exam results ready! <a href="#" data-action="showUpgradeModal" data-args='["You’ve outgrown the Starter plan. Unlock more students and features."]' style="color:var(--accent-light);font-weight:600">Upgrade your plan</a> to register more students and unlock higher limits.
     </div>
@@ -730,6 +736,7 @@
          <tbody id="history-body"></tbody>
        </table>
      </div>
+     <div class="mcard-list" id="history-cards"></div>
      <!-- Detail view: drill-down into a single student's full history -->
      <div id="history-detail" style="display:none;margin-top:20px">
        <div class="stats-bar" id="history-detail-stats"></div>
@@ -752,6 +759,7 @@
            <tbody id="history-detail-body"></tbody>
          </table>
        </div>
+       <div class="mcard-list" id="history-detail-cards"></div>
      </div>
    </div>
 
@@ -2278,7 +2286,7 @@
         <span id="profile-name-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="profile-grid-2col">
       <div class="tool-card">
         <div class="tool-card-body">
           <h3>Password</h3>
@@ -2323,7 +2331,7 @@
         <p class="panel-lede">Your account security — 2FA, sessions, audit log, password change.</p>
       </div>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+    <div class="profile-grid-2col">
       <!-- 2FA card — email-OTP (replaced TOTP/Google Authenticator 2026-05-23) -->
       <div class="tool-card">
         <div class="tool-card-body">

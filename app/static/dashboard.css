@@ -470,6 +470,14 @@ tr:hover td{background:rgba(61,217,168,.04)}
     height:calc(100vh - 260px);min-height:420px}
   .topbar-status{display:none}
 }
+/* Profile + Security tabs' 2-column card grids (was inline
+   style="display:grid;grid-template-columns:1fr 1fr" — moved to a class
+   so the phone override below can actually win; an inline style attribute
+   outranks any non-!important stylesheet rule). */
+.profile-grid-2col{ display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+@media(max-width:768px){
+  .profile-grid-2col{ grid-template-columns:1fr; }
+}
 @media(max-width:768px){
   /* Bottom nav replaces the horizontal tab strip on phones — see the
      "Bottom nav + More sheet" component block above for the nav itself. */
@@ -2378,3 +2386,30 @@ body:has(.more-sheet.open) .flag-fab{ display:none; }
   .bottom-nav{ display:none; }
   .more-sheet{ display:none !important; }
 }
+
+/* ── Table <-> cards (phone only, <769px) ────────────────────────────────
+   Generic component reused by every dense data table (Live, Results,
+   History, Members, All Orgs, Issues, ...): the render function for that
+   table populates BOTH the <table> AND a sibling .mcard-list from the same
+   computed row data (see renderLive() for the reference implementation —
+   row values and action buttons are computed once, then used to build both
+   markups, so they can't drift out of sync). CSS shows exactly one via this
+   breakpoint pair, matching the .table-wrap/.mcard-list sibling structure. */
+.mcard-list{ display:none; flex-direction:column; gap:10px; }
+@media(max-width:768px){
+  .table-wrap{ display:none; }
+  .mcard-list{ display:flex; }
+}
+.mcard{
+  background:var(--surface-1); border:1px solid var(--border-subtle);
+  border-radius:var(--radius-lg); padding:14px;
+  display:flex; flex-direction:column; gap:8px;
+}
+.mcard-top{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.mcard-id{ font-family:var(--font-mono); font-size:12px; color:var(--text-high); font-weight:600; }
+.mcard-row{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; font-size:13px; color:var(--text); }
+.mcard-k{ color:var(--text-muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+.mcard-meta{ margin-left:auto; color:var(--text-muted); font-size:12px; }
+.mcard-actions{ display:flex; flex-wrap:wrap; gap:6px; padding-top:6px; border-top:1px solid var(--border-subtle); }
+.mcard-actions .btn{ flex:1 1 auto; }
+.mcard-empty{ text-align:center; color:var(--text-muted); padding:24px 12px; font-size:13px; }

@@ -2711,11 +2711,15 @@ function renderLive(){
     const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : va.localeCompare(vb);
     return liveSortAsc ? cmp : -cmp;
   });
+  const cardsWrap = document.getElementById('live-cards');
   if(!rows.length){
     body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:18px">No live sessions found.</td></tr>';
+    if(cardsWrap) cardsWrap.innerHTML = '<div class="mcard-empty">No live sessions found.</div>';
     return;
   }
-  body.innerHTML = rows.map(s => {
+  const tableRows = [];
+  const cards = [];
+  rows.forEach(s => {
     const sid = s.session_id || s.session_key || '';
     const risk = s.risk_score == null ? '--' : String(s.risk_score);
     const isPaused    = s.live_state === 'paused';
@@ -2745,24 +2749,46 @@ function renderLive(){
           ? `<button class="btn btn-secondary btn-sm" title="Resume exam" data-action="confirmResumeSession" data-args='${_jsonArgsForAttr(sid)}' style="color:var(--emerald)">▶</button>`
           : `<button class="btn btn-secondary btn-sm" title="Pause exam"  data-action="confirmPauseSession"  data-args='${_jsonArgsForAttr(sid)}'>⏸</button>`}
         <button class="btn btn-secondary btn-sm" title="End exam (with reason)" data-action="confirmEndSession" data-args='${_jsonArgsForAttr(sid)}' style="color:var(--red)">⛔</button>`;
-    return `<tr data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}' style="cursor:pointer">
-      <td><span style="font-family:var(--font-mono);font-size:11px">${_escHtml(sid)}</span>${_proctorBadge(s)}</td>
-      <td>${_escHtml((s.last_event || '--').replace(/_/g,' '))}</td>
-      <td><span class="sev ${escAttr(String(s.last_severity || 'low').toLowerCase())}">${_escHtml(s.last_severity || '--')}</span></td>
-      <td><span class="badge">${_escHtml(risk)}</span></td>
-      <td>${_calBadge(s.calibration)}</td>
-      <td>${_escHtml(s.last_seen || (s.heartbeat_age_sec != null ? `${s.heartbeat_age_sec}s ago` : '--'))}</td>
-      <td>${isPaused ? `<span class="badge" style="background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.5)">${_escHtml(state)}</span>` : _escHtml(state)}</td>
-      <td>
+    // Same action set on both the table row and the phone card — computed
+    // once above so the two markups can never drift out of sync.
+    const actionsHtml = `
         <button class="btn btn-secondary btn-sm" data-action="openTriage" data-args='${_jsonArgsForAttr(sid)}'>Insight</button>
         <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>
         ${isSubmitted ? '' : `<button class="btn btn-secondary btn-sm" title="Watch the student's live webcam" data-action="openLiveView" data-args='${_jsonArgsForAttr(sid)}'>📷 Camera</button>`}
         ${roomCamBtn}
         ${interventionBtns}
-        ${isResettable ? `<button class="btn btn-secondary btn-sm" title="Re-open this session so the student can re-enter (e.g. after a disconnection)" data-action="confirmResetSession" data-args='${_jsonArgsForAttr(sid)}' style="color:var(--emerald)">↺ Reset</button>` : ''}
-      </td>
-    </tr>`;
-  }).join('');
+        ${isResettable ? `<button class="btn btn-secondary btn-sm" title="Re-open this session so the student can re-enter (e.g. after a disconnection)" data-action="confirmResetSession" data-args='${_jsonArgsForAttr(sid)}' style="color:var(--emerald)">↺ Reset</button>` : ''}`;
+    const stateHtml = isPaused ? `<span class="badge" style="background:rgba(245,158,11,.18);color:#fbbf24;border:1px solid rgba(245,158,11,.5)">${_escHtml(state)}</span>` : _escHtml(state);
+    const lastSeenHtml = _escHtml(s.last_seen || (s.heartbeat_age_sec != null ? `${s.heartbeat_age_sec}s ago` : '--'));
+
+    tableRows.push(`<tr data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}' style="cursor:pointer">
+      <td><span style="font-family:var(--font-mono);font-size:11px">${_escHtml(sid)}</span>${_proctorBadge(s)}</td>
+      <td>${_escHtml((s.last_event || '--').replace(/_/g,' '))}</td>
+      <td><span class="sev ${escAttr(String(s.last_severity || 'low').toLowerCase())}">${_escHtml(s.last_severity || '--')}</span></td>
+      <td><span class="badge">${_escHtml(risk)}</span></td>
+      <td>${_calBadge(s.calibration)}</td>
+      <td>${lastSeenHtml}</td>
+      <td>${stateHtml}</td>
+      <td>${actionsHtml}</td>
+    </tr>`);
+
+    cards.push(`<div class="mcard">
+      <div class="mcard-top">
+        <span class="mcard-id">${_escHtml(sid)}</span>${_proctorBadge(s)}
+        ${stateHtml}
+      </div>
+      <div class="mcard-row"><span class="mcard-k">Last event</span><span>${_escHtml((s.last_event || '--').replace(/_/g,' '))}</span></div>
+      <div class="mcard-row">
+        <span class="sev ${escAttr(String(s.last_severity || 'low').toLowerCase())}">${_escHtml(s.last_severity || '--')}</span>
+        <span class="badge">Risk ${_escHtml(risk)}</span>
+        ${_calBadge(s.calibration)}
+        <span class="mcard-meta">${lastSeenHtml}</span>
+      </div>
+      <div class="mcard-actions">${actionsHtml}</div>
+    </div>`);
+  });
+  body.innerHTML = tableRows.join('');
+  if(cardsWrap) cardsWrap.innerHTML = cards.join('');
 }
 
 // ── Phase 74 — live teacher intervention handlers ────────────────
@@ -3037,13 +3063,22 @@ function renderResults(){
     const cmp = (typeof va === 'number' && typeof vb === 'number') ? va - vb : va.localeCompare(vb);
     return resSortAsc ? cmp : -cmp;
   });
+  const cardsWrap = document.getElementById('results-cards');
   if(!rows.length){
     body.innerHTML = '<tr><td colspan="10" style="text-align:center;color:var(--text-muted);padding:18px">No results found.</td></tr>';
+    if(cardsWrap) cardsWrap.innerHTML = '<div class="mcard-empty">No results found.</div>';
     return;
   }
-  body.innerHTML = rows.map(r => {
+  const tableRows = [];
+  const cards = [];
+  rows.forEach(r => {
     const sid = r.session_id || r.session_key || '';
-    return `<tr data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}' style="cursor:pointer">
+    const actionsHtml = `
+        <button class="btn btn-secondary btn-sm" title="Branded result summary — share with the student / institution" data-action="dlScorecard" data-args='${_jsonArgsForAttr(sid)}'>Scorecard</button>
+        <button class="btn btn-secondary btn-sm" title="Full proctoring evidence log — per-event violations, confidence + screenshots, for review &amp; appeals" data-action="dlPDF" data-args='${_jsonArgsForAttr(sid)}'>Audit Report</button>
+        <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>`;
+
+    tableRows.push(`<tr data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}' style="cursor:pointer">
       <td>${_escHtml(r.roll_number || '--')}</td>
       <td>${_escHtml(r.full_name || '--')}</td>
       <td>${_escHtml(r.score ?? '--')} / ${_escHtml(r.total ?? '--')}</td>
@@ -3053,13 +3088,27 @@ function renderResults(){
       <td>${_calBadge(r.calibration)}</td>
       <td>${_fmtDuration(r.time_taken_secs || 0)}</td>
       <td>${_escHtml(r.submitted_at || '--')}</td>
-      <td>
-        <button class="btn btn-secondary btn-sm" title="Branded result summary — share with the student / institution" data-action="dlScorecard" data-args='${_jsonArgsForAttr(sid)}'>Scorecard</button>
-        <button class="btn btn-secondary btn-sm" title="Full proctoring evidence log — per-event violations, confidence + screenshots, for review &amp; appeals" data-action="dlPDF" data-args='${_jsonArgsForAttr(sid)}'>Audit Report</button>
-        <button class="btn btn-secondary btn-sm" data-action="openTimelineForSession" data-args='${_jsonArgsForAttr(sid)}'>Timeline</button>
-      </td>
-    </tr>`;
-  }).join('');
+      <td>${actionsHtml}</td>
+    </tr>`);
+
+    cards.push(`<div class="mcard">
+      <div class="mcard-top">
+        <span class="mcard-id">${_escHtml(r.roll_number || '--')} · ${_escHtml(r.full_name || '--')}</span>
+      </div>
+      <div class="mcard-row">
+        <span class="badge">${_escHtml(r.score ?? '--')}/${_escHtml(r.total ?? '--')} (${_escHtml(r.percentage ?? '--')}%)</span>
+        ${_riskBadge(r.risk_score)}
+        ${_calBadge(r.calibration)}
+      </div>
+      <div class="mcard-row">
+        <span class="mcard-k">Violations</span><span>${_escHtml(r.violation_count ?? 0)}</span>
+        <span class="mcard-meta">${_fmtDuration(r.time_taken_secs || 0)} · ${_escHtml(r.submitted_at || '--')}</span>
+      </div>
+      <div class="mcard-actions">${actionsHtml}</div>
+    </div>`);
+  });
+  body.innerHTML = tableRows.join('');
+  if(cardsWrap) cardsWrap.innerHTML = cards.join('');
 }
 
 function filterResults(){
@@ -9659,18 +9708,23 @@ async function loadHistoryBatches(){
 
 function renderHistoryList(){
   const body = document.getElementById('history-body');
+  const cardsWrap = document.getElementById('history-cards');
   if(!historyStudents.length){
     body.innerHTML = '<tr><td colspan="9" class="empty-state">No students found</td></tr>';
+    if(cardsWrap) cardsWrap.innerHTML = '<div class="mcard-empty">No students found.</div>';
     return;
   }
-    body.innerHTML = historyStudents.map(s=>{
+  const tableRows = [];
+  const cards = [];
+  historyStudents.forEach(s=>{
     const riskBadge = s.last_exam_risk != null ? _riskBadge(s.last_exam_risk) : '—';
     const guardianHtml = _guardianBadge(s);
     const actionHtml = guardianHtml.actionBtn
       ? `<button class="btn btn-secondary btn-sm" data-action="sendGuardianConsent" data-args='${_jsonArgsForAttr(s.roll_number)}'>${guardianHtml.actionBtn}</button>
          <button class="btn btn-primary btn-sm" data-action="viewStudentHistory" data-args='${_jsonArgsForAttr(s.roll_number)}'>View History</button>`
       : `<button class="btn btn-primary btn-sm" data-action="viewStudentHistory" data-args='${_jsonArgsForAttr(s.roll_number)}'>View History</button>`;
-    return `<tr>
+
+    tableRows.push(`<tr>
       <td style="font-family:var(--font-mono);font-size:13px">${_escHtml(s.roll_number)}</td>
       <td>${_escHtml(s.full_name)}</td>
       <td>${s.batch ? `<span class="badge">${_escHtml(s.batch)}</span>` : '<span style="color:var(--muted)">—</span>'}</td>
@@ -9680,8 +9734,27 @@ function renderHistoryList(){
       <td style="font-size:13px;color:var(--muted)">${_escHtml(s.last_exam_date || '—')}</td>
       <td style="font-size:13px">${guardianHtml.badge}</td>
       <td style="white-space:nowrap">${actionHtml}</td>
-    </tr>`;
-  }).join('');
+    </tr>`);
+
+    cards.push(`<div class="mcard">
+      <div class="mcard-top">
+        <span class="mcard-id">${_escHtml(s.roll_number)} · ${_escHtml(s.full_name)}</span>
+        ${s.batch ? `<span class="badge">${_escHtml(s.batch)}</span>` : ''}
+      </div>
+      <div class="mcard-row">
+        <span class="mcard-k">Exams</span><span>${s.total_exams}</span>
+        <span class="mcard-k">Avg</span><span>${s.avg_percentage != null ? s.avg_percentage+'%' : '—'}</span>
+        ${riskBadge}
+      </div>
+      <div class="mcard-row">
+        <span class="mcard-k">Last exam</span><span>${_escHtml(s.last_exam_date || '—')}</span>
+        <span class="mcard-meta">Guardian: ${guardianHtml.badge}</span>
+      </div>
+      <div class="mcard-actions">${actionHtml}</div>
+    </div>`);
+  });
+  body.innerHTML = tableRows.join('');
+  if(cardsWrap) cardsWrap.innerHTML = cards.join('');
 }
 
 function sortHistory(key){
@@ -9772,8 +9845,9 @@ async function viewStudentHistory(roll){
     historyDetailData = await r.json();
     renderHistoryDetail();
     document.getElementById('history-detail').style.display='';
-    // Hide the student list table while showing detail
+    // Hide the student list (table on desktop, cards on phone) while showing detail
     document.querySelector('#panel-history .table-wrap').style.display='none';
+    document.getElementById('history-cards').style.display='none';
     document.querySelector('#panel-history .table-toolbar').style.display='none';
   }catch(e){
     showModal('Failed to load history: '+e.message);
@@ -9800,15 +9874,21 @@ function renderHistoryDetail(){
   `;
 
   const body = document.getElementById('history-detail-body');
+  const cardsWrap = document.getElementById('history-detail-cards');
   if(!d.history.length){
     body.innerHTML = '<tr><td colspan="9" class="empty-state">No completed exams</td></tr>';
+    if(cardsWrap) cardsWrap.innerHTML = '<div class="mcard-empty">No completed exams.</div>';
     return;
   }
-  body.innerHTML = d.history.map(h=>{
+  const tableRows = [];
+  const cards = [];
+  d.history.forEach(h=>{
     const behavList = h.behavioral_patterns.length ? h.behavioral_patterns.map(p=>'<span class="badge" style="background:rgba(220,38,38,0.15);color:var(--red);font-size:10px">'+_escHtml(p.replace(/_/g,' '))+'</span>').join(' ') : '<span style="color:var(--muted)">None</span>';
     const riskStr = h.risk_score != null ? _riskBadge(h.risk_score) : '—';
     const highlights = Array.isArray(h.summary && h.summary.highlights) ? h.summary.highlights : [];
-    return `<tr>
+    const hasSummary = highlights.length; // matches original table behavior exactly
+
+    tableRows.push(`<tr>
       <td>
         <div style="font-weight:600">${_escHtml(h.exam_title||'Exam')}</div>
         <div style="font-size:11px;color:var(--muted);font-family:var(--font-mono)">${_escHtml(h.session_id.slice(0,24))}…</div>
@@ -9821,17 +9901,67 @@ function renderHistoryDetail(){
       <td style="font-size:13px">${_fmtDuration(h.time_taken_secs)}</td>
       <td style="font-size:13px;color:var(--muted)">${_escHtml(h.submitted_at)}</td>
       <td>
-        ${highlights.length?`<button class="btn btn-secondary btn-sm" data-action="toggleHistorySummary" data-args='${_jsonArgsForAttr(h.session_id)}' id="summary-btn-${_escHtml(h.session_id)}" title="View AI-generated activity summary">Summary</button>`:''}
+        ${hasSummary?`<button class="btn btn-secondary btn-sm" data-action="toggleHistorySummary" data-args='${_jsonArgsForAttr(h.session_id)}' id="summary-btn-${_escHtml(h.session_id)}" title="View AI-generated activity summary">Summary</button>`:''}
         <button class="btn btn-secondary btn-sm" data-action="viewSessionTimeline" data-args='${_jsonArgsForAttr(h.session_id)}'>Timeline</button>
       </td>
-    </tr>`;
-  }).join('');
+    </tr>`);
+
+    // Same Summary content as the table row's toggleHistorySummary(), but
+    // that function inserts a <tr> after the row — invalid outside a
+    // <table>, so the card gets its own toggle (toggleHistorySummaryCard)
+    // that expands a plain <div> instead.
+    cards.push(`<div class="mcard">
+      <div class="mcard-top">
+        <span class="mcard-id">${_escHtml(h.exam_title||'Exam')}</span>
+        <span style="font-weight:600;color:${h.percentage>=40?'var(--emerald)':'var(--red)'}">${h.percentage}%</span>
+      </div>
+      <div class="mcard-row">
+        <span class="badge">${h.score}/${h.total}</span>
+        ${riskStr}
+        <span class="mcard-k">Violations</span><span>${h.violation_count}</span>
+      </div>
+      <div class="mcard-row">${behavList}</div>
+      <div class="mcard-row">
+        <span class="mcard-k">Time</span><span>${_fmtDuration(h.time_taken_secs)}</span>
+        <span class="mcard-meta">${_escHtml(h.submitted_at)}</span>
+      </div>
+      <div id="summary-card-${_escHtml(h.session_id)}"></div>
+      <div class="mcard-actions">
+        ${hasSummary?`<button class="btn btn-secondary btn-sm" data-action="toggleHistorySummaryCard" data-args='${_jsonArgsForAttr(h.session_id)}' title="View AI-generated activity summary">Summary</button>`:''}
+        <button class="btn btn-secondary btn-sm" data-action="viewSessionTimeline" data-args='${_jsonArgsForAttr(h.session_id)}'>Timeline</button>
+      </div>
+    </div>`);
+  });
+  body.innerHTML = tableRows.join('');
+  if(cardsWrap) cardsWrap.innerHTML = cards.join('');
+}
+
+function toggleHistorySummaryCard(sessionId){
+  const holder = document.getElementById('summary-card-'+sessionId);
+  if(!holder) return;
+  if(holder.innerHTML){ holder.innerHTML = ''; return; }
+  const h = (historyDetailData.history||[]).find(x=>x.session_id===sessionId);
+  if(!h||!h.summary) return;
+  const s = h.summary;
+  const highlights = Array.isArray(s.highlights) ? s.highlights : [];
+  const sevColors={clean:'var(--emerald)',minor:'var(--amber)',concerning:'var(--red)',critical:'var(--red)'};
+  const sevBg={clean:'rgba(16,185,129,0.15)',minor:'rgba(245,158,11,0.15)',concerning:'rgba(220,38,38,0.15)',critical:'rgba(220,38,38,0.25)'};
+  const sev = s.severity||'clean';
+  holder.innerHTML = `<div style="padding:10px 0;border-top:1px solid var(--border-subtle)">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+      <span style="font-weight:600;font-size:13px">Activity Summary</span>
+      <span class="badge" style="background:${sevBg[sev]};color:${sevColors[sev]}">${sev.charAt(0).toUpperCase()+sev.slice(1)}</span>
+    </div>
+    <div style="font-size:12px;line-height:1.7;color:var(--text-secondary);white-space:pre-line;margin-bottom:8px">${_escHtml(s.narrative)}</div>
+    ${highlights.length?'<div style="font-size:12px">'+highlights.map(h=>'<div style="padding:2px 0 2px 16px;position:relative"><span style="position:absolute;left:0;color:'+sevColors[sev]+'">●</span>'+_escHtml(h)+'</div>').join('')+'</div>':''}
+  </div>`;
 }
 
 function closeHistoryDetail(){
   historyDetailData = null;
   document.getElementById('history-detail').style.display='none';
   document.querySelector('#panel-history .table-wrap').style.display='';
+  document.getElementById('history-cards').style.display='';
   document.querySelector('#panel-history .table-toolbar').style.display='';
 }
 

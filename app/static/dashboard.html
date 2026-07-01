@@ -370,6 +370,85 @@
   <button type="button" class="tab"        data-tab="profile"    role="tab" aria-selected="false" data-action="switchTab" data-args='["profile"]'  data-roles="teacher admin superadmin">Profile</button>
 </div>
 
+<!-- BOTTOM NAV — phone-only (<768px, matches this file's existing phone
+     breakpoint; the desktop left-rail sidebar at ≥1025px and the sticky
+     horizontal tabs at 769–1024px, both above, are untouched). Reuses the
+     exact same .tab class + data-tab/data-action/data-args/data-roles/
+     data-hide-for-admin/data-billing-owner attributes as the sidebar
+     buttons above, so switchTab()'s existing active-state sync and
+     applyOrgRole()'s existing role-gating both work on these with zero JS
+     changes — only new CSS (to restyle .tab within .bottom-nav) and the
+     tiny openMoreSheet/closeMoreSheet pair below were needed. -->
+<nav class="bottom-nav" aria-label="Dashboard sections (mobile)">
+  <button type="button" class="tab" data-tab="live" data-action="switchTabLiveClearBadge" data-roles="teacher admin">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+    <span>Live</span>
+    <span class="tab-badge bottom-nav-badge" id="live-alert-badge-mobile" style="display:none;background:var(--red);color:#fff">0</span>
+  </button>
+  <button type="button" class="tab" data-tab="results" data-action="switchTab" data-args='["results"]' data-roles="teacher admin">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    <span>Results</span>
+  </button>
+  <button type="button" class="tab" data-tab="history" data-action="switchTab" data-args='["history"]' data-roles="teacher admin">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+    <span>History</span>
+  </button>
+  <button type="button" class="tab" data-tab="chat" data-action="switchTab" data-args='["chat"]' data-roles="teacher" data-hide-for-admin>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+    <span>Chat</span>
+    <span class="tab-badge bottom-nav-badge" id="chat-tab-badge-mobile" style="display:none">0</span>
+  </button>
+  <button type="button" class="tab" data-tab="profile" data-action="switchTab" data-args='["profile"]' data-roles="teacher admin superadmin">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+    <span>Profile</span>
+  </button>
+  <button type="button" class="bottom-nav-more" data-action="openMoreSheet" aria-haspopup="true" aria-expanded="false" aria-controls="more-sheet">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+    <span>More</span>
+  </button>
+</nav>
+
+<!-- MORE SHEET — phone-only, opened by the bottom-nav "More" button.
+     Full-screen list of every destination NOT in the 5-slot bottom nav,
+     grouped by section. Items reuse data-action="switchTab" verbatim (same
+     as the sidebar tabs), so no new tab-switching JS was needed — a small
+     click listener on #more-sheet-panel (dashboard-app.js) just also closes
+     the sheet after any item is picked. Role-gating (data-roles /
+     data-hide-for-admin / data-billing-owner) is identical to the sidebar
+     tabs for the same reason: applyOrgRole() already targets these
+     attributes generically, not a specific element class. -->
+<div class="more-sheet" id="more-sheet">
+  <div class="more-sheet-backdrop" data-action="closeMoreSheet"></div>
+  <div class="more-sheet-panel" id="more-sheet-panel" role="dialog" aria-modal="true" aria-label="More sections">
+    <div class="more-sheet-header">
+      <h2>More</h2>
+      <button type="button" class="more-sheet-close" data-action="closeMoreSheet" aria-label="Close">✕</button>
+    </div>
+    <div class="more-sheet-group">
+      <h3>Teaching tools</h3>
+      <button type="button" class="tab more-sheet-item" data-tab="analytics" data-action="switchTab" data-args='["analytics"]' data-roles="teacher admin">Analytics</button>
+      <button type="button" class="tab more-sheet-item" data-tab="questions" data-action="switchTab" data-args='["questions"]' data-roles="teacher" data-hide-for-admin>Questions</button>
+      <button type="button" class="tab more-sheet-item" data-tab="tools" data-action="switchTab" data-args='["tools"]' data-roles="teacher" data-hide-for-admin>Tools</button>
+      <button type="button" class="tab more-sheet-item" data-tab="review" data-action="switchTab" data-args='["review"]' data-roles="teacher admin" data-hide-for-admin style="display:none">Review<span class="tab-badge" id="appeals-pending-badge-mobile" style="display:none;background:var(--amber);color:#000">0</span></button>
+    </div>
+    <div class="more-sheet-group">
+      <h3>Organization</h3>
+      <button type="button" class="tab more-sheet-item" data-tab="org" data-action="switchTab" data-args='["org"]' data-roles="admin" style="display:none">Org Overview</button>
+      <button type="button" class="tab more-sheet-item" data-tab="members" data-action="switchTab" data-args='["members"]' data-roles="admin" style="display:none">Members</button>
+      <button type="button" class="tab more-sheet-item" data-tab="billing" data-action="switchTab" data-args='["billing"]' data-billing-owner="1" style="display:none">Billing</button>
+      <button type="button" class="tab more-sheet-item" data-tab="org-settings" data-action="switchTab" data-args='["org-settings"]' data-roles="admin" style="display:none">Org Settings</button>
+      <button type="button" class="tab more-sheet-item" data-tab="security" data-action="switchTab" data-args='["security"]' data-roles="admin" style="display:none">Security</button>
+    </div>
+    <div class="more-sheet-group">
+      <h3>Platform</h3>
+      <button type="button" class="tab more-sheet-item" data-tab="privacy" data-action="switchTab" data-args='["privacy"]' data-roles="superadmin" style="display:none">Privacy</button>
+      <button type="button" class="tab more-sheet-item" data-tab="all-orgs" data-action="switchTab" data-args='["all-orgs"]' data-roles="superadmin" style="display:none">All Orgs</button>
+      <button type="button" class="tab more-sheet-item" data-tab="issues" data-action="switchTab" data-args='["issues"]' data-roles="superadmin" style="display:none">Issues<span class="tab-badge" id="issues-open-badge-mobile" style="display:none;background:var(--amber);color:#000">0</span></button>
+      <button type="button" class="tab more-sheet-item" data-tab="debug" data-action="switchTab" data-args='["debug"]' data-roles="superadmin" style="display:none">Flags</button>
+    </div>
+  </div>
+</div>
+
 <!-- EXAM SELECTOR -->
 <div class="exam-bar" id="exam-bar" data-hide-for-admin style="display:none">
   <span class="exam-label">Exam</span>

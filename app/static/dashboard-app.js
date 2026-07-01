@@ -1057,6 +1057,17 @@ document.addEventListener('DOMContentLoaded', () => {
       switchTab(_tabName);
     }
   }
+
+  // More-sheet items reuse data-action="switchTab" verbatim (see markup
+  // comment in dashboard.html) — this just also closes the sheet after any
+  // item is picked, layered on top of the existing delegated data-action
+  // click handler rather than replacing it.
+  const moreSheetPanel = document.getElementById('more-sheet-panel');
+  if (moreSheetPanel) {
+    moreSheetPanel.addEventListener('click', (e) => {
+      if (e.target.closest('.more-sheet-item')) closeMoreSheet();
+    });
+  }
 });
 
 // Handle browser back/forward for tab history
@@ -1079,6 +1090,18 @@ function _tabButtonForName(tab){
   // non-superadmin (e.g. #tab-all-orgs typed into the URL).
   if(!btn || btn.style.display === 'none') return null;
   return btn;
+}
+
+// ── Bottom-nav "More" sheet (phone-only) ──────────────────────────
+function openMoreSheet(){
+  document.getElementById('more-sheet').classList.add('open');
+  const btn = document.querySelector('.bottom-nav-more');
+  if(btn) btn.setAttribute('aria-expanded', 'true');
+}
+function closeMoreSheet(){
+  document.getElementById('more-sheet').classList.remove('open');
+  const btn = document.querySelector('.bottom-nav-more');
+  if(btn) btn.setAttribute('aria-expanded', 'false');
 }
 
 function switchTab(tab){
@@ -3814,12 +3837,13 @@ async function loadIssues(){
     const d = await r.json().catch(()=>({}));
     if(!r.ok) throw new Error(_detailText(d, `HTTP ${r.status}`));
     issuesData = d.issues || [];
-    const badge = document.getElementById('issues-open-badge');
-    if(badge){
-      const count = d.open_count || 0;
-      badge.textContent = count;
-      badge.style.display = count ? '' : 'none';
-    }
+    const count = d.open_count || 0;
+    [document.getElementById('issues-open-badge'), document.getElementById('issues-open-badge-mobile')].forEach(badge => {
+      if(badge){
+        badge.textContent = count;
+        badge.style.display = count ? '' : 'none';
+      }
+    });
     _populateIssueOrgFilter(issuesData);
     renderIssuesTable();
   }catch(e){
@@ -4256,10 +4280,11 @@ async function dismissCluster(violationType, severity){
 // (t-3s..t-0) for the disputed flag. Media stays teacher-side: the student's own
 // evidence view never returns frames (privacy boundary in appeals.py).
 function _setAppealsBadge(n){
-  const badge = document.getElementById('appeals-pending-badge');
-  if(!badge) return;
-  if(n > 0){ badge.textContent = n; badge.style.display = ''; }
-  else { badge.style.display = 'none'; }
+  [document.getElementById('appeals-pending-badge'), document.getElementById('appeals-pending-badge-mobile')].forEach(badge => {
+    if(!badge) return;
+    if(n > 0){ badge.textContent = n; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
+  });
 }
 
 async function refreshAppealsBadge(){
@@ -7668,9 +7693,11 @@ function sendBroadcast(){
 function chatRecomputeTabBadge(){
   let n=0;
   for(const sid in chatSessions) n += (chatSessions[sid].unread||0);
-  const el = document.getElementById('chat-tab-badge');
-  if(n>0){ el.textContent = n>99?'99+':n; el.style.display=''; }
-  else   { el.textContent = '0'; el.style.display='none'; }
+  [document.getElementById('chat-tab-badge'), document.getElementById('chat-tab-badge-mobile')].forEach(el => {
+    if(!el) return;
+    if(n>0){ el.textContent = n>99?'99+':n; el.style.display=''; }
+    else   { el.textContent = '0'; el.style.display='none'; }
+  });
 }
 function chatBumpTabBadge(){ chatRecomputeTabBadge(); }
 function chatClearTabBadge(){
@@ -10102,11 +10129,15 @@ function _showNextQueuedAlert(){
 
 function handleRealtimeAlert(a){
   _alertCount++;
-  const badge = document.getElementById('live-alert-badge');
-  if(badge){
-    badge.textContent = _alertCount;
-    badge.style.display = _alertMuted ? 'none' : '';
-  }
+  // Mirrors onto the bottom-nav's duplicate badge (mobile) — same counter,
+  // separate DOM node since the mobile nav reuses the sidebar tabs' markup
+  // pattern rather than being hidden/shown copies of the same element.
+  [document.getElementById('live-alert-badge'), document.getElementById('live-alert-badge-mobile')].forEach(badge => {
+    if(badge){
+      badge.textContent = _alertCount;
+      badge.style.display = _alertMuted ? 'none' : '';
+    }
+  });
   if(_alertMuted) return;
 
   if(!_rememberAlertKey(_alertKey(a))) return;
@@ -10119,9 +10150,10 @@ function handleRealtimeAlert(a){
 function toggleAlertMute(){
   _alertMuted = !_alertMuted;
   const btn = document.getElementById('alert-mute-btn');
-  const badge = document.getElementById('live-alert-badge');
+  [document.getElementById('live-alert-badge'), document.getElementById('live-alert-badge-mobile')].forEach(badge => {
+    if(badge) badge.style.display = _alertMuted ? 'none' : (_alertCount > 0 ? '' : 'none');
+  });
   if(btn) btn.textContent = _alertMuted ? '🔔 Muted' : '🔔';
-  if(badge) badge.style.display = _alertMuted ? 'none' : (_alertCount > 0 ? '' : 'none');
   if(_alertMuted){
     _alertQueue = [];
     _finishActiveAlert();
@@ -10132,8 +10164,9 @@ function toggleAlertMute(){
 
 function clearAlertBadge(){
   _alertCount = 0;
-  const badge = document.getElementById('live-alert-badge');
-  if(badge) badge.style.display = 'none';
+  [document.getElementById('live-alert-badge'), document.getElementById('live-alert-badge-mobile')].forEach(badge => {
+    if(badge) badge.style.display = 'none';
+  });
 }
 
 // ── Helper: encode args as JSON for data-args HTML attr ───────────

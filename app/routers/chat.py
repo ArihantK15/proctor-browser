@@ -17,6 +17,29 @@ from ..db_context import system_context
 
 logger = logging.getLogger(__name__)
 
+# Benign WebSocket-lifecycle races — the client vanished during the pre-accept
+# auth handshake, or a send/close landed after the peer already went away —
+# surface as RuntimeErrors like 'WebSocket is not connected. Need to call
+# "accept" first.' or 'Cannot call "send" once a close message has been sent'.
+# Nothing the server can do about them, so log at debug instead of paging Sentry
+# at error level (PYTHON-2: 53 events, 0 users impacted). Genuine errors still
+# log at error.
+_BENIGN_WS_ERR_MARKERS = (
+    'need to call "accept" first',
+    "not connected",
+    "once a close message has been sent",
+    "websocket is disconnected",
+)
+
+
+def _log_ws_error(tag: str, e: Exception) -> None:
+    msg = str(e).lower()
+    if isinstance(e, RuntimeError) and any(m in msg for m in _BENIGN_WS_ERR_MARKERS):
+        logger.debug("[%s] benign ws-lifecycle race: %s", tag, e)
+    else:
+        logger.error("[%s] error: %s", tag, e)
+
+
 router = APIRouter(prefix="")
 
 chat_hub = ChatHub()
@@ -137,7 +160,7 @@ async def ws_chat_student(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        logger.error("[ws_chat_student] error: %s", e)
+        _log_ws_error("ws_chat_student", e)
     finally:
         await ws_rate_limiter.decrement(client_ip)
         sid = (ws.query_params.get("session_id") or "").strip()
@@ -225,7 +248,7 @@ async def ws_chat_teacher(ws: WebSocket):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        logger.error("[ws_chat_teacher] error: %s", e)
+        _log_ws_error("ws_chat_teacher", e)
     finally:
         await ws_rate_limiter.decrement(client_ip)
         if teacher_id is not None:

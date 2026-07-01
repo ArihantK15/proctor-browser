@@ -280,3 +280,41 @@ class TestChatHubHeartbeat:
         asyncio.run(chat_hub._send_heartbeats())
         assert "sess-1" in chat_hub.student_conns
         assert not s_ws.close.called
+
+
+class TestLogWsError:
+    """Benign WebSocket-lifecycle races must log at debug (not error → Sentry);
+    genuine errors must still log at error. Guards PYTHON-2 noise reduction."""
+
+    def test_benign_not_connected_logs_debug(self):
+        import logging
+        from app.routers import chat
+        with self._capture(chat) as rec:
+            chat._log_ws_error("ws_chat_teacher",
+                               RuntimeError('WebSocket is not connected. Need to call "accept" first.'))
+        assert rec["debug"] and not rec["error"]
+
+    def test_benign_send_after_close_logs_debug(self):
+        from app.routers import chat
+        with self._capture(chat) as rec:
+            chat._log_ws_error("ws_chat_student",
+                               RuntimeError('Cannot call "send" once a close message has been sent.'))
+        assert rec["debug"] and not rec["error"]
+
+    def test_genuine_error_still_logs_error(self):
+        from app.routers import chat
+        with self._capture(chat) as rec:
+            chat._log_ws_error("ws_chat_teacher", ValueError("something actually broke"))
+        assert rec["error"] and not rec["debug"]
+
+    def _capture(self, chat):
+        import contextlib
+        from unittest.mock import patch
+        rec = {"debug": [], "error": []}
+
+        @contextlib.contextmanager
+        def _cm():
+            with patch.object(chat.logger, "debug", side_effect=lambda *a, **k: rec["debug"].append(a)), \
+                 patch.object(chat.logger, "error", side_effect=lambda *a, **k: rec["error"].append(a)):
+                yield rec
+        return _cm()

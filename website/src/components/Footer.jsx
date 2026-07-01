@@ -59,7 +59,7 @@ export default function Footer() {
           <div>
             <h4 className="mb-4 label-mono text-slate-500">Connect</h4>
             <ul className="space-y-2.5 list-none p-0">
-              <li><a href={`${APP_URL}/dashboard`} className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Log In</a></li>
+              <li><a href={`${APP_URL}/login`} className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Log In</a></li>
               <li><Link to="/signup" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Request Demo</Link></li>
               <li><a href={`${APP_URL}/download`} className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Download App</a></li>
               <li><a href="mailto:support@procta.net" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">support@procta.net</a></li>

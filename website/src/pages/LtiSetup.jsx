@@ -284,7 +284,7 @@ export default function LtiSetup() {
               <ArrowRight size={16} />
             </Link>
             <a
-              href={`${APP}/dashboard`}
+              href={`${APP}/login`}
               className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-7 py-3.5 text-sm font-semibold text-slate-300 transition-all hover:border-accent/30 no-underline"
               target="_blank"
               rel="noopener noreferrer"

@@ -439,7 +439,7 @@ export default function Signup() {
 
           <motion.p className="mt-6 text-center text-sm text-slate-500" variants={child}>
             Already have an account?{' '}
-            <a href={`${APP_URL}/dashboard`} className="font-medium text-accent-light hover:text-white transition-colors no-underline">
+            <a href={`${APP_URL}/login`} className="font-medium text-accent-light hover:text-white transition-colors no-underline">
               Log In
             </a>
           </motion.p>

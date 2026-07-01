@@ -1,0 +1,69 @@
+/* Shared split-screen auth layout: brand-pitch aside on the left, form
+   card on the right (stacked <900px). Originally built inline in
+   dashboard.html's embedded login overlay; extracted 2026-07-01 when that
+   overlay was retired in favor of the unified /login page, so any auth
+   page can reuse this layout instead of duplicating it. Built on
+   tokens.css/theme.css custom properties — load both before this file. */
+.auth-page{min-height:100vh;position:relative;display:flex;align-items:center;
+  justify-content:center;background:var(--bg);background-image:var(--grain);
+  background-size:200px 200px;overflow-x:hidden;
+  padding:max(24px,env(safe-area-inset-top)) max(24px,env(safe-area-inset-right))
+    max(24px,env(safe-area-inset-bottom)) max(24px,env(safe-area-inset-left))}
+.auth-glow{position:absolute;top:0;left:50%;transform:translateX(-50%);
+  width:min(800px,120vw);height:min(600px,80vh);border-radius:50%;
+  background:radial-gradient(circle,var(--accent-glow) 0%,transparent 70%);
+  filter:blur(120px);pointer-events:none;z-index:0}
+.auth-shell{position:relative;z-index:1;display:grid;gap:32px;
+  grid-template-columns:1fr;align-items:center;
+  width:100%;max-width:1040px;margin:auto}
+@media (min-width:900px){
+  .auth-shell{grid-template-columns:1fr 420px;gap:48px;align-items:start}
+}
+.auth-aside{display:none;color:var(--text);padding:8px 8px 8px 0}
+@media (min-width:900px){.auth-aside{display:block}}
+.auth-aside-back{display:inline-flex;align-items:center;gap:6px;
+  color:var(--muted);font-size:12px;text-decoration:none;margin-bottom:24px;
+  font-family:var(--font-mono);letter-spacing:0.04em;transition:color .15s}
+.auth-aside-back:hover{color:var(--accent-light)}
+.auth-aside-h1{font-family:var(--font-display);font-size:44px;line-height:1.1;
+  font-weight:700;letter-spacing:-0.02em;color:var(--text-high);margin:0 0 20px}
+.auth-aside-h1-accent{background:linear-gradient(135deg,var(--accent),var(--accent-light));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.auth-aside-lede{color:var(--muted);font-size:14px;line-height:1.65;
+  max-width:440px;margin:0 0 24px}
+.auth-aside-list{list-style:none;padding:0;margin:0;display:flex;
+  flex-direction:column;gap:10px}
+.auth-aside-list li{display:flex;align-items:center;gap:10px;
+  font-size:13px;color:var(--text)}
+.auth-aside-bullet{width:6px;height:6px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 8px var(--accent-glow);flex-shrink:0}
+.auth-card{background:var(--surface-1);border:1px solid var(--border-subtle);
+  border-radius:var(--radius-lg);padding:40px;width:100%;max-width:420px;
+  text-align:center;position:relative;overflow:hidden;
+  backdrop-filter:blur(8px);justify-self:center}
+@media (min-width:900px){.auth-card{justify-self:end;width:420px}}
+.auth-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);z-index:2}
+.auth-brand-name{font-family:var(--font-display);font-size:22px;font-weight:700;
+  color:var(--text-high)}
+.auth-err{color:var(--red);font-size:12px;min-height:18px;margin-top:8px}
+
+/* Entrance choreography — CSS-only, CSP-safe. Mirrors the marketing
+   site's signup page: aside items then the card cascade up over a
+   slowly drifting glow. */
+@keyframes authRise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+@keyframes authRiseScale{from{opacity:0;transform:translateY(18px) scale(.985)}to{opacity:1;transform:none}}
+@keyframes authGlowDrift{
+  0%{transform:translateX(-50%) translateY(0) scale(1);opacity:1}
+  50%{transform:translateX(-46%) translateY(14px) scale(1.06);opacity:.82}
+  100%{transform:translateX(-50%) translateY(0) scale(1);opacity:1}}
+.auth-glow{animation:authGlowDrift 16s ease-in-out infinite}
+.auth-aside-back{animation:authRise .6s cubic-bezier(.23,1,.32,1) both;animation-delay:.05s}
+.auth-aside-h1{animation:authRise .6s cubic-bezier(.23,1,.32,1) both;animation-delay:.12s}
+.auth-aside-lede{animation:authRise .6s cubic-bezier(.23,1,.32,1) both;animation-delay:.19s}
+.auth-aside-list{animation:authRise .6s cubic-bezier(.23,1,.32,1) both;animation-delay:.26s}
+.auth-card{animation:authRiseScale .7s cubic-bezier(.23,1,.32,1) both;animation-delay:.14s}
+@media (prefers-reduced-motion: reduce){
+  .auth-glow,.auth-aside-back,.auth-aside-h1,.auth-aside-lede,.auth-aside-list,.auth-card{
+    animation:none !important}
+}

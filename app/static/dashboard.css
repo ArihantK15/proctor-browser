@@ -1,105 +1,20 @@
-/* ── Auth overlay ─────────────────────────────────────────────── */
+/* ── Base resets ──────────────────────────────────────────────── */
 *,*::before,*::after{box-sizing:border-box}
 img,video,canvas,svg{max-width:100%;height:auto}
 button,input,select,textarea{font:inherit}
 body{min-width:0;padding-top:60px}
 
-/* Updated 2026-05-24: redesigned to match procta.net marketing
-   surface — split layout with brand-pitch aside on the left and
-   form card on the right (stacked on mobile), grain texture, and
-   a soft accent glow behind the shell mirroring Hero.jsx. */
-#auth-overlay{position:fixed;inset:0;background:var(--bg);z-index:200000;
-  display:flex;align-items:center;justify-content:center;
-  background-image:var(--grain);background-size:200px 200px;
-  padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));overflow-y:auto}
-#auth-overlay.hidden{display:none}
+/* ── Auth gate ────────────────────────────────────────────────────
+   The embedded login form this used to gate on (#auth-overlay) was
+   retired 2026-07-01 in favor of the unified /login page (which already
+   handles teacher sign-in) — dashboard-app.js now redirects unauthenticated
+   visitors to /login instead of rendering a form here. This class just
+   hides the real dashboard DOM until _tryAutoLogin() resolves, so an
+   unauthenticated visitor never sees a flash of stale/empty dashboard
+   content before the redirect fires. #auth-checking is a tiny inline
+   placeholder (see dashboard.html) shown during that check. */
 body.auth-active{overflow:hidden}
-body.auth-active > :not(#auth-overlay):not(script):not(style){display:none !important}
-.auth-glow{position:absolute;top:0;left:50%;transform:translateX(-50%);
-  width:min(800px,120vw);height:min(600px,80vh);border-radius:50%;
-  background:radial-gradient(circle,var(--accent-glow) 0%,transparent 70%);
-  filter:blur(120px);pointer-events:none;z-index:0}
-.auth-shell{position:relative;z-index:1;display:grid;gap:32px;
-  grid-template-columns:1fr;align-items:center;
-  width:100%;max-width:1040px;margin:auto}
-@media (min-width: 900px){
-  .auth-shell{grid-template-columns:1fr 420px;gap:48px;align-items:start}
-}
-.auth-aside{display:none;color:var(--text);padding:8px 8px 8px 0}
-@media (min-width: 900px){.auth-aside{display:block}}
-.auth-aside-back{display:inline-flex;align-items:center;gap:6px;
-  color:var(--muted);font-size:12px;text-decoration:none;margin-bottom:24px;
-  font-family:var(--font-mono);letter-spacing:0.04em;transition:color .15s}
-.auth-aside-back:hover{color:var(--accent-light)}
-.auth-aside-h1{font-family:var(--font-display);font-size:44px;line-height:1.1;
-  font-weight:700;letter-spacing:-0.02em;color:var(--text-high);margin:0 0 20px}
-.auth-aside-h1-accent{background:linear-gradient(135deg,var(--accent),var(--accent-light));
-  -webkit-background-clip:text;background-clip:text;color:transparent}
-.auth-aside-lede{color:var(--muted);font-size:14px;line-height:1.65;
-  max-width:440px;margin:0 0 24px}
-.auth-aside-list{list-style:none;padding:0;margin:0;display:flex;
-  flex-direction:column;gap:10px}
-.auth-aside-list li{display:flex;align-items:center;gap:10px;
-  font-size:13px;color:var(--text)}
-.auth-aside-bullet{width:6px;height:6px;border-radius:50%;
-  background:var(--accent);box-shadow:0 0 8px var(--accent-glow);flex-shrink:0}
-.auth-card{background:var(--surface-1);
-  border:1px solid var(--border-subtle);
-  border-radius:var(--radius-lg);padding:40px;width:100%;max-width:420px;
-  text-align:center;position:relative;overflow:hidden;
-  backdrop-filter:blur(8px);justify-self:center}
-@media (min-width: 900px){.auth-card{justify-self:end;width:420px}}
-.auth-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
-  background:linear-gradient(90deg,transparent,var(--accent),transparent);z-index:2}
-.auth-brand-name{font-family:var(--font-display);font-size:22px;font-weight:700;
-  color:var(--text-high)}
-.auth-card h2{color:var(--text-high);margin-bottom:8px;font-size:24px;font-weight:700;
-  font-family:var(--font-display);letter-spacing:-0.02em}
-.auth-card p{color:var(--muted);font-size:13px;margin-bottom:20px}
-.auth-card input{width:100%;background:var(--input-bg);
-  border:1px solid var(--input-border);
-  border-radius:var(--radius-sm);padding:12px 14px;color:var(--text);font-size:14px;
-  margin-bottom:12px;font-family:var(--font-body);transition:border-color 0.2s,box-shadow 0.2s;
-  box-sizing:border-box}
-.auth-card input:focus{outline:none;border-color:var(--accent);
-  box-shadow:0 0 0 3px var(--accent-glow)}
-.auth-card button{width:100%;padding:13px;border-radius:var(--radius-sm);
-  border:1px solid var(--accent);
-  background:var(--accent-dark);color:#fff;font-size:14px;font-weight:600;cursor:pointer;
-  font-family:var(--font-body);transition:all 0.15s;
-  box-shadow:0 0 20px var(--accent-glow)}
-.auth-card button:hover{background:var(--accent);
-  box-shadow:0 0 30px var(--accent-glow-strong);transform:translateY(-1px)}
-.auth-card button:active{transform:translateY(0) scale(.985)}
-
-/* ── Login entrance + ambient motion (CSS-only, CSP-safe) ──────────────
-   Mirrors the website signup page: one orchestrated load — the aside items,
-   the card, then the card's inner content cascade up — over a slowly drifting
-   accent glow. Strong ease-out (Emil Kowalski); transform/opacity only.
-   animation-fill-mode:both holds the pre-state so there's no flash, and a
-   late-shown overlay rests at the end (visible) state. */
-@keyframes authRise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
-@keyframes authRiseScale{from{opacity:0;transform:translateY(18px) scale(.985)}to{opacity:1;transform:none}}
-@keyframes authGlowDrift{
-  0%{transform:translateX(-50%) translateY(0) scale(1);opacity:1}
-  50%{transform:translateX(-46%) translateY(14px) scale(1.06);opacity:.82}
-  100%{transform:translateX(-50%) translateY(0) scale(1);opacity:1}}
-.auth-glow{animation:authGlowDrift 16s ease-in-out infinite}
-.auth-aside-back{animation:authRise .6s cubic-bezier(.23,1,.32,1) both;animation-delay:.05s}
-.auth-aside-h1{animation:authRise .6s cubic-bezier(.23,1,.32,1) both;animation-delay:.12s}
-.auth-aside-lede{animation:authRise .6s cubic-bezier(.23,1,.32,1) both;animation-delay:.19s}
-.auth-aside-list{animation:authRise .6s cubic-bezier(.23,1,.32,1) both;animation-delay:.26s}
-.auth-card{animation:authRiseScale .7s cubic-bezier(.23,1,.32,1) both;animation-delay:.14s}
-.auth-card > div:first-child{animation:authRise .55s cubic-bezier(.23,1,.32,1) both;animation-delay:.30s}
-#auth-login > h2{animation:authRise .55s cubic-bezier(.23,1,.32,1) both;animation-delay:.36s}
-#auth-login > p{animation:authRise .55s cubic-bezier(.23,1,.32,1) both;animation-delay:.42s}
-#auth-login > form{animation:authRise .55s cubic-bezier(.23,1,.32,1) both;animation-delay:.48s}
-@media (prefers-reduced-motion: reduce){
-  .auth-glow,.auth-aside-back,.auth-aside-h1,.auth-aside-lede,.auth-aside-list,
-  .auth-card,.auth-card > div:first-child,#auth-login > h2,#auth-login > p,#auth-login > form{
-    animation:none !important}
-}
-.auth-err{color:var(--red);font-size:12px;min-height:18px;margin-top:8px}
+body.auth-active > :not(#auth-checking):not(script):not(style){display:none !important}
 
 /* ── Exam Selector Bar ────────────────────────────────────────── */
 .exam-bar{background:var(--card);border-bottom:1px solid var(--border);
@@ -233,14 +148,6 @@ body.auth-active > :not(#auth-overlay):not(script):not(style){display:none !impo
     radial-gradient(circle at 16% -10%, rgba(59,130,246,0.10), transparent 32%),
     linear-gradient(180deg, var(--bg-base), var(--bg-subtle));
 }
-[data-theme="light"] #auth-overlay{
-  background-color:var(--bg-base);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(59,130,246,0.12), transparent 44%),
-    linear-gradient(180deg, var(--bg-base), var(--bg-subtle));
-}
-[data-theme="light"] .auth-glow{opacity:.65;filter:blur(100px)}
-[data-theme="light"] .auth-card,
 [data-theme="light"] .modal,
 [data-theme="light"] .modal-card,
 [data-theme="light"] .tool-card,
@@ -578,7 +485,6 @@ tr:hover td{background:rgba(61,217,168,.04)}
   .toolbar{flex-wrap:wrap}
   .modal{padding:16px;width:100%;max-width:100%;border-radius:10px}
   .modal-bg{align-items:flex-end;padding:8px}
-  .auth-card{width:90vw;max-width:400px;padding:var(--space-6)}
   /* Chat tab on phone — stack roster above thread, keep both
      usable inside the viewport. With the sticky topbar+tabs+exam-bar
      eating ~140px, the chat thread now sizes to the remaining space
@@ -643,7 +549,6 @@ tr:hover td{background:rgba(61,217,168,.04)}
   th,td{padding:6px 6px;white-space:nowrap}
   .modal{padding:14px;width:100%;max-width:100%;border-radius:12px 12px 0 0;max-height:92dvh}
   .modal-card{width:100%;max-width:100%;border-radius:12px;max-height:92dvh}
-  .auth-card{padding:var(--space-5)}
   .tool-card{padding:16px}
   .tool-card p{font-size:12px}
   .q-card{padding:14px}
@@ -754,8 +659,6 @@ html,body{overflow-x:hidden;max-width:100vw}
   .modal input:not([type=checkbox]):not([type=radio]),.modal select{min-height:44px;font-size:16px !important}
   .modal-box input:not([type=checkbox]):not([type=radio]),.modal-box select,.modal-box textarea{min-height:44px;font-size:16px !important}
   .modal-card input:not([type=checkbox]):not([type=radio]),.modal-card select,.modal-card textarea{min-height:44px;font-size:16px !important}
-  .auth-card input{min-height:44px;font-size:16px !important}
-  .auth-card button{min-height:44px}
   /* Live table row → "open this session" tap. The row itself is the
      hit target; ensure the row has enough vertical room and any
      in-row mini-buttons (intervention warn/pause/etc, view-cam icon)
@@ -782,7 +685,7 @@ html,body{overflow-x:hidden;max-width:100vw}
 /* ── Print ──────────────────────────────────────────────────────── */
 @media print {
   body { background:#fff !important; color:#000 !important; padding-top:0 !important; }
-  #auth-overlay, .modal-overlay, .tabs, .topbar, .exam-bar,
+  .modal-overlay, .tabs, .topbar, .exam-bar,
   .btn, .tool-card-actions, #chat-fab, #chat-panel,
   #practice-banner, [role="dialog"] { display:none !important; }
   .panel:not(.active) { display:none !important; }
@@ -1747,7 +1650,7 @@ html,body{overflow-x:hidden;max-width:100vw}
    questions workspace usable from 320px phones through tablets. */
 .topbar,.tabs,.exam-bar,.container,.panel,.table-toolbar,.toolbar-right,
 .stats-bar,.settings-layout,.tools-grid,.qx-main,.q-content,.q-aipanel,
-.q-sidebar,.chat-wrap,.modal-card,.modal-box,.auth-shell,.auth-card{min-width:0}
+.q-sidebar,.chat-wrap,.modal-card,.modal-box{min-width:0}
 .brand-name,.topbar-teacher,.tab,.exam-bar select,.search-input,.filter-select{
   min-width:0;
 }
@@ -1759,8 +1662,6 @@ html,body{overflow-x:hidden;max-width:100vw}
 
 @media(max-width:900px){
   .container{max-width:100vw}
-  .auth-shell{max-width:520px}
-  .auth-card{justify-self:center}
   .topbar-status{display:none}
   .topbar-actions{gap:10px}
   .exam-bar{gap:10px}
@@ -1837,12 +1738,6 @@ html,body{overflow-x:hidden;max-width:100vw}
 }
 
 @media(max-width:560px){
-  #auth-overlay{align-items:flex-start}
-  .auth-shell{gap:18px;max-width:100%}
-  .auth-aside{display:none}
-  .auth-card{max-width:100%;padding:24px 20px;border-radius:16px}
-  .auth-card h2{font-size:22px}
-  .auth-card input,.auth-card button{min-height:46px;font-size:16px}
   .topbar-actions{display:grid;grid-template-columns:auto auto auto 1fr;align-items:center}
   .topbar-teacher{grid-column:1 / -1;max-width:100%;padding:2px 0}
   .topbar-role{justify-self:start}
@@ -2094,21 +1989,10 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
 }
 
 .modal,
-.modal-card,
-.auth-card{
+.modal-card{
   border-radius:18px;
   box-shadow:0 28px 90px rgba(0,0,0,.36), inset 0 1px 0 rgba(255,255,255,.03);
 }
-#auth-overlay{
-  background:
-    radial-gradient(circle at 28% 12%, color-mix(in oklch,var(--accent) 16%, transparent), transparent 30%),
-    linear-gradient(135deg,var(--bg-base),var(--bg-subtle));
-}
-.auth-card{
-  background:linear-gradient(180deg,color-mix(in oklch,var(--surface-1) 94%, transparent),color-mix(in oklch,var(--surface-1) 78%, transparent));
-}
-.auth-aside-h1{font-size:48px}
-.auth-aside-lede{font-size:15px}
 
 .flag-fab{
   box-shadow:0 20px 50px -18px color-mix(in oklch,var(--accent) 82%, black);
@@ -2156,10 +2040,6 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
   background:rgba(255,255,255,.62);
   border-color:rgba(148,163,184,.30);
 }
-[data-theme="light"] .auth-card{
-  background:rgba(255,255,255,.90);
-}
-
 /* Focused polish for dense dashboard surfaces. Keeps the legacy HTML dashboard
    layout intact while making Analytics and Tools feel intentional in light mode. */
 #panel-analytics.active,

@@ -77,7 +77,7 @@ export default function Navbar() {
 
         <div className="hidden items-center gap-3 md:flex">
           <a
-            href={`${APP_URL}/dashboard`}
+            href={`${APP_URL}/login`}
             className="rounded-lg px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:text-white no-underline"
           >
             Log In
@@ -125,7 +125,7 @@ export default function Navbar() {
               })}
               <div className="mt-3 flex flex-col gap-2 border-t border-white/5 pt-3">
                 <a
-                  href={`${APP_URL}/dashboard`}
+                  href={`${APP_URL}/login`}
                   onClick={() => setOpen(false)}
                   className="rounded-lg px-3 py-2.5 text-sm text-slate-300 hover:text-white no-underline"
                 >

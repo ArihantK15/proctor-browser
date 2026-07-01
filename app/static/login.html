@@ -6,148 +6,163 @@
   <title>Sign in — Procta</title>
   <meta name="description" content="Sign in to Procta — students and teachers. Access your AI-proctored exams, results and dashboard.">
   <meta name="robots" content="noindex">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <!-- Shared design system (same as dashboard.html/register.html) instead of
+       this page's old one-off hardcoded palette — one accent color to change
+       later (in tokens.css) instead of three different ones across the app. -->
+  <link rel="stylesheet" href="/static/tokens.css">
+  <link rel="stylesheet" href="/static/theme.css">
+  <link rel="stylesheet" href="/static/components.css">
+  <!-- Split-layout shell (brand-pitch aside + form card), extracted from
+       dashboard.html's now-retired embedded login overlay so this page can
+       carry the same marketing pitch instead of a bare centered card. -->
+  <link rel="stylesheet" href="/static/auth-shell.css">
   <!-- Cloudflare Turnstile — both login endpoints verify a captcha_token.
        Rendered explicitly by login.js once the site key arrives from
        /api/v1/public-config (no inline script; page CSP is script-src 'self'
        + challenges.cloudflare.com). -->
   <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   <style>
+    /* Page-local only: Inter/JetBrains Mono (loaded above) in place of the
+       IBM Plex fallback theme.css declares for pages that don't load a
+       webfont, plus the handful of widgets too small to belong in the
+       shared auth-shell.css (segmented toggle, password show/hide). */
     :root{
-      --bg:#13131b; --card:#1f1f27; --card-2:#1b1b23; --border:#464554;
-      --text:#e4e1ed; --muted:#c7c4d7; --faint:#908fa0;
-      --accent:#c0c1ff; --accent-dark:#8083ff; --on-accent:#1000a9;
-      --emerald:#67df70; --red:#ffb4ab;
-      --font:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-      --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+      --font-display:'Inter',system-ui,sans-serif;
+      --font-body:'Inter',system-ui,sans-serif;
+      --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
     }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0; font-family:var(--font); color:var(--text);
-      background:
-        radial-gradient(1200px 600px at 50% -10%, rgba(128,131,255,.14), transparent 60%),
-        radial-gradient(900px 500px at 90% 110%, rgba(103,223,112,.06), transparent 55%),
-        var(--bg);
-      display:flex; align-items:center; justify-content:center; padding:24px;
-      -webkit-font-smoothing:antialiased;
-    }
-    .card{
-      width:100%; max-width:420px; background:var(--card);
-      border:1px solid var(--border); border-radius:18px;
-      padding:32px 30px; box-shadow:0 24px 60px -24px rgba(0,0,0,.7);
-    }
-    .brand{
-      font-weight:700; letter-spacing:-.02em; font-size:20px; color:var(--text);
-      display:flex; align-items:center; gap:9px; margin-bottom:22px;
-    }
+    #login-form{text-align:left}
+    .btn-block{width:100%}
+    .brand{display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:20px}
     .brand .dot{width:11px;height:11px;border-radius:50%;
-      background:linear-gradient(135deg,var(--accent),var(--accent-dark));
-      box-shadow:0 0 14px rgba(128,131,255,.7)}
-    h1{font-size:24px; font-weight:700; letter-spacing:-.02em; margin:0 0 4px}
-    .sub{color:var(--muted); font-size:13.5px; margin:0 0 22px}
+      background:linear-gradient(135deg,var(--accent),var(--accent-light));
+      box-shadow:0 0 14px var(--accent-glow)}
+    .brand-name{font-family:var(--font-display);font-weight:700;font-size:20px;color:var(--text-high)}
+    h1{font-size:24px;font-weight:700;letter-spacing:-.02em;margin:0 0 4px;
+      font-family:var(--font-display);color:var(--text-high)}
+    .sub{color:var(--muted);font-size:13.5px;margin:0 0 22px}
     /* Segmented Student/Teacher toggle */
-    .seg{display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:4px;
-      background:var(--card-2); border:1px solid var(--border);
-      border-radius:11px; margin-bottom:22px}
-    .seg-btn{appearance:none; border:0; background:transparent; color:var(--muted);
-      font-family:var(--font); font-weight:600; font-size:13.5px; padding:9px 0;
-      border-radius:8px; cursor:pointer; transition:.15s}
-    .seg-btn.active{background:var(--accent); color:var(--on-accent);
-      box-shadow:0 2px 8px -2px rgba(128,131,255,.6)}
+    .seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:4px;
+      background:var(--bg-inset);border:1px solid var(--border-default);
+      border-radius:11px;margin-bottom:22px}
+    .seg-btn{appearance:none;border:0;background:transparent;color:var(--muted);
+      font-family:var(--font-body);font-weight:600;font-size:13.5px;padding:9px 0;
+      border-radius:8px;cursor:pointer;transition:.15s}
+    .seg-btn.active{background:var(--accent);color:var(--btn-primary-text);
+      box-shadow:0 2px 8px -2px var(--accent-glow)}
     .seg-btn:not(.active):hover{color:var(--text)}
-    label{display:block; font-size:11px; font-weight:600; letter-spacing:.06em;
-      text-transform:uppercase; color:var(--muted); margin:0 0 6px}
-    input{width:100%; background:var(--card-2); border:1px solid var(--border);
-      color:var(--text); border-radius:10px; padding:12px 14px; font-size:14.5px;
-      font-family:var(--font); outline:none; transition:.15s; margin-bottom:16px}
-    input:focus{border-color:var(--accent); box-shadow:0 0 0 3px rgba(128,131,255,.18)}
-    input::placeholder{color:var(--faint)}
+    .field-spacing{margin-bottom:16px}
     /* Password field + show/hide toggle */
-    .pw-wrap{position:relative; margin-bottom:16px}
-    .pw-wrap input{margin-bottom:0; padding-right:46px}
-    .pw-toggle{position:absolute; top:50%; right:8px; transform:translateY(-50%);
-      display:flex; align-items:center; justify-content:center; width:32px; height:32px;
-      padding:0; border:0; background:transparent; color:var(--faint); cursor:pointer;
-      border-radius:8px; transition:.15s}
+    .pw-wrap{position:relative}
+    .pw-wrap input{padding-right:46px}
+    .pw-toggle{position:absolute;top:50%;right:8px;transform:translateY(-50%);
+      display:flex;align-items:center;justify-content:center;width:32px;height:32px;
+      padding:0;border:0;background:transparent;color:var(--text-muted);cursor:pointer;
+      border-radius:8px;transition:.15s}
     .pw-toggle:hover{color:var(--text)}
-    .pw-toggle:focus-visible{outline:2px solid var(--accent); outline-offset:1px}
-    #otp{font-family:var(--mono); letter-spacing:.32em; text-align:center; font-size:18px}
-    .hint{font-size:12px; color:var(--muted); margin:-8px 0 14px}
-    .cf{min-height:0; margin:2px 0 16px}
+    .pw-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+    #otp{font-family:var(--font-mono);letter-spacing:.32em;text-align:center;font-size:18px}
+    .hint{font-size:12px;color:var(--muted);margin:-8px 0 14px}
+    .cf{min-height:0;margin:2px 0 16px}
     .cf:empty{margin:0}
-    .btn{width:100%; appearance:none; border:0; cursor:pointer;
-      background:var(--accent); color:var(--on-accent);
-      font-family:var(--font); font-weight:700; font-size:15px; letter-spacing:.01em;
-      padding:13px 0; border-radius:11px; transition:.15s}
-    .btn:hover{filter:brightness(1.05)}
-    .btn:disabled{opacity:.55; cursor:default; filter:none}
-    .msg{font-size:13px; border-radius:9px; padding:10px 12px; margin-bottom:16px; line-height:1.45}
-    .msg.err{background:rgba(255,180,171,.1); border:1px solid rgba(255,180,171,.32); color:var(--red)}
-    .msg.ok{background:rgba(103,223,112,.1); border:1px solid rgba(103,223,112,.3); color:var(--emerald)}
+    .msg{font-size:13px;border-radius:9px;padding:10px 12px;margin-bottom:16px;line-height:1.45}
+    .msg.err{background:var(--sev-error-bg);border:1px solid var(--sev-error-bg);color:var(--sev-error-fg)}
+    .msg.ok{background:var(--sev-success-bg);border:1px solid var(--sev-success-bg);color:var(--sev-success-fg)}
     [hidden]{display:none !important}
-    .links{display:flex; align-items:center; justify-content:space-between;
-      margin-top:20px; font-size:13px; flex-wrap:wrap; gap:8px}
-    .links a{color:var(--accent); text-decoration:none; font-weight:500}
+    .links{display:flex;align-items:center;justify-content:space-between;
+      margin-top:20px;font-size:13px;flex-wrap:wrap;gap:8px}
+    .links a{color:var(--accent);text-decoration:none;font-weight:500}
     .links a:hover{text-decoration:underline}
     .links .muted{color:var(--muted)}
-    .footnote{margin-top:26px; text-align:center; font-size:11.5px; color:var(--faint)}
-    .spin{display:inline-block;width:15px;height:15px;border:2px solid rgba(16,0,169,.35);
-      border-top-color:var(--on-accent);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+    .footnote{margin-top:26px;text-align:center;font-size:11.5px;color:var(--text-muted)}
+    .spin{display:inline-block;width:15px;height:15px;border:2px solid rgba(255,255,255,.35);
+      border-top-color:var(--btn-primary-text,#fff);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
     @keyframes sp{to{transform:rotate(360deg)}}
   </style>
 </head>
 <body>
-  <div class="card" role="main">
-    <div class="brand"><span class="dot"></span>Procta</div>
-    <h1>Sign in</h1>
-    <p class="sub" id="sub">Access your upcoming exams and results.</p>
+  <div class="auth-page">
+    <div class="auth-glow" aria-hidden="true"></div>
+    <div class="auth-shell">
+      <!-- Left: value-prop panel (hidden below 900px to keep the form above
+           the fold). Mirrors the procta.net Hero copy so the transition
+           from website → login feels continuous — ported from
+           dashboard.html's retired embedded login overlay. -->
+      <aside class="auth-aside">
+        <a href="https://procta.net" class="auth-aside-back">← Back to procta.net</a>
+        <h1 class="auth-aside-h1">Remote exams.<br>
+          <span class="auth-aside-h1-accent">Real results.</span></h1>
+        <p class="auth-aside-lede">
+          AI proctoring that catches cheating without making honest
+          students nervous. Sign in to manage your exams, monitor
+          live sessions, and review flagged candidates.
+        </p>
+        <ul class="auth-aside-list">
+          <li><span class="auth-aside-bullet"></span>Real-time face, gaze, and audio monitoring</li>
+          <li><span class="auth-aside-bullet"></span>Risk-scored sessions with evidence trails</li>
+          <li><span class="auth-aside-bullet"></span>3,000 concurrent students on a ₹699/mo box</li>
+        </ul>
+      </aside>
 
-    <div class="seg" role="tablist" aria-label="Account type">
-      <button class="seg-btn active" id="seg-student" type="button" role="tab" aria-selected="true">Student</button>
-      <button class="seg-btn" id="seg-teacher" type="button" role="tab" aria-selected="false">Teacher</button>
-    </div>
+      <!-- Right: sign-in card -->
+      <div class="auth-card" role="main">
+        <div class="brand"><span class="dot"></span><span class="brand-name">Procta</span></div>
+        <h1>Sign in</h1>
+        <p class="sub" id="sub">Access your upcoming exams and results.</p>
 
-    <form id="login-form" autocomplete="on" novalidate>
-      <label for="email">Email</label>
-      <input id="email" name="email" type="email" autocomplete="email"
-             placeholder="you@example.com" required>
+        <div class="seg" role="tablist" aria-label="Account type">
+          <button class="seg-btn active" id="seg-student" type="button" role="tab" aria-selected="true">Student</button>
+          <button class="seg-btn" id="seg-teacher" type="button" role="tab" aria-selected="false">Teacher</button>
+        </div>
 
-      <label for="password">Password</label>
-      <div class="pw-wrap">
-        <input id="password" name="password" type="password"
-               autocomplete="current-password" placeholder="Your password" required>
-        <button type="button" id="pw-toggle" class="pw-toggle" aria-label="Show password" aria-pressed="false">
-          <svg id="pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>
-          </svg>
-        </button>
+        <form id="login-form" autocomplete="on" novalidate>
+          <div class="field-group field-spacing">
+            <label class="field-label" for="email">Email</label>
+            <input class="input" id="email" name="email" type="email" autocomplete="email"
+                   placeholder="you@example.com" required>
+          </div>
+
+          <div class="field-group field-spacing">
+            <label class="field-label" for="password">Password</label>
+            <div class="pw-wrap">
+              <input class="input" id="password" name="password" type="password"
+                     autocomplete="current-password" placeholder="Your password" required>
+              <button type="button" id="pw-toggle" class="pw-toggle" aria-label="Show password" aria-pressed="false">
+                <svg id="pw-eye" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <!-- Teacher email-2FA step: revealed when /auth/login returns EMAIL_2FA_REQUIRED -->
+          <div id="otp-wrap" hidden class="field-spacing">
+            <label class="field-label" for="otp">Email verification code</label>
+            <input class="input" id="otp" name="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
+                   autocomplete="one-time-code" placeholder="••••••">
+            <p class="hint">We sent a 6-digit code to your email. Enter it to finish signing in.</p>
+          </div>
+
+          <div class="cf" id="cf-turnstile"></div>
+
+          <div class="msg err" id="err" hidden role="alert"></div>
+          <div class="msg ok" id="ok" hidden></div>
+
+          <button class="btn btn-primary btn-block" id="submit" type="submit">Sign in</button>
+        </form>
+
+        <div class="links">
+          <a href="#" id="forgot">Forgot password?</a>
+          <span id="signup-link"></span>
+        </div>
+
+        <p class="footnote">Protected by Cloudflare Turnstile. The proctored exam itself runs in the Procta desktop app.</p>
       </div>
-
-      <!-- Teacher email-2FA step: revealed when /auth/login returns EMAIL_2FA_REQUIRED -->
-      <div id="otp-wrap" hidden>
-        <label for="otp">Email verification code</label>
-        <input id="otp" name="otp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
-               autocomplete="one-time-code" placeholder="••••••">
-        <p class="hint">We sent a 6-digit code to your email. Enter it to finish signing in.</p>
-      </div>
-
-      <div class="cf" id="cf-turnstile"></div>
-
-      <div class="msg err" id="err" hidden role="alert"></div>
-      <div class="msg ok" id="ok" hidden></div>
-
-      <button class="btn" id="submit" type="submit">Sign in</button>
-    </form>
-
-    <div class="links">
-      <a href="#" id="forgot">Forgot password?</a>
-      <span id="signup-link"></span>
     </div>
-
-    <p class="footnote">Protected by Cloudflare Turnstile. The proctored exam itself runs in the Procta desktop app.</p>
   </div>
 
   <script src="/static/login.js"></script>

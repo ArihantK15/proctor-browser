@@ -265,7 +265,7 @@ export default function Pricing() {
           <div className="mt-12 text-center">
             <p className="text-sm text-slate-400">
               Need more than 500 students?{' '}
-              <a href={`${APP_URL}/dashboard`} className="text-accent-light hover:text-accent no-underline font-medium">
+              <a href={enterprise?.href} className="text-accent-light hover:text-accent no-underline font-medium">
                 Contact us for enterprise pricing
               </a>
             </p>

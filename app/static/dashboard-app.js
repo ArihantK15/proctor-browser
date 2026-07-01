@@ -129,16 +129,6 @@ function _resetTurnstile() {
   }
 }
 
-function toggleAuthForm(mode){
-  document.getElementById('auth-login').style.display = mode==='login' ? '' : 'none';
-  document.getElementById('auth-reset').style.display = mode==='reset' ? '' : 'none';
-  document.getElementById('auth-err').textContent = '';
-  document.getElementById('reset-err').textContent = '';
-  document.getElementById('reset-success').style.display = 'none';
-  // Render Turnstile widget when login form becomes visible
-  if (mode === 'login') _initTurnstile();
-}
-
 function _saveTokens(access, refresh){
   authToken = access || '';
   refreshToken = refresh || '';
@@ -153,92 +143,13 @@ function _saveTokens(access, refresh){
   }
 }
 
-async function doLogin(){
-  const email = document.getElementById('login-email').value.trim();
-  const pwd = document.getElementById('login-pwd').value;
-  if(!email||!pwd){ document.getElementById('auth-err').textContent='Enter email and password'; return; }
-  const btn = document.getElementById('login-btn');
-  const otpRow = document.getElementById('login-2fa-row');
-  const otpInput = document.getElementById('login-2fa-code');
-  btn.disabled = true; btn.textContent = 'Signing in...';
-  try{
-    const body = {email, password: pwd};
-    if (_turnstileToken) body.captcha_token = _turnstileToken;
-    // If the 2FA row is visible, include whatever code the user typed
-    // (otherwise the server will email a new code on this attempt).
-    if (otpRow && otpRow.style.display !== 'none') {
-      const code = (otpInput && otpInput.value || '').trim();
-      if (!code) {
-        document.getElementById('auth-err').textContent = 'Enter the 6-digit code we emailed you.';
-        return;
-      }
-      body.email_otp_code = code;
-    }
-    const r = await fetchWithTimeout(`${BASE}/api/v1/auth/login`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      credentials:'include',
-      body:JSON.stringify(body)
-    });
-    // Tolerate a non-JSON body (e.g. a 502/503 HTML error page from the proxy):
-    // parsing before the !r.ok check used to throw, masking the real status with
-    // a generic parse error.
-    const data = await r.json().catch(()=>({}));
-    if(!r.ok){
-      _resetTurnstile();
-      // Email-OTP 2FA — server emailed a code and is asking the user
-      // to retry with it. Show the OTP input + a friendly status, but
-      // don't treat this as a hard error (no red flash).
-      if (data && data.error === 'EMAIL_2FA_REQUIRED') {
-        if (otpRow) otpRow.style.display = '';
-        if (otpInput) {
-          otpInput.value = '';
-          otpInput.focus();
-        }
-        document.getElementById('auth-err').textContent = data.message || 'We emailed you a 6-digit code.';
-        return;
-      }
-      throw new Error(_detailText(data, 'Login failed'));
-    }
-    _saveTokens(data.access_token, data.refresh_token);
-    await _ensureCsrfToken(true);
-    _onAuthed(data.teacher);
-  }catch(e){
-    document.getElementById('auth-err').textContent = e.message;
-  }finally{
-    btn.disabled = false; btn.textContent = 'Log In';
-  }
-}
-
-async function doPasswordReset(){
-  const email = document.getElementById('reset-email').value.trim();
-  if(!email||!email.includes('@')){ document.getElementById('reset-err').textContent='Enter a valid email'; return; }
-  const btn = document.getElementById('reset-btn');
-  btn.disabled = true; btn.textContent = 'Sending...';
-  try{
-    const body = {email};
-    if (_turnstileToken) body.captcha_token = _turnstileToken;
-    const r = await fetchWithTimeout(`${BASE}/api/v1/auth/password-reset`,{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(body)
-    });
-    if(!r.ok){
-      const d = await r.json().catch(()=>({detail:'Failed to send reset link'}));
-      throw new Error(_detailText(d, 'Failed'));
-    }
-    document.getElementById('reset-success').style.display = 'block';
-    document.getElementById('reset-err').textContent = '';
-  }catch(e){
-    document.getElementById('reset-err').textContent = e.message;
-  }finally{
-    btn.disabled = false; btn.textContent = 'Send Reset Link';
-  }
-}
-
-// Signup is handled at procta.net/signup — no inline form on the dashboard.
+// Sign-in and password-reset forms both moved to the unified /login page
+// (2026-07-01) — doLogin()/doPasswordReset() used to run this dashboard's
+// own embedded login form, which is retired; see _tryAutoLogin() below for
+// the redirect that replaced it.
 
 async function _onAuthed(teacher){
   document.body.classList.remove('auth-active');
-  document.getElementById('auth-overlay').classList.add('hidden');
   currentTeacherProfile = teacher || null;
   currentIsSolo = !!(teacher && teacher.is_solo);
   // Billing visibility now keys off honest ownership, not role: a solo teacher
@@ -632,6 +543,13 @@ async function unarchiveCurrentExam(){
   }catch(e){ showModal('Unarchive failed: '+e.message); }
 }
 
+// No login form lives on this page anymore (retired 2026-07-01) — an
+// unauthenticated visitor is sent to the unified /login page instead, and
+// comes straight back here (via ?next=) once signed in.
+function _goToLogin(){
+  location.replace('/login?role=teacher&next=' + encodeURIComponent('/dashboard'));
+}
+
 async function _tryAutoLogin(){
   try{
     // Cookie auth is primary. Bearer is only kept for one-shot OAuth/LTI
@@ -652,7 +570,7 @@ async function _tryAutoLogin(){
       credentials:'include',
       body:JSON.stringify(refreshToken ? {refresh_token:refreshToken} : {})
     });
-    if(!rr.ok){ _saveTokens('',''); return; }
+    if(!rr.ok){ _saveTokens('',''); _goToLogin(); return; }
     const rd = await rr.json();
     _saveTokens(rd.access_token, rd.refresh_token);
     await _ensureCsrfToken(true);
@@ -664,8 +582,10 @@ async function _tryAutoLogin(){
     });
     if(r.ok){ _onAuthed(await r.json()); return; }
     _saveTokens('','');
+    _goToLogin();
   }catch(e){
     _saveTokens('','');
+    _goToLogin();
   }
 }
 
@@ -717,18 +637,10 @@ async function doLogout(){
     const _rvBody = document.getElementById('review-body'); if(_rvBody) _rvBody.innerHTML='';
   }catch(_){}
   chatDisconnect();
-  document.body.classList.add('auth-active');
-  document.getElementById('auth-overlay').classList.remove('hidden');
-  document.getElementById('teacher-name').textContent = '';
-  _examsLoaded = false;
-  document.getElementById('exam-bar').style.display = 'none';
-  // Clear the login form so the previous user's email/password aren't left
-  // sitting in the fields after logout.
-  ['login-email','login-pwd','login-2fa-code'].forEach(id=>{
-    const el = document.getElementById(id); if(el) el.value = '';
-  });
-  const otpRow = document.getElementById('login-2fa-row'); if(otpRow) otpRow.style.display = 'none';
-  toggleAuthForm('login');
+  // No login form to reset/re-show here anymore — send the teacher to the
+  // unified /login page instead (see _goToLogin, used the same way by
+  // _tryAutoLogin on session-expiry).
+  _goToLogin();
 }
 
 // The share-link is teacher_id + (when an exam is selected) exam_id.
@@ -861,9 +773,14 @@ async function authFetch(url, opts={}){
   return r;
 }
 
-// Load public config (e.g. Turnstile site key) before showing auth.
-// Fire-and-forget: if it fails the dashboard still works in sandbox mode.
-_loadPublicConfig().then(() => _initTurnstile()).catch(()=>{});
+// Load public config (e.g. Turnstile site key) early so it's ready by the
+// time anything needs it. NOT chained into _initTurnstile() here — its
+// mount point (#cf-turnstile-login) now lives inside the Profile tab's
+// password card, which is display:none until that tab is switched to, and
+// Turnstile can't render properly into a hidden container. _initTurnstile()
+// is instead called from switchTab's profile branch (_dispatchTabLoad),
+// once the container is actually visible.
+_loadPublicConfig().catch(()=>{});
 
 // Auto-login on page load
 _tryAutoLogin();
@@ -1036,16 +953,17 @@ function _onboardComplete(){
 
 // Auto-show on first dashboard load. Two checks:
 //   1. localStorage flag — never seen before
-//   2. dashboard fully loaded (auth-overlay hidden) — don't fire on
-//      the login screen, only after the teacher is signed in
+//   2. dashboard fully loaded (body.auth-active cleared by _onAuthed) —
+//      don't fire while we're still checking the session / about to
+//      redirect an unauthenticated visitor to /login
 function _onboardMaybeShow(){
   let seen = false;
   try{ seen = localStorage.getItem('procta_onboarded') === 'true'; }catch(_){}
   if(seen) return;
-  const auth = document.getElementById('auth-overlay');
-  // Wait for auth-overlay to be hidden (teacher logged in)
-  if(auth && auth.classList.contains('hidden') === false){
-    // Re-check every 500ms until login completes; cap at 30 seconds.
+  if(document.body.classList.contains('auth-active')){
+    // Re-check every 500ms until _onAuthed() clears auth-active; cap at 30s.
+    // If the visitor turns out to be unauthenticated, _tryAutoLogin()
+    // redirects away before this ever fires — harmless either way.
     let attempts = 0;
     const probe = setInterval(() => {
       attempts++;
@@ -1053,7 +971,7 @@ function _onboardMaybeShow(){
         clearInterval(probe);
         return;
       }
-      if(auth.classList.contains('hidden')){
+      if(!document.body.classList.contains('auth-active')){
         clearInterval(probe);
         onboardOpen();
       }
@@ -1202,7 +1120,7 @@ function _dispatchTabLoad(tab){
    }
   if(tab==='org') loadOrgOverview();
   if(tab==='security') loadSecurity();
-  if(tab==='profile') loadProfile();
+  if(tab==='profile'){ loadProfile(); _initTurnstile(); }
   if(tab==='members') loadMembers();
   if(tab==='billing') loadBilling();
   if(tab==='org-settings') loadOrgSettings();
@@ -10236,8 +10154,6 @@ function _closeToastParent(){
   if(toast === _activeAlertToast){ _finishActiveAlert(); return; }
   toast?.remove();
 }
-function _focusLoginPwd(){ document.getElementById('login-pwd')?.focus(); }
-
 // ── Question version history ───────────────────────────────────
 function showQHistory(qid){
   authFetch(`${BASE}/api/v1/admin/question-bank/${qid}/versions`).then(r=>{

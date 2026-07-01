@@ -267,95 +267,13 @@
   <button id="cookie-notice-dismiss" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:12px;cursor:pointer;font-weight:500">Got it</button>
 </div>
 
-<!-- AUTH OVERLAY -->
-<div id="auth-overlay">
-  <!-- Decorative accent glow behind the card — matches the marketing
-       site's Hero treatment (Hero.jsx uses an absolutely-positioned
-       blurred radial). Pure CSS, no JS hook. -->
-  <div class="auth-glow" aria-hidden="true"></div>
-  <div class="auth-shell">
-    <!-- Left: value-prop panel (hidden on mobile to keep the form
-         above the fold). Mirrors the procta.net Hero copy so the
-         transition from website → login feels continuous. -->
-    <aside class="auth-aside">
-      <a href="https://procta.net" class="auth-aside-back">← Back to procta.net</a>
-      <h1 class="auth-aside-h1">Remote exams.<br>
-        <span class="auth-aside-h1-accent">Real results.</span></h1>
-      <p class="auth-aside-lede">
-        AI proctoring that catches cheating without making honest
-        students nervous. Sign in to manage your exams, monitor
-        live sessions, and review flagged candidates.
-      </p>
-      <ul class="auth-aside-list">
-        <li><span class="auth-aside-bullet"></span>Real-time face, gaze, and audio monitoring</li>
-        <li><span class="auth-aside-bullet"></span>Risk-scored sessions with evidence trails</li>
-        <li><span class="auth-aside-bullet"></span>3,000 concurrent students on a ₹699/mo box</li>
-      </ul>
-    </aside>
-
-    <!-- Right: login/reset form card -->
-    <div class="auth-card">
-    <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:20px">
-      <div style="width:40px;height:40px;border-radius:10px;background:var(--accent);display:flex;align-items:center;justify-content:center">
-        <svg width="20" height="20" viewBox="0 0 16 16" fill="none">
-          <path d="M4 3h3v1H5v8h2v1H4V3zm5 0h3v10h-3v-1h2V4H9V3z" fill="white"/>
-          <circle cx="8" cy="8" r="1.5" fill="white" opacity="0.8"/>
-        </svg>
-      </div>
-      <span class="auth-brand-name">Procta</span>
-    </div>
-
-    <!-- LOGIN FORM -->
-    <div id="auth-login">
-      <h2>Welcome Back</h2>
-      <p>Sign in to your Procta dashboard</p>
-      <form data-submit="doLogin" autocomplete="on">
-        <input type="email" id="login-email" placeholder="Email address" autocomplete="email"
-               data-keydown-action="_focusLoginPwd" data-keydown-key="Enter">
-        <input type="password" id="login-pwd" placeholder="Password" autocomplete="current-password"
-               data-keydown-action="doLogin" data-keydown-key="Enter">
-        <!-- Email-OTP 2FA input — shown only after server returns EMAIL_2FA_REQUIRED. -->
-        <div id="login-2fa-row" style="display:none;margin-top:8px">
-          <p style="font-size:12px;color:var(--muted);margin:4px 0 6px">We sent a 6-digit code to your email. Enter it to finish signing in.</p>
-          <input type="text" id="login-2fa-code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6"
-                 placeholder="6-digit code" autocomplete="one-time-code"
-                 style="letter-spacing:6px;text-align:center;font-family:monospace"
-                 data-keydown-action="doLogin" data-keydown-key="Enter">
-        </div>
-        <!-- Cloudflare Turnstile widget — invisible in most sessions. -->
-        <div id="cf-turnstile-login" style="margin:4px 0"></div>
-        <button type="submit" id="login-btn">Log In</button>
-      </form>
-      <div class="auth-err" id="auth-err"></div>
-      <p style="color:var(--muted);font-size:12px;margin-top:12px">
-        <a href="#" data-action="toggleAuthForm" data-args='["reset"]' style="color:var(--muted);text-decoration:none;font-size:12px">Forgot password?</a>
-      </p>
-      <p style="color:var(--muted);font-size:12px;margin-top:8px">
-        Don't have an account?
-        <a href="https://procta.net/signup" style="color:var(--accent-light);text-decoration:none;font-weight:600">Start free trial</a>
-      </p>
-    </div>
-
-    <!-- PASSWORD RESET FORM -->
-    <div id="auth-reset" style="display:none">
-      <h2>Reset Password</h2>
-      <p>Enter your email and we'll send a reset link</p>
-      <form data-submit="doPasswordReset" autocomplete="on">
-        <input type="email" id="reset-email" placeholder="Email address" autocomplete="email"
-               data-keydown-action="doPasswordReset" data-keydown-key="Enter">
-        <button type="submit" id="reset-btn">Send Reset Link</button>
-      </form>
-      <div class="auth-err" id="reset-err"></div>
-      <div id="reset-success" style="display:none;color:var(--emerald);font-size:13px;margin-top:12px">
-        Reset link sent! Check your email inbox.
-      </div>
-      <p style="color:var(--muted);font-size:12px;margin-top:16px">
-        <a href="#" data-action="toggleAuthForm" data-args='["login"]' style="color:var(--accent-light);text-decoration:none;font-weight:600">Back to login</a>
-      </p>
-    </div>
-    </div><!-- /.auth-card -->
-  </div><!-- /.auth-shell -->
-</div>
+<!-- AUTH GATE — the embedded login form that used to live here was retired
+     2026-07-01 in favor of the unified /login page (which already handles
+     teacher sign-in and links back to procta.net). dashboard-app.js now
+     redirects unauthenticated visitors to /login?role=teacher&next=/dashboard
+     instead of rendering a form. This placeholder is only the "checking your
+     session…" flash — see body.auth-active in dashboard.css. -->
+<div id="auth-checking" aria-hidden="true"></div>
 
 <!-- TOPBAR -->
 <div class="topbar">
@@ -2290,6 +2208,16 @@
         <div class="tool-card-actions">
           <button class="btn btn-secondary btn-sm" data-action="profileChangePassword">Change password</button>
           <span id="profile-pwd-result" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+          <!-- Turnstile mount for profileChangePassword() — the backend's
+               password-reset endpoint requires a captcha_token unconditionally
+               (see verify_or_403 in app/routers/auth.py), even for this
+               already-authenticated in-app flow. This used to be the login
+               form's widget (id kept as-is so dashboard-app.js's
+               _initTurnstile()/_resetTurnstile() need no changes); relocated
+               here 2026-07-01 when the embedded login form was retired.
+               Turnstile's managed/invisible mode renders no UI 99% of the
+               time, so this sits quietly until a challenge is needed. -->
+          <div id="cf-turnstile-login" style="margin-top:8px"></div>
         </div>
       </div>
       <div class="tool-card">

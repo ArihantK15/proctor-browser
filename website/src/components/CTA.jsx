@@ -38,7 +38,7 @@ export default function CTA() {
                 <ArrowRight size={18} className="transition-transform group-hover:translate-x-0.5" />
               </Link>
               <a
-                href={`${APP_URL}/dashboard`}
+                href={`${APP_URL}/login`}
                 className="rounded-xl border border-white/10 bg-white/[0.03] px-8 py-4 text-base font-semibold text-slate-300 transition-all hover:border-accent/30 no-underline"
               >
                 Log In

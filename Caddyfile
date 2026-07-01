@@ -142,7 +142,12 @@ app.procta.net {
     # written order alongside @assets / /static/* below — a bare `redir`
     # gets reordered by Caddy's implicit directive order instead.
     handle /static/student-dashboard.html {
-        redir /student-dashboard permanent
+        # `redir /student-dashboard permanent` is AMBIGUOUS to Caddy's parser —
+        # it can't tell whether `/student-dashboard` is a path-matcher or the
+        # destination, and silently resolved to a no-op (200 + empty body,
+        # confirmed live 2026-07-01). The bare `*` matcher removes the
+        # ambiguity: 3 tokens = matcher, destination, code.
+        redir * /student-dashboard permanent
     }
 
     # ── Other static (images, fonts, downloads) — fine to cache hard ──

@@ -14,14 +14,14 @@
      uses. Nothing here is fabricated; empty states are honest (no fake
      numbers when a student has zero exams/results).
 
-     Login gate: student.html's login form is Electron-only — a plain
-     browser visitor to /student never sees it. This page is the first
-     place a student can authenticate purely over the web, using the
-     SAME /api/v1/student/auth/login endpoint (email+password+Turnstile),
-     which sets the httpOnly procta_student_access cookie the other
-     endpoints already read via require_student_account(). This is a
-     real, new capability (browser-based student login), not just a
-     styling pass — flagging it explicitly rather than burying it.
+     Login gate: unauthenticated visitors are redirected to the existing
+     unified /login page (role=student, shipped 2026-06-27 in #192/#194)
+     rather than duplicating a login form here — /login already POSTs to
+     /api/v1/student/auth/login and sets the httpOnly procta_student_access
+     cookie this page's endpoints read via require_student_account(). An
+     earlier version of this file embedded its own login form believing no
+     browser login existed yet; it did, so that duplicate was removed
+     2026-07-01 in favor of routing through /login?next=/student-dashboard.
 
      "Join Exam" stays permanently disabled: kiosk lockdown proctoring
      cannot run in a browser tab, so this dashboard is view-only for
@@ -56,18 +56,7 @@
   .sd-login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
   .sd-login-card{ width:100%; max-width:380px; background:var(--surface-1); border:1px solid var(--border-default); border-radius:14px; padding:32px 28px; }
   .sd-login-brand{ font-size:20px; font-weight:700; color:var(--accent); text-align:center; margin-bottom:4px; }
-  .sd-login-title{ font-size:15px; color:var(--text-high); text-align:center; margin:0 0 24px; }
-  .sd-fg{ margin-bottom:14px; text-align:left; }
-  .sd-fg label{ display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); margin-bottom:6px; }
-  .sd-fg input{ width:100%; background:rgba(255,255,255,.03); border:1px solid var(--border-default); border-radius:8px; padding:10px 12px; color:var(--text-high); font-size:14px; }
-  .sd-fg input:focus{ outline:none; border-color:rgba(91,138,240,.5); background:rgba(91,138,240,.05); }
-  .sd-login-turnstile{ margin:14px 0; display:flex; justify-content:center; }
-  .sd-login-btn{ width:100%; padding:11px; border-radius:8px; border:none; background:var(--accent); color:#fff; font-size:14px; font-weight:700; cursor:pointer; }
-  .sd-login-btn:hover{ background:var(--accent-hover,var(--accent)); }
-  .sd-login-btn:disabled{ opacity:.5; cursor:not-allowed; }
-  .sd-login-err{ color:var(--sev-error-fg); font-size:12px; margin-top:10px; min-height:16px; text-align:center; }
-  .sd-login-hint{ color:var(--text-muted); font-size:12px; text-align:center; margin-top:16px; }
-  .sd-login-hint a{ color:var(--accent); }
+  .sd-login-title{ font-size:15px; color:var(--text-high); text-align:center; margin:0; }
 
   /* ── Desktop sidebar ─────────────────────────────────────────── */
   .sd-sidebar{ display:none; }
@@ -206,25 +195,14 @@
 </head>
 <body>
 
-<!-- ══════════ LOGIN GATE ══════════ -->
+<!-- ══════════ LOGIN GATE ══════════
+     No embedded form here — unauthenticated visitors are redirected to the
+     unified /login page (role=student) by student-dashboard.js. This div is
+     just what's visible for the instant before that redirect fires. -->
 <div class="sd-login-wrap" id="sd-login">
   <div class="sd-login-card">
     <div class="sd-login-brand">Procta</div>
-    <p class="sd-login-title">Sign in to your student dashboard</p>
-    <form id="sd-login-form">
-      <div class="sd-fg">
-        <label for="sd-email">Email</label>
-        <input type="email" id="sd-email" autocomplete="username" required>
-      </div>
-      <div class="sd-fg">
-        <label for="sd-password">Password</label>
-        <input type="password" id="sd-password" autocomplete="current-password" required>
-      </div>
-      <div class="sd-login-turnstile" id="sd-turnstile"></div>
-      <button type="submit" class="sd-login-btn" id="sd-login-btn">Log in</button>
-      <p class="sd-login-err" id="sd-login-err"></p>
-    </form>
-    <p class="sd-login-hint">Taking an exam? Use the <a href="/download">Procta desktop app</a> instead — this page is view-only.</p>
+    <p class="sd-login-title">Redirecting to sign in…</p>
   </div>
 </div>
 

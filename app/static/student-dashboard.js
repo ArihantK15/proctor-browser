@@ -1,8 +1,6 @@
 (function(){
   'use strict';
   var $ = function(id){ return document.getElementById(id); };
-  var turnstileToken = null;
-  var turnstileWidgetId = null;
   var csrfToken = '';
 
   function escapeHtml(s){
@@ -16,46 +14,21 @@
       + '<path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>';
   }
 
-  // ── Turnstile (same public-config + widget pattern as student-app.js) ──
-  function loadTurnstile(){
-    fetch('/api/v1/public-config').then(function(r){ return r.json(); }).then(function(cfg){
-      var siteKey = cfg.turnstile_site_key || '';
-      if (!siteKey) return;
-      var tryRender = function(){
-        if (!window.turnstile) { setTimeout(tryRender, 150); return; }
-        turnstileWidgetId = window.turnstile.render('#sd-turnstile', {
-          sitekey: siteKey,
-          theme: 'dark',
-          callback: function(t){ turnstileToken = t; },
-          'expired-callback': function(){ turnstileToken = null; },
-          'error-callback': function(){ turnstileToken = null; },
-        });
-      };
-      tryRender();
-    }).catch(function(){});
-  }
-
-  function resetTurnstile(){
-    turnstileToken = null;
-    if (window.turnstile && turnstileWidgetId != null) {
-      try { window.turnstile.reset(turnstileWidgetId); } catch(e){}
-    }
-  }
-
   // ── Auth ────────────────────────────────────────────────────────
   function checkAuthAndLoad(){
     fetch('/api/v1/student/auth/me', { credentials: 'include' })
       .then(function(r){
         if (r.ok) return r.json().then(showDashboard);
-        showLogin();
+        goToLogin();
       })
-      .catch(showLogin);
+      .catch(goToLogin);
   }
 
-  function showLogin(){
-    $('sd-app').classList.add('hidden');
-    $('sd-login').classList.remove('hidden');
-    loadTurnstile();
+  // No login form on this page — send unauthenticated visitors to the
+  // unified /login page (role=student) and bring them straight back here
+  // once signed in, rather than duplicating a login form.
+  function goToLogin(){
+    location.replace('/login?role=student&next=' + encodeURIComponent('/student-dashboard'));
   }
 
   function showDashboard(me){
@@ -80,38 +53,6 @@
     return 'evening';
   }
 
-  $('sd-login-form').addEventListener('submit', function(e){
-    e.preventDefault();
-    var email = $('sd-email').value.trim();
-    var password = $('sd-password').value;
-    var btn = $('sd-login-btn');
-    var errEl = $('sd-login-err');
-    errEl.textContent = '';
-    btn.disabled = true; btn.textContent = 'Signing in…';
-    fetch('/api/v1/student/auth/login', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email, password: password, captcha_token: turnstileToken || '' }),
-    }).then(function(r){
-      return r.json().then(function(body){ return { ok: r.ok, status: r.status, body: body }; });
-    }).then(function(res){
-      if (!res.ok) {
-        resetTurnstile();
-        var msg = (typeof res.body.detail === 'object' && res.body.detail)
-          ? (res.body.detail.message || 'Login failed')
-          : (res.body.detail || 'Login failed');
-        errEl.textContent = msg;
-        return;
-      }
-      checkAuthAndLoad();
-    }).catch(function(err){
-      errEl.textContent = 'Network error — please try again.';
-    }).finally(function(){
-      btn.disabled = false; btn.textContent = 'Log in';
-    });
-  });
-
   function ensureCsrf(){
     if (csrfToken) return Promise.resolve(csrfToken);
     return fetch('/api/v1/auth/csrf', { credentials: 'include' })
@@ -129,7 +70,7 @@
       });
     }).catch(function(){}).finally(function(){
       csrfToken = '';
-      showLogin();
+      goToLogin();
     });
   }
   $('sd-signout-desktop').addEventListener('click', signOut);

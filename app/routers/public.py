@@ -171,6 +171,7 @@ def robots_txt():
         "Disallow: /api/v1/\n"
         "Disallow: /register\n"
         "Disallow: /student\n"
+        "Disallow: /student-dashboard\n"
         "Disallow: /static/\n"
         "\n"
         "Sitemap: https://app.procta.net/sitemap.xml\n"
@@ -738,6 +739,18 @@ def student_page():
 def student_page_legacy():
     """Back-compat alias for the legacy student page (== /student)."""
     return _static_html_response("student.html", "Student dashboard not found")
+
+
+@router.get("/student-dashboard")
+def student_dashboard_page():
+    """Browser-only student dashboard (real API data: exams/history/scorecard),
+    view-only since kiosk-lockdown proctoring can't run in a tab. Routed through
+    FastAPI (not the raw /static/* mount) so SecurityHeadersMiddleware applies
+    CSP — the same class of gap fixed for /dashboard, /download etc. on
+    2026-05-24; this page shipped straight to /static/ on 2026-07-01 and missed
+    that pattern. Caddy redirects the old /static/student-dashboard.html URL
+    here."""
+    return _static_html_response("student-dashboard.html", "Student dashboard not found")
 
 
 @router.get("/dashboard")

@@ -133,6 +133,18 @@ app.procta.net {
         file_server
         header Cache-Control "no-cache, must-revalidate"
     }
+    # student-dashboard.html must go through FastAPI (CSP + cache-bust) like
+    # every other HTML page. It shipped straight into /static/ on 2026-07-01
+    # and missed the 2026-05-24 fix below — the generic `handle /static/*`
+    # block was still short-circuiting it to file_server with no CSP header.
+    # Redirect the old URL to the real route; new links should use it directly.
+    # Uses an explicit `handle` (not a bare `redir`) so it's evaluated in
+    # written order alongside @assets / /static/* below — a bare `redir`
+    # gets reordered by Caddy's implicit directive order instead.
+    handle /static/student-dashboard.html {
+        redir /student-dashboard permanent
+    }
+
     # ── Other static (images, fonts, downloads) — fine to cache hard ──
     handle /static/* {
         root * /srv

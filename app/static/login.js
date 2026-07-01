@@ -3,7 +3,7 @@
 //
 //   Student : POST /api/v1/student/auth/login {email,password,captcha_token}
 //             403 {detail:{code:"EMAIL_VERIFICATION_REQUIRED"}} -> verify email
-//             200 -> sets student cookies -> /student-next
+//             200 -> sets student cookies -> /student-dashboard
 //   Teacher : POST /api/v1/auth/login {email,password,captcha_token,email_otp_code?}
 //             401 {error:"EMAIL_2FA_REQUIRED"} -> reveal OTP, resubmit with code
 //             200 -> sets teacher cookies -> /dashboard-next
@@ -21,7 +21,7 @@
     student: {
       endpoint: "/api/v1/student/auth/login",
       reset: "/api/v1/student/auth/reset-request",
-      dest: "/student-next",
+      dest: "/student-dashboard",
       sub: "Access your upcoming exams and results.",
       signup: '<span class="muted">New here?</span> <a href="/register">Register for your exam</a>',
     },

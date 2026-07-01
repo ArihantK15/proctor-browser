@@ -1598,13 +1598,19 @@ async function loadAllOrgs(){
     if(!r.ok) return;
     const d = await r.json();
     const tbody = document.getElementById('all-orgs-tbody');
+    const cardsWrap = document.getElementById('all-orgs-cards');
     const countEl = document.getElementById('all-orgs-count');
     const orgs = d.orgs || [];
     if(countEl) countEl.textContent = String(orgs.length);
-    tbody.innerHTML = orgs.map(o => {
+    const tableRows = [];
+    const cards = [];
+    orgs.forEach(o => {
       const ovrd = o.max_students_override != null ? String(o.max_students_override) : '—';
       const cr = o.billing_credit_inr != null ? '₹' + String(o.billing_credit_inr) : '₹0';
-      return '<tr>' +
+      const actionsHtml = '<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:3px 6px;margin-right:4px" data-action="setCapOverride" data-args=\'' + _jsonArgsForAttr(o.id) + '\'>Cap</button>' +
+          '<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:3px 6px" data-action="grantOrgCredit" data-args=\'' + _jsonArgsForAttr(o.id) + '\'>Credit</button>';
+
+      tableRows.push('<tr>' +
         '<td>' + _escHtml(o.name||'') + '</td>' +
         '<td>' + (o.teacher_count||0) + '</td>' +
         '<td>' + (o.student_count||0) + '/' + _escHtml(String(o.max_students||'')) + '</td>' +
@@ -1612,13 +1618,20 @@ async function loadAllOrgs(){
         '<td>' + _escHtml(o.status||'') + '</td>' +
         '<td>' + ovrd + '</td>' +
         '<td>' + cr + '</td>' +
-        '<td style="white-space:nowrap">' +
-          '<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:3px 6px;margin-right:4px" data-action="setCapOverride" data-args=\'' + _jsonArgsForAttr(o.id) + '\'>Cap</button>' +
-          '<button class="btn btn-secondary btn-sm" style="font-size:10px;padding:3px 6px" data-action="grantOrgCredit" data-args=\'' + _jsonArgsForAttr(o.id) + '\'>Credit</button>' +
-        '</td>' +
+        '<td style="white-space:nowrap">' + actionsHtml + '</td>' +
         '<td>' + (o.created_at||'') + '</td>' +
-        '</tr>';
-    }).join('');
+        '</tr>');
+
+      cards.push('<div class="mcard">' +
+        '<div class="mcard-top"><span class="mcard-id">' + _escHtml(o.name||'') + '</span><span class="badge">' + _escHtml(o.plan||'') + '</span><span class="mcard-meta">' + _escHtml(o.status||'') + '</span></div>' +
+        '<div class="mcard-row"><span class="mcard-k">Teachers</span><span>' + (o.teacher_count||0) + '</span><span class="mcard-k">Students</span><span>' + (o.student_count||0) + '/' + _escHtml(String(o.max_students||'')) + '</span></div>' +
+        '<div class="mcard-row"><span class="mcard-k">Cap override</span><span>' + ovrd + '</span><span class="mcard-k">Credit</span><span>' + cr + '</span></div>' +
+        '<div class="mcard-row"><span class="mcard-meta">Created ' + (o.created_at||'') + '</span></div>' +
+        '<div class="mcard-actions">' + actionsHtml + '</div>' +
+        '</div>');
+    });
+    tbody.innerHTML = tableRows.join('');
+    if(cardsWrap) cardsWrap.innerHTML = cards.join('') || '<div class="mcard-empty">No organizations found.</div>';
   }catch(_){}
 }
 
@@ -3934,14 +3947,19 @@ function _populateIssueOrgFilter(rows){
 
 function renderIssuesTable(){
   const body = document.getElementById('issues-body');
+  const cardsWrap = document.getElementById('issues-cards');
   if(!body) return;
   if(!issuesData.length){
     body.innerHTML = '<tr><td colspan="7" class="empty-state">No issues match this filter.</td></tr>';
+    if(cardsWrap) cardsWrap.innerHTML = '<div class="mcard-empty">No issues match this filter.</div>';
     return;
   }
-  body.innerHTML = issuesData.map(i => {
+  const tableRows = [];
+  const cards = [];
+  issuesData.forEach(i => {
     const desc = (i.description || '').length > 60 ? `${i.description.slice(0,60)}...` : (i.description || '');
-    return `<tr class="issue-row ${currentIssueId===i.id?'active':''}" data-action="openIssueDetail" data-args='${_jsonArgsForAttr(i.id)}'>
+    const isActive = currentIssueId===i.id;
+    tableRows.push(`<tr class="issue-row ${isActive?'active':''}" data-action="openIssueDetail" data-args='${_jsonArgsForAttr(i.id)}'>
       <td><span class="issue-badge status-${escAttr(i.status)}">${_escHtml(_issueLabel(i.status))}</span></td>
       <td><span class="issue-badge severity-${escAttr(i.severity)}">${_escHtml(_issueLabel(i.severity))}</span></td>
       <td>${_escHtml(i.org_name || i.org_id || '—')}</td>
@@ -3949,8 +3967,20 @@ function renderIssuesTable(){
       <td>${_escHtml(_issueLabel(i.category))}</td>
       <td>${_escHtml(desc)}</td>
       <td style="font-size:12px;color:var(--muted)">${_escHtml(i.created_at || '—')}</td>
-    </tr>`;
-  }).join('');
+    </tr>`);
+
+    cards.push(`<div class="mcard${isActive?' mcard-active':''}" data-action="openIssueDetail" data-args='${_jsonArgsForAttr(i.id)}' style="cursor:pointer">
+      <div class="mcard-top">
+        <span class="issue-badge status-${escAttr(i.status)}">${_escHtml(_issueLabel(i.status))}</span>
+        <span class="issue-badge severity-${escAttr(i.severity)}">${_escHtml(_issueLabel(i.severity))}</span>
+        <span class="mcard-meta">${_escHtml(i.created_at || '—')}</span>
+      </div>
+      <div class="mcard-row"><span class="mcard-k">${_escHtml(_issueLabel(i.category))}</span><span>${_escHtml(i.org_name || i.org_id || '—')} · ${_escHtml(i.teacher_name || i.teacher_email || '—')}</span></div>
+      <div class="mcard-row">${_escHtml(desc)}</div>
+    </div>`);
+  });
+  body.innerHTML = tableRows.join('');
+  if(cardsWrap) cardsWrap.innerHTML = cards.join('');
 }
 
 function openIssueDetail(issueId){

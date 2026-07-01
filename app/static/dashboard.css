@@ -2413,3 +2413,4 @@ body:has(.more-sheet.open) .flag-fab{ display:none; }
 .mcard-actions{ display:flex; flex-wrap:wrap; gap:6px; padding-top:6px; border-top:1px solid var(--border-subtle); }
 .mcard-actions .btn{ flex:1 1 auto; }
 .mcard-empty{ text-align:center; color:var(--text-muted); padding:24px 12px; font-size:13px; }
+.mcard-active{ background:rgba(91,138,240,0.08); border-color:var(--accent-border); }

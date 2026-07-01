@@ -2405,10 +2405,13 @@
     <div class="table-toolbar">
       <span style="font-size:var(--text-lg,16px);font-weight:600;letter-spacing:-0.01em;color:var(--text-primary)">All Organizations</span>
     </div>
-    <table id="all-orgs-table" style="width:100%;border-collapse:collapse;font-size:var(--text-sm,13px)">
-      <thead><tr style="background:var(--surface-1);border-bottom:1px solid var(--border-subtle)"><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Name</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Teachers</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Students</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Plan</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Status</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Cap Ovrd</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Credit</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Actions</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Created</th></tr></thead>
-      <tbody id="all-orgs-tbody"></tbody>
-    </table>
+    <div class="table-wrap" style="border:none;border-radius:0">
+      <table id="all-orgs-table" style="width:100%;border-collapse:collapse;font-size:var(--text-sm,13px)">
+        <thead><tr style="background:var(--surface-1);border-bottom:1px solid var(--border-subtle)"><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Name</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Teachers</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Students</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Plan</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Status</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Cap Ovrd</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Credit</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Actions</th><th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:var(--tracking-wider,0.04em)">Created</th></tr></thead>
+        <tbody id="all-orgs-tbody"></tbody>
+      </table>
+    </div>
+    <div class="mcard-list" id="all-orgs-cards"></div>
   </div>
 </div>
 
@@ -2460,6 +2463,7 @@
         <tbody id="issues-body"></tbody>
       </table>
     </div>
+    <div class="mcard-list" id="issues-cards"></div>
     <aside class="issue-detail" id="issue-detail">
       <div class="issue-detail-empty">Select an issue to triage.</div>
     </aside>

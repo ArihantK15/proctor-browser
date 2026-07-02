@@ -512,7 +512,7 @@ async def razorpay_webhook(request: Request):
     db_sub = (await _atable("subscriptions")
               .select("id,org_id,plan,status,past_due_since,"
                       "current_period_start,current_period_end,razorpay_subscription_id,"
-                      "scheduled_plan,scheduled_plan_effective_at")
+                      "scheduled_plan,scheduled_plan_effective_at,last_webhook_event_at")
               .eq("razorpay_subscription_id", sub_id).limit(1).execute()).data or []
     if not db_sub:
         logger.warning("Unknown Razorpay subscription %s (event=%s)",
@@ -536,6 +536,37 @@ async def razorpay_webhook(request: Request):
     # Snapshot the pre-update subscription row so bill_cycle_overage can
     # read the just-ended cycle's period_start/period_end.
     _sub_before = dict(row)
+
+    # Razorpay's own docs warn webhooks are not guaranteed to arrive in
+    # order. Without this guard, a late-arriving 'subscription.charged' for
+    # the cycle just before a cancellation — delivered AFTER 'subscription.
+    # cancelled' already downgraded the org — would blindly re-grant access
+    # to a subscription the customer already cancelled. Compare the
+    # incoming event's own timestamp against the last one we actually
+    # applied; anything older is ignored (200, not an error — it's not a
+    # failure, it's just superseded). Missing/unparseable timestamps fail
+    # open (apply as before) rather than risk blocking legitimate events.
+    event_created_at = event.get("created_at")
+    last_applied_at = row.get("last_webhook_event_at")
+    if event_created_at and last_applied_at:
+        try:
+            last_applied_ts = (
+                last_applied_at.timestamp() if hasattr(last_applied_at, "timestamp")
+                else datetime.fromisoformat(str(last_applied_at).replace("Z", "+00:00")).timestamp()
+            )
+            if int(event_created_at) < last_applied_ts:
+                logger.info(
+                    "Razorpay webhook %s for sub=%s is stale (event_created_at=%s < "
+                    "last_applied=%s) — ignoring",
+                    safe(event_type), safe(sub_id), safe(event_created_at), safe(last_applied_at),
+                )
+                await record_billing_event(
+                    event_id=event_id, org_id=org_id, event_type=event_type,
+                    status="stale_ignored", razorpay_subscription_id=sub_id, payload=event,
+                )
+                return {"status": "ignored", "reason": "stale_event"}
+        except (TypeError, ValueError):
+            pass
 
     try:
         updates: dict[str, Any] = {}
@@ -580,6 +611,9 @@ async def razorpay_webhook(request: Request):
                                        status="ignored_unhandled",
                                        razorpay_subscription_id=sub_id, payload=event)
             return {"status": "ignored"}
+
+        if event_created_at:
+            updates["last_webhook_event_at"] = _epoch_to_iso(event_created_at)
 
         upd = await _atable("subscriptions").update(updates).eq("id", row["id"]).execute()
         if not (upd.data or []):

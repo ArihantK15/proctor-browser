@@ -593,6 +593,20 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
     except Exception as e:
         _auth_log.exception("[TeacherSignup] Postgres transaction failed")
         err_lower = str(e).lower()
+        # Two concurrent signups can both pass the pre-checks above (TOCTOU)
+        # and race into the same UNIQUE constraint here — org slug and email
+        # are two DIFFERENT constraints, so they need two different messages.
+        # Without this split, a slug race showed "account exists with this
+        # email" for an email that was never actually taken, sending the
+        # user down a bogus sign-in/reset-password path instead of telling
+        # them the real problem (someone else just took that org name).
+        if "organizations_slug_key" in err_lower or "slug" in err_lower:
+            raise HTTPException(
+                status_code=409,
+                detail=f"'{org_name}' is already registered. If it's your organization, "
+                       f"sign in instead (or reset your password); otherwise ask your "
+                       f"admin for an invite."
+            )
         if (
             "duplicate key" in err_lower
             or "unique constraint" in err_lower
@@ -1246,7 +1260,20 @@ async def accept_org_invite(body: dict[str, Any], request: Request):
             "auth_provider": "local",
             "password_changed_at": now_ist().isoformat(),
         }
-        teacher_result = await _atable("teachers").insert(teacher_row).execute()
+        # A double-submit (slow network, double-click) or two invite emails
+        # to the same address can both pass the existing.data check above
+        # and race into teachers_email_key together — the loser must get a
+        # clean 409, not an opaque 500 from the global exception handler.
+        try:
+            teacher_result = await _atable("teachers").insert(teacher_row).execute()
+        except Exception as e:
+            err_lower = str(e).lower()
+            if "duplicate key" in err_lower or "unique constraint" in err_lower:
+                raise HTTPException(
+                    status_code=409,
+                    detail="This invitation was already accepted. Try signing in instead.",
+                )
+            raise
         teacher = teacher_result.data[0]
 
     resolved_name = teacher.get("full_name") or body.get("full_name", full_name)

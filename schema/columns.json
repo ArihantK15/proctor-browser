@@ -524,6 +524,7 @@
     "current_period_end",
     "current_period_start",
     "id",
+    "last_webhook_event_at",
     "org_id",
     "past_due_since",
     "plan",

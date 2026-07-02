@@ -650,6 +650,42 @@ class TestRazorpayWebhook:
             resp = self._post(client, "subscription.cancelled")
         assert resp.status_code == 200
 
+    def test_stale_webhook_ignored_not_applied(self, client):
+        # Razorpay doesn't guarantee delivery order. A 'subscription.charged'
+        # for the cycle just before a cancellation, delivered AFTER
+        # 'subscription.cancelled' already downgraded the org, must not
+        # resurrect access — it's older than the last event we applied.
+        data_map = {"subscriptions": [{
+            "id": "db_sub_1", "org_id": "org-1",
+            "last_webhook_event_at": "2026-01-10T00:00:00+00:00",
+        }], "organizations": []}
+        with patch("app.routers.billing.verify_webhook", return_value=True), \
+             contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            # 2026-01-01 — well before the row's last_webhook_event_at.
+            resp = self._post(client, "subscription.charged", created_at=1767225600)
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "ignored"
+        assert body["reason"] == "stale_event"
+
+    def test_newer_webhook_still_applied(self, client):
+        # Sanity check the guard's other side: an event genuinely newer than
+        # the last applied one must still go through normally.
+        data_map = {"subscriptions": [{
+            "id": "db_sub_1", "org_id": "org-1",
+            "last_webhook_event_at": "2026-01-01T00:00:00+00:00",
+        }], "organizations": []}
+        with patch("app.routers.billing.verify_webhook", return_value=True), \
+             contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            # 2026-01-10 — after the row's last_webhook_event_at.
+            resp = self._post(client, "subscription.charged", created_at=1767916800)
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+
     def test_payment_failed_sets_expired(self, client):
         data_map = {"subscriptions": [{"id": "db_sub_1", "org_id": "org-1"}]}
         with patch("app.routers.billing.verify_webhook", return_value=True), \

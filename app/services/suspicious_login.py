@@ -33,6 +33,7 @@ from typing import Any
 
 from ..log_safe import mask_email, safe
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -145,7 +146,13 @@ async def check_and_notify(
             wants = await teacher_wants(user_id, "security")
         if wants:
             from ..emailer import send_suspicious_login_email
-            send_suspicious_login_email(
+            # send_suspicious_login_email is synchronous (real network call).
+            # This runs inside an asyncio.create_task fire-and-forget from
+            # the login handler, so it no longer blocks the login RESPONSE —
+            # but without to_thread it would still block this worker's event
+            # loop for every OTHER concurrent request while THIS task runs.
+            await asyncio.to_thread(
+                send_suspicious_login_email,
                 to_email=user_email,
                 to_name=user_name or user_email.split("@", 1)[0],
                 ip=request_ip,

@@ -638,7 +638,10 @@ async def teacher_signup(body: TeacherSignupIn, request: Request):
                     account_type="teacher", name=name, email=email)
         from ..emailer import send_email_verification
         vtoken = issue_email_verify_token(teacher["id"], email, "teacher")
-        send_email_verification(email, name, f"{base}/verify-email?token={vtoken}")
+        # send_email_verification is synchronous (real network call to
+        # Resend/SMTP, plus a deliberate rate-limit sleep) — offload it so
+        # it doesn't block this worker's shared event loop.
+        await asyncio.to_thread(send_email_verification, email, name, f"{base}/verify-email?token={vtoken}")
     except Exception as _post_err:
         _auth_log.warning("[TeacherSignup] post-commit side effect failed (non-fatal): %s", _post_err)
 
@@ -782,7 +785,7 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
                     detail="Too many 2FA codes requested. Please wait a few minutes before trying again.",
                 )
             try:
-                send_2fa_otp_email(email, teacher.get("full_name", ""), code, purpose="login")
+                await asyncio.to_thread(send_2fa_otp_email, email, teacher.get("full_name", ""), code, purpose="login")
             except Exception as e:
                 # Sending failed — surface a clean error so the user doesn't
                 # sit forever waiting for an email that never comes.
@@ -1030,7 +1033,8 @@ async def teacher_password_reset(body: PasswordResetIn, request: Request):
                     password_changed_at=_stringify_pwc(user.get("password_changed_at")),
                 )
                 base = _get_invite_base_url()
-                send_password_reset_email(
+                await asyncio.to_thread(
+                    send_password_reset_email,
                     email,
                     user.get("full_name", ""),
                     f"{base}/reset-password?token={token}",
@@ -1064,7 +1068,8 @@ async def teacher_change_password(request: Request):
                 password_changed_at=_stringify_pwc(user.get("password_changed_at")),
             )
             base = _get_invite_base_url()
-            send_password_reset_email(
+            await asyncio.to_thread(
+                send_password_reset_email,
                 email,
                 user.get("full_name", ""),
                 f"{base}/reset-password?token={token}",
@@ -1283,7 +1288,7 @@ async def accept_org_invite(body: dict[str, Any], request: Request):
     from ..emailer import send_email_verification
     from ..invites import _get_invite_base_url
     base = _get_invite_base_url()
-    send_email_verification(email, resolved_name, f"{base}/verify-email?token={vtoken}")
+    await asyncio.to_thread(send_email_verification, email, resolved_name, f"{base}/verify-email?token={vtoken}")
     _auth_log.info("[AcceptInvite] %s <%s> pending verification for org %s", safe(resolved_name), mask_email(email), safe(org_id))
     enqueue_job(send_new_account_notification_job, account_type="teacher", name=resolved_name, email=email)
 
@@ -2245,7 +2250,7 @@ async def resend_verification(body: dict[str, Any], request: Request):
             from ..invites import _get_invite_base_url
             vtoken = issue_email_verify_token(user["id"], email, kind)
             base = _get_invite_base_url()
-            send_email_verification(email, user.get("full_name", ""), f"{base}/verify-email?token={vtoken}")
+            await asyncio.to_thread(send_email_verification, email, user.get("full_name", ""), f"{base}/verify-email?token={vtoken}")
             return {"status": "sent"}
     return {"status": "sent"}
 
@@ -2521,7 +2526,8 @@ async def student_password_reset(body: dict[str, Any], request: Request):
                 )
                 base = _get_invite_base_url()
                 try:
-                    send_password_reset_email(
+                    await asyncio.to_thread(
+                        send_password_reset_email,
                         email,
                         user.get("full_name", ""),
                         f"{base}/reset-password?token={token}",
@@ -2817,7 +2823,7 @@ async def _track_a_issue_signup_otp(account: dict[str, Any], email: str | None =
     except OtpRateLimitError:
         _auth_log.info("[signup_otp] rate-limited account=%s", safe(account_id))
         return
-    send_2fa_otp_email(to_email, account.get("full_name") or "", code, purpose="signup")
+    await asyncio.to_thread(send_2fa_otp_email, to_email, account.get("full_name") or "", code, purpose="signup")
 
 
 async def _auto_link_student_enrollments(account_id: str, email: str) -> None:
@@ -3013,7 +3019,7 @@ async def student_account_delete_request(request: Request):
             status_code=429,
             detail="Too many delete codes requested. Please wait before trying again.",
         )
-    send_2fa_otp_email(email, account.get("full_name") or "", code, purpose="delete")
+    await asyncio.to_thread(send_2fa_otp_email, email, account.get("full_name") or "", code, purpose="delete")
     return {"sent": True, "expires_in": 600}
 
 
@@ -3091,7 +3097,7 @@ async def _track_b_send_password_reset_otp(kind: str, email: str) -> None:
     except OtpRateLimitError:
         _auth_log.info("[password_reset_otp] rate-limited kind=%s user=%s", kind, safe(str(user.get("id"))))
         return
-    send_2fa_otp_email(email, user.get("full_name") or "", code, purpose="password_reset")
+    await asyncio.to_thread(send_2fa_otp_email, email, user.get("full_name") or "", code, purpose="password_reset")
 
 
 async def _student_reset_request_is_authenticated_for_email(request: Request, email: str) -> bool:
@@ -3229,7 +3235,7 @@ async def student_email_change_request(request: Request, body: dict[str, Any] = 
             status_code=429,
             detail="Too many email-change codes requested. Please wait before trying again.",
         )
-    send_2fa_otp_email(new_email, account.get("full_name") or "", code)
+    await asyncio.to_thread(send_2fa_otp_email, new_email, account.get("full_name") or "", code)
     if old_email:
         try:
             send_student_email_change_heads_up(

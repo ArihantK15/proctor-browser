@@ -25,6 +25,7 @@ Retention exceptions (data NOT deleted on erasure request):
 See docs/PRIVACY.md for the full retention matrix and SAR procedure.
 """
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone
@@ -519,8 +520,9 @@ async def _cleanup_screenshots(user_type: str, user_id: str) -> None:
             if teacher_dir.is_dir():
                 import shutil as _shutil
                 _shutil.rmtree(teacher_dir, ignore_errors=True)
-            # Also delete from S3
-            _s3_delete_prefix(f"{user_id}/")
+            # Also delete from S3 — delete_prefix is a synchronous boto3
+            # call, offloaded so it doesn't block this worker's event loop.
+            await asyncio.to_thread(_s3_delete_prefix, f"{user_id}/")
         else:
             rows = await _atable("exam_sessions").select("teacher_id,roll_number")\
                 .eq("student_id", user_id).execute()
@@ -538,7 +540,7 @@ async def _cleanup_screenshots(user_type: str, user_id: str) -> None:
                 # Trailing slash is required: a bare "{tid}/{roll}" prefix
                 # also matches sibling rolls (R1 → R10, R12…) and would
                 # over-erase other students' screenshots.
-                _s3_delete_prefix(f"{tid}/{roll}/")
+                await asyncio.to_thread(_s3_delete_prefix, f"{tid}/{roll}/")
     except Exception as e:
         _log.warning("[privacy.delete] screenshot cleanup failed: %s", e)
 

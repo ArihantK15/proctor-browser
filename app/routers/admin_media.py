@@ -1,4 +1,5 @@
 """Media router — question image upload/serve and screenshot serve."""
+import asyncio
 import base64
 import hashlib
 import logging
@@ -161,7 +162,9 @@ async def get_screenshot(roll: str, filename: str, request: Request,
         # Fall back to S3 when S3 is enabled and the local file is absent
         if _s3_enabled():
             s3_key = f"{safe_tid}/{safe_roll}/{safe_file}"
-            blob = _s3_fetch(s3_key)
+            # fetch_screenshot is a synchronous boto3 call — offload it so
+            # it doesn't block this worker's shared event loop.
+            blob = await asyncio.to_thread(_s3_fetch, s3_key)
             if blob is not None:
                 suffix = fpath.suffix.lower()
                 media = "image/jpeg" if suffix in (".jpg", ".jpeg") else "image/png"

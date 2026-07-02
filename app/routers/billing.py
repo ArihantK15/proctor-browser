@@ -821,6 +821,18 @@ async def change_plan(request: Request):
     if sub_status not in ENTITLING_STATUSES:
         raise HTTPException(status_code=409, detail="Your subscription must be active to change plans. Create a new subscription instead.")
 
+    # 'cancelling' IS an entitling status (access persists to cycle end) but
+    # must not be allowed to switch plans here: an upgrade would charge a
+    # real proration add-on right now for a plan the org is about to lose
+    # anyway at that same cycle's end (cancel_at_cycle_end was already set
+    # by /billing/cancel and nothing on this path resets it) — real money
+    # for access that's already scheduled to disappear. A downgrade
+    # schedule would be equally pointless. Reactivate first.
+    if sub_status == "cancelling":
+        raise HTTPException(status_code=409,
+            detail="This subscription is cancelling at the end of the billing period. "
+                   "Reactivate it first if you want to change plans instead.")
+
     # Trialing subs have no billing cycle and no payment mandate yet, so a plan
     # change just switches the trial plan IMMEDIATELY — nothing to prorate or
     # charge, and no cycle end to schedule a downgrade against. (Scheduling a

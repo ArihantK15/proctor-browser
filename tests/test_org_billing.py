@@ -843,6 +843,25 @@ class TestChangePlan:
         assert d.get("ok") is True
         assert d.get("cleared") is True
 
+    def test_cancelling_blocks_plan_change_409(self, client):
+        # 'cancelling' is an ENTITLING status (access persists to cycle end)
+        # but must not allow an upgrade here: it would charge a real
+        # proration add-on right now for a plan the org is about to lose at
+        # that same cycle's end anyway. Must 409 before touching Razorpay.
+        row = dict(self.SUB_ROW)
+        row["status"] = "cancelling"
+        data_map = {"subscriptions": [row]}
+        with _admin_patch(), \
+             patch("app.routers.billing._get_client") as mk_client, \
+             contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            resp = client.post("/api/v1/billing/change-plan",
+                               json={"plan_id": "growth"},
+                               headers=self._reauth_headers())
+        assert resp.status_code == 409
+        mk_client.assert_not_called()
+
     def test_upgrade_returns_proration_inr(self, client):
         """Upgrade from starter to growth returns proration_inr."""
         data_map = {"subscriptions": [self.SUB_ROW]}

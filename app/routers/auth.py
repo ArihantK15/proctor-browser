@@ -1377,6 +1377,14 @@ async def student_signup(body: StudentSignupIn, request: Request):
             result = await _atable("student_accounts").insert(account_row).execute()
         account = result.data[0]
     except Exception as e:
+        # Two concurrent signups (double-submit, impatient double-click) can
+        # both pass the existing.data check above and race into
+        # student_accounts_email_key together — the loser must get the same
+        # clean, non-committal 409 the pre-check above returns, not a scary
+        # "Failed to create student record" that suggests real data loss.
+        err_lower = str(e).lower()
+        if "duplicate key" in err_lower or "unique constraint" in err_lower:
+            raise HTTPException(status_code=409, detail="If an account exists with this email, you can sign in or reset your password.")
         _auth_log.error("[StudentSignup] DB insert error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create student record")
 

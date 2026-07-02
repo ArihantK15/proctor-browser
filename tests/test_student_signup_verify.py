@@ -44,6 +44,8 @@ class _Table:
                 return _Result([self.db.existing_account])
             return _Result([])
         if self.name == "student_accounts" and self.op == "insert":
+            if self.db.raise_on_insert:
+                raise self.db.raise_on_insert
             self.db.inserted_account = {"id": "student-1", **self.payload}
             return _Result([self.db.inserted_account])
         if self.op == "update":
@@ -52,10 +54,14 @@ class _Table:
 
 
 class _Db:
-    def __init__(self, existing_account=None):
+    def __init__(self, existing_account=None, raise_on_insert=None):
         self.existing_account = existing_account
         self.inserted_account = None
         self.updates = []
+        # Simulates a UNIQUE constraint violation on the insert — used to
+        # exercise the concurrent-signup race (two requests both pass the
+        # existence check, then race into student_accounts_email_key).
+        self.raise_on_insert = raise_on_insert
 
     def table(self, name):
         return _Table(self, name)
@@ -102,6 +108,28 @@ def test_student_signup_existing_email_409_even_with_weak_password(client):
     assert resp.status_code == 409
     # No account row was inserted and no OTP was sent for an existing email.
     assert db.inserted_account is None
+    issue_mock.assert_not_awaited()
+
+
+def test_student_signup_concurrent_race_409_not_500(client):
+    """Two concurrent signups for the same email can both pass the
+    existence check and race into student_accounts_email_key. The loser
+    must get the same clean 409 the pre-check returns, not an opaque 500
+    that implies real data loss."""
+    db = _Db(raise_on_insert=Exception('duplicate key value violates unique constraint "student_accounts_email_key"'))
+    with patch("app.routers.auth.verify_or_403", new=AsyncMock()), \
+         patch("app.routers.auth.local_password_auth_enabled", return_value=True), \
+         patch("app.routers.auth.hash_password", new=AsyncMock(return_value="hash")), \
+         patch("app.routers.auth.new_auth_uid", return_value="uid-1"), \
+         patch("app.routers.auth._atable", db.table), \
+         patch("app.routers.auth._track_a_issue_signup_otp", new=AsyncMock()) as issue_mock:
+        resp = client.post("/api/v1/student/auth/signup", json={
+            "email": "student@example.com",
+            "full_name": "Student One",
+            "password": "StrongPass1!",
+        })
+
+    assert resp.status_code == 409
     issue_mock.assert_not_awaited()
 
 

@@ -4,6 +4,7 @@ Handles OAuth 2.0 authorization, course listing, roster sync,
 and grade passback to Google Classroom.
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -148,23 +149,38 @@ def _build_credentials(token_dict: dict[str, Any]) -> Credentials | None:
         return None
 
 
+def _list_courses_sync(creds: Credentials) -> list[dict[str, Any]]:
+    service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
+    result = service.courses().list(
+        pageSize=100,
+        courseStates=["ACTIVE", "PROVISIONED"],
+    ).execute()
+    courses = result.get("courses", [])
+    return [
+        {"id": c["id"], "name": c["name"], "section": c.get("section", ""),
+         "enrollment_code": c.get("enrollmentCode", "")}
+        for c in courses
+    ]
+
+
 async def list_courses(creds: Credentials) -> list[dict[str, Any]]:
-    """List Google Classroom courses accessible by this teacher."""
+    """List Google Classroom courses accessible by this teacher.
+
+    build()/.execute() are synchronous (googleapiclient uses httplib2), so
+    the actual network calls run in a thread — otherwise every call here
+    blocks the shared event loop for the round-trip to Google's API.
+    """
     try:
-        service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
-        result = service.courses().list(
-            pageSize=100,
-            courseStates=["ACTIVE", "PROVISIONED"],
-        ).execute()
-        courses = result.get("courses", [])
-        return [
-            {"id": c["id"], "name": c["name"], "section": c.get("section", ""),
-             "enrollment_code": c.get("enrollmentCode", "")}
-            for c in courses
-        ]
+        return await asyncio.to_thread(_list_courses_sync, creds)
     except HttpError as e:
         logger.warning("[google_classroom] list courses failed: %s", e)
         return []
+
+
+def _get_course_name_sync(creds: Credentials, course_id: str) -> str:
+    service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
+    course = service.courses().get(id=course_id).execute()
+    return (course.get("name") or "").strip()
 
 
 async def get_course_name(creds: Credentials, course_id: str) -> str:
@@ -175,22 +191,24 @@ async def get_course_name(creds: Credentials, course_id: str) -> str:
     name must never break the roster import.
     """
     try:
-        service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
-        course = service.courses().get(id=course_id).execute()
-        return (course.get("name") or "").strip()
+        return await asyncio.to_thread(_get_course_name_sync, creds, course_id)
     except Exception as e:
         logger.warning("[google_classroom] get course name failed: %s", e)
         return ""
 
 
+def _list_students_sync(creds: Credentials, course_id: str) -> list[dict[str, Any]]:
+    service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
+    result = service.courses().students().list(
+        courseId=course_id, pageSize=200
+    ).execute()
+    return result.get("students", [])
+
+
 async def list_students(creds: Credentials, course_id: str) -> list[dict[str, Any]]:
     """List students enrolled in a Google Classroom course."""
     try:
-        service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
-        result = service.courses().students().list(
-            courseId=course_id, pageSize=200
-        ).execute()
-        students = result.get("students", [])
+        students = await asyncio.to_thread(_list_students_sync, creds, course_id)
         out = []
         for s in students:
             profile = s.get("profile", {}) or {}
@@ -210,6 +228,23 @@ async def list_students(creds: Credentials, course_id: str) -> list[dict[str, An
         return []
 
 
+def _create_coursework_sync(creds: Credentials, course_id: str, title: str,
+                            max_points: float) -> str | None:
+    service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
+    body: dict[str, Any] = {
+        "title": (title or "Procta Exam")[:3000],
+        "description": "Auto-created by Procta — exam scores are posted here.",
+        "workType": "ASSIGNMENT",
+        "state": "PUBLISHED",
+    }
+    if max_points and max_points > 0:
+        body["maxPoints"] = float(max_points)
+    created = service.courses().courseWork().create(
+        courseId=course_id, body=body,
+    ).execute()
+    return created.get("id")
+
+
 async def create_coursework(creds: Credentials, course_id: str, title: str,
                             max_points: float) -> str | None:
     """Create a graded ASSIGNMENT courseWork in a course; return its id or None.
@@ -220,50 +255,43 @@ async def create_coursework(creds: Credentials, course_id: str, title: str,
     which push_grade then grades. Fail-soft: a creation failure must not break
     exam submission — the score is still recorded in Procta.
     """
-    from typing import Any
     try:
-        service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
-        body: dict[str, Any] = {
-            "title": (title or "Procta Exam")[:3000],
-            "description": "Auto-created by Procta — exam scores are posted here.",
-            "workType": "ASSIGNMENT",
-            "state": "PUBLISHED",
-        }
-        if max_points and max_points > 0:
-            body["maxPoints"] = float(max_points)
-        created = service.courses().courseWork().create(
-            courseId=course_id, body=body,
-        ).execute()
-        return created.get("id")
+        return await asyncio.to_thread(_create_coursework_sync, creds, course_id, title, max_points)
     except Exception as e:
         logger.warning("[google_classroom] create coursework failed: %s", e)
         return None
+
+
+def _push_grade_sync(creds: Credentials, course_id: str, course_work_id: str,
+                     user_id: str, score: float, max_score: float) -> bool:
+    service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
+    submission = service.courses().courseWork().studentSubmissions().get(
+        courseId=course_id, courseWorkId=course_work_id, userId=user_id
+    ).execute()
+    assignment_grade = submission.get("assignedGrade")
+    if assignment_grade is not None and float(assignment_grade) >= score:
+        return True  # Already graded with same or higher score
+    submission["assignedGrade"] = score
+    submission["maxPoints"] = max_score
+    submission["draftGrade"] = score
+    service.courses().courseWork().studentSubmissions().patch(
+        courseId=course_id, courseWorkId=course_work_id, userId=user_id,
+        body={"assignedGrade": score, "draftGrade": score},
+        updateMask="assignedGrade,draftGrade",
+    ).execute()
+    # Mark as returned so the student can see the grade
+    service.courses().courseWork().studentSubmissions().return_(
+        courseId=course_id, courseWorkId=course_work_id, userId=user_id,
+    ).execute()
+    return True
 
 
 async def push_grade(creds: Credentials, course_id: str, course_work_id: str,
                      user_id: str, score: float, max_score: float) -> bool:
     """Push a student's grade back to a Google Classroom course work item."""
     try:
-        service = build(_SERVICE, _API_VERSION, credentials=creds, cache_discovery=False)
-        submission = service.courses().courseWork().studentSubmissions().get(
-            courseId=course_id, courseWorkId=course_work_id, userId=user_id
-        ).execute()
-        assignment_grade = submission.get("assignedGrade")
-        if assignment_grade is not None and float(assignment_grade) >= score:
-            return True  # Already graded with same or higher score
-        submission["assignedGrade"] = score
-        submission["maxPoints"] = max_score
-        submission["draftGrade"] = score
-        service.courses().courseWork().studentSubmissions().patch(
-            courseId=course_id, courseWorkId=course_work_id, userId=user_id,
-            body={"assignedGrade": score, "draftGrade": score},
-            updateMask="assignedGrade,draftGrade",
-        ).execute()
-        # Mark as returned so the student can see the grade
-        service.courses().courseWork().studentSubmissions().return_(
-            courseId=course_id, courseWorkId=course_work_id, userId=user_id,
-        ).execute()
-        return True
+        return await asyncio.to_thread(
+            _push_grade_sync, creds, course_id, course_work_id, user_id, score, max_score)
     except HttpError as e:
         logger.warning("[google_classroom] grade push failed: %s", e)
         return False

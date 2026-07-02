@@ -60,6 +60,17 @@ _PHASE104 = _MIGRATIONS / "phase104_sweep_billing_7yr.sql"
 # fixed-prod — without it the fixture cannot reject an invalid status and the
 # suite stays blind to constraint/code drift (which is exactly what shipped).
 _PHASE144 = _MIGRATIONS / "phase144_subscriptions_status_fix.sql"
+# phase149 adds the overage-retry-sweeper bookkeeping columns; phase150 adds
+# the webhook-ordering guard column. Both are purely additive ALTER TABLE ADD
+# COLUMN with no other dependency, but the code SELECTs these columns
+# unconditionally, so without them every query against
+# overage_charges/subscriptions fails outright against the fixture.
+# (phase148 is NOT applied here — it's an RLS-policy migration that depends
+# on phase124's `app.*` session-context schema, which this stripped-down
+# fixture deliberately doesn't have; there's no RLS to validate in this
+# suite, so it isn't in scope for the fixture the way it is for prod.)
+_PHASE149 = _MIGRATIONS / "phase149_overage_charges_retry_columns.sql"
+_PHASE150 = _MIGRATIONS / "phase150_subscriptions_webhook_ordering.sql"
 
 # Every table the suite writes, truncated between tests so state never leaks.
 # Written as a single STATIC string literal (no runtime concatenation / no
@@ -115,6 +126,8 @@ def _build_schema():
             await conn.execute(_PHASE91.read_text())
             await conn.execute(_PHASE104.read_text())  # validates the real migration
             await conn.execute(_PHASE144.read_text())  # validates the real migration; enforces prod status set
+            await conn.execute(_PHASE149.read_text())  # validates the real migration
+            await conn.execute(_PHASE150.read_text())  # validates the real migration
         finally:
             await conn.close()
 

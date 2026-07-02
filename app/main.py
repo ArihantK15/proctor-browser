@@ -238,6 +238,22 @@ async def lifespan(_app) -> AsyncIterator[None]:
         )
         print(f"[startup] overage retry sweeper started ({worker_name})", flush=True)
 
+    # RLS coverage alarm — periodic pg_policies sweep for deny-all landmines
+    # (RLS-enabled table with no policy), stale auth.uid() policies, or a
+    # tenant-column table with RLS disabled entirely. Every RLS gap this app
+    # has shipped was discovered by a feature going silently dead in prod
+    # first — this pages before that happens again (#18).
+    _rls_alarm_task = None
+    if is_leader and os.environ.get("RLS_ALARM_DISABLED", "") != "1":
+        from .services.rls_alarm import rls_alarm_loop
+        _rls_alarm_task = asyncio.create_task(rls_alarm_loop())
+        _rls_alarm_task.add_done_callback(
+            lambda t: print(f"[startup] RLS coverage alarm ended: {t.exception()}", flush=True)
+            if not t.cancelled() and t.exception()
+            else None
+        )
+        print(f"[startup] RLS coverage alarm started ({worker_name})", flush=True)
+
     yield  # ── APP RUNNING ────────────────────────────────────────
 
     # ── SHUTDOWN ──────────────────────────────────────────────────
@@ -265,9 +281,12 @@ async def lifespan(_app) -> AsyncIterator[None]:
     if _overage_sweeper_task is not None and not _overage_sweeper_task.done():
         _overage_sweeper_task.cancel()
         log.info("[shutdown] Cancelled overage retry sweeper task")
+    if _rls_alarm_task is not None and not _rls_alarm_task.done():
+        _rls_alarm_task.cancel()
+        log.info("[shutdown] Cancelled RLS coverage alarm task")
 
     # Await cancelled tasks so they can run finally blocks
-    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _ttl_sweeper_task, _reminder_task, _proctor_health_task, _reconciler_task, _overage_sweeper_task]
+    cancelled_tasks = [_room_frame_cleanup_task, _reaper_task, _ttl_sweeper_task, _reminder_task, _proctor_health_task, _reconciler_task, _overage_sweeper_task, _rls_alarm_task]
     for t in cancelled_tasks:
         if t is not None:
             try:

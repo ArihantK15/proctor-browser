@@ -30,6 +30,19 @@ from ..services.sessions import PLAN_LIMITS as _PLAN_LIMITS
 
 logger = logging.getLogger(__name__)
 
+# Razorpay subscriptions are not evergreen — total_count is a hard number of
+# billing cycles, and the subscription auto-completes (subscription.completed)
+# once they're exhausted, at which point the org drops to FREE_CAP even for a
+# customer who is happily still paying. Razorpay's own docs: "We support
+# subscriptions for a maximum duration of 100 years" — so the effectively-
+# evergreen total_count for each cycle length is 100 years' worth of cycles.
+# (Previously 5/12 — 5 YEARS / 12 MONTHS — which is nowhere near this ceiling
+# and meant every monthly self-serve subscription was on a countdown to a
+# silent, uncommunicated downgrade at its 12th renewal. #27.)
+_MAX_SUBSCRIPTION_YEARS = 100
+TOTAL_COUNT_MONTHLY = _MAX_SUBSCRIPTION_YEARS * 12   # 1200 cycles
+TOTAL_COUNT_ANNUAL = _MAX_SUBSCRIPTION_YEARS         # 100 cycles
+
 
 def _is_live() -> bool:
     return bool(os.environ.get("RAZORPAY_KEY_ID") and os.environ.get("RAZORPAY_KEY_SECRET"))
@@ -123,7 +136,7 @@ def create_subscription(org_id: str, plan_id: str, gstin: str | None = None,
         client = _get_client()
         payload: dict[str, object] = {
             "plan_id": plan_key,
-            "total_count": 5 if is_annual else 12,
+            "total_count": TOTAL_COUNT_ANNUAL if is_annual else TOTAL_COUNT_MONTHLY,
             "customer_notify": 1,
             "notes": notes,
         }

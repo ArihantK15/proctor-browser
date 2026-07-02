@@ -14,7 +14,12 @@ blind:
     _sub_before snapshot had no period and overage billing silently no-op'd.
     A unit mock can't catch it (the mock ignores column projection); real
     Postgres only returns the columns actually selected.
+  • the atomic billing-credit debit (Gap #13, _atomic_debit_credit) never
+    double-consumes an org's credit balance under real concurrent callers —
+    a MagicMock has no row lock, so only a real DB can prove the
+    SELECT ... FOR UPDATE actually serializes two racing charges.
 """
+import asyncio
 import hashlib
 import hmac
 import json
@@ -27,7 +32,7 @@ from starlette.requests import Request
 
 from app.database import async_table
 from app.routers.billing import razorpay_webhook
-from app.services.billing import compute_overage, bill_cycle_overage
+from app.services.billing import compute_overage, bill_cycle_overage, _atomic_debit_credit
 from app.limiter import limiter
 
 pytestmark = pytest.mark.asyncio
@@ -167,3 +172,36 @@ async def test_charged_webhook_creates_overage_row(monkeypatch):
     rows = await _overage_rows(org)
     assert len(rows) == 1, "subscription.charged must produce an overage_charges row"
     assert rows[0]["overage_count"] == 5
+
+
+# ── atomic credit debit under real concurrency (Gap #13, #4) ─────────────
+
+async def _credit(org_id) -> int:
+    rows = (await async_table("organizations").select("billing_credit_inr")
+            .eq("id", org_id).execute()).data or []
+    return int(rows[0]["billing_credit_inr"] or 0)
+
+
+async def test_atomic_debit_never_double_consumes_concurrent():
+    """10 concurrent charges of ₹100 each against a single ₹500 credit
+    balance. A read-then-write race would let multiple callers read the same
+    balance and all consume from it, driving the org's credit negative or
+    granting more comped INR than it actually had. The row-locked debit must
+    grant exactly enough charges to exhaust the ₹500 (5 of them), leave the
+    other 5 paying the full ₹100 net, and never take the balance below 0."""
+    org = await _org()
+    await async_table("organizations").update(
+        {"billing_credit_inr": 500}).eq("id", org).execute()
+
+    async def _charge():
+        return await _atomic_debit_credit(org, 100)
+
+    results = await asyncio.gather(*[_charge() for _ in range(10)])
+    total_consumed = sum(consumed for consumed, _net in results)
+    fully_comped = sum(1 for consumed, net in results if net == 0)
+    full_price = sum(1 for consumed, _net in results if consumed == 0)
+
+    assert total_consumed == 500          # exactly the starting balance, no more
+    assert fully_comped == 5              # 500 / 100 = 5 fully-comped charges
+    assert full_price == 5                # the rest pay in full once credit is gone
+    assert await _credit(org) == 0        # never negative, never left over

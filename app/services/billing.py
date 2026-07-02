@@ -302,6 +302,41 @@ def compute_proration(old_plan: str, new_plan: str, period_start, period_end, no
     return round(diff * remaining / cycle)
 
 
+async def _atomic_debit_credit(org_id: str, amount: int) -> tuple[int, int]:
+    """Atomically debit an org's billing_credit_inr against a charge of
+    ``amount``, returning ``(credit_consumed, net_amount_after_credit)``.
+
+    Locks the org row (SELECT ... FOR UPDATE) and reads+writes the credit
+    inside one transaction, so two concurrent overage charges for the same
+    org can't both read the same balance and double-consume it — the classic
+    read-then-write TOCTOU race (Gap #13). Raises on any failure; callers
+    decide the fallback (bill_cycle_overage charges the full amount rather
+    than risk granting credit that was never actually debited).
+
+    Runs as system: this is a background/webhook path with no request
+    context, and organizations is RLS-protected.
+    """
+    from ..postgres_table import get_pool
+    from .. import db_context as _dbctx
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await _dbctx.apply_request_context(conn, force_system=True)
+            # nosemgrep: asyncpg-sqli
+            org_credit = int(await conn.fetchval(
+                "SELECT billing_credit_inr FROM organizations WHERE id = $1 FOR UPDATE",
+                org_id) or 0)
+            if org_credit <= 0:
+                return 0, amount
+            credit_consumed = min(org_credit, amount)
+            net = amount - credit_consumed
+            # nosemgrep: asyncpg-sqli
+            await conn.execute(
+                "UPDATE organizations SET billing_credit_inr = $1 WHERE id = $2",
+                org_credit - credit_consumed, org_id)
+            return credit_consumed, net
+
+
 def _create_overage_addon(client, sub_id: str, overage_count: int, net_amount_inr: int) -> str | None:
     """Create the Razorpay add-on for one overage charge. Raises on API failure —
     callers decide how to record/retry a failure. Shared by bill_cycle_overage
@@ -388,35 +423,9 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict[str, Any]) -> dic
                 "amount_inr": res["amount_inr"]}
 
     # Gap #13: apply billing credit before creating the add-on.
-    # ATOMIC debit: lock the org row (SELECT … FOR UPDATE) and read+write the
-    # credit inside one transaction, so two concurrent overage charges for the
-    # same org can't both read the same balance and double-consume it (the
-    # read-then-write TOCTOU race). On ANY failure we charge the full amount —
-    # never grant credit we didn't actually debit. Runs as system: this is a
-    # background/webhook path with no request context, and organizations is
-    # RLS-protected.
     amount = res["amount_inr"]
-    org_credit = 0
-    credit_consumed = 0
-    net = amount
     try:
-        from ..postgres_table import get_pool
-        from .. import db_context as _dbctx
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                await _dbctx.apply_request_context(conn, force_system=True)
-                # nosemgrep: asyncpg-sqli
-                org_credit = int(await conn.fetchval(
-                    "SELECT billing_credit_inr FROM organizations WHERE id = $1 FOR UPDATE",
-                    oid) or 0)
-                if org_credit > 0:
-                    credit_consumed = min(org_credit, amount)
-                    net = amount - credit_consumed
-                    # nosemgrep: asyncpg-sqli
-                    await conn.execute(
-                        "UPDATE organizations SET billing_credit_inr = $1 WHERE id = $2",
-                        org_credit - credit_consumed, oid)
+        credit_consumed, net = await _atomic_debit_credit(oid, amount)
     except Exception as exc:
         logger.warning("bill_cycle_overage: credit debit failed for org=%s: %s — charging full amount",
                        oid, exc)

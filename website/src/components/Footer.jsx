@@ -9,12 +9,16 @@ export default function Footer() {
           {/* Brand */}
           <div className="md:col-span-1">
             <Link to="/" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex items-center gap-2.5 no-underline">
-              {/* Brand chip — same shield+eye mark as Navbar + favicon. */}
+              {/* Brand chip — same shield+eye+crosshair mark as Navbar + favicon. */}
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent accent-glow">
-                <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                  <path d="M4 2 H12 Q13.5 2 13.5 3.5 V8 Q13.5 12 8 14 Q2.5 12 2.5 8 V3.5 Q2.5 2 4 2 Z"
-                        fill="none" stroke="white" strokeWidth="1.2" strokeLinejoin="round"/>
-                  <circle cx="8" cy="8" r="1.5" fill="white"/>
+                <svg width="18" height="18" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                  <path d="M19 11 L45 11 Q51 11 51 17 L51 32 Q51 49 32 56 Q13 49 13 32 L13 17 Q13 11 19 11 Z"
+                        fill="white" fillOpacity="0.18" stroke="white" strokeWidth="2.4"/>
+                  <circle cx="32" cy="32" r="4.8" fill="white"/>
+                  <line x1="32" y1="22" x2="32" y2="26" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
+                  <line x1="32" y1="38" x2="32" y2="42" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
+                  <line x1="22" y1="32" x2="26" y2="32" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
+                  <line x1="38" y1="32" x2="42" y2="32" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
                 </svg>
               </div>
               <span className="font-display text-lg font-bold text-white tracking-tight">Procta</span>

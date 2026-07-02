@@ -256,9 +256,14 @@ export default function Signup() {
           <motion.div className="mb-8" variants={child}>
             <Link to="/" className="inline-flex items-center gap-2.5 no-underline mb-4">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-accent accent-glow">
-                <svg width="18" height="18" viewBox="0 0 16 16" fill="none">
-                  <path d="M4 3h3v1H5v8h2v1H4V3zm5 0h3v10h-3v-1h2V4H9V3z" fill="white"/>
-                  <circle cx="8" cy="8" r="1.5" fill="white" opacity="0.8"/>
+                <svg width="18" height="18" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+                  <path d="M19 11 L45 11 Q51 11 51 17 L51 32 Q51 49 32 56 Q13 49 13 32 L13 17 Q13 11 19 11 Z"
+                        fill="white" fillOpacity="0.18" stroke="white" strokeWidth="2.4"/>
+                  <circle cx="32" cy="32" r="4.8" fill="white"/>
+                  <line x1="32" y1="22" x2="32" y2="26" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
+                  <line x1="32" y1="38" x2="32" y2="42" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
+                  <line x1="22" y1="32" x2="26" y2="32" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
+                  <line x1="38" y1="32" x2="42" y2="32" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
                 </svg>
               </div>
               <span className="font-display text-xl font-bold text-white tracking-tight">Procta</span>

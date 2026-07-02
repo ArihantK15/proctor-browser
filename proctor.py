@@ -4024,6 +4024,36 @@ def main():
     print(f"[PROCTOR] Server:  {SERVER_URL}")
     print(f"[PROCTOR] Headless: {HEADLESS}")
 
+    # Hard requirement: onnxruntime underpins gaze, YOLO object detection,
+    # and ear-classifier — i.e. all of AI proctoring beyond raw camera
+    # recording. On Windows this is missing when the VC++ Redistributable
+    # the installer bundles (build/installer.nsh customInstall) didn't
+    # actually get installed — e.g. the student declined the UAC elevation
+    # prompt it triggers, or an antivirus blocked it. Previously this only
+    # downgraded the reported "proctoring tier" to reduced/minimal (still
+    # informational — see proctoring_tier below) and let the exam run
+    # anyway with AI detection silently disabled. Treat it as a hard stop
+    # instead, exactly like the camera-open failure right below: a proctor
+    # that can't see cheating shouldn't be allowed to proctor.
+    if not ORT_AVAILABLE:
+        try:
+            _session().post(SERVER_URL, json=dict(
+                session_id = SESSION_ID,
+                event_type = "proctor_runtime_missing",
+                severity   = "high",
+                details    = "onnxruntime unavailable — AI proctoring (gaze/object/ear detection) cannot run"
+            ), timeout=3)
+        except Exception:
+            pass
+        if CALIBRATION_MODE:
+            print("CAL:" + _json.dumps({
+                "error": "onnxruntime_missing",
+                "detail": "The AI runtime failed to load. Reinstall Procta and allow the "
+                          "Visual C++ Runtime install prompt during setup, then try again."
+            }), flush=True)
+        print("[PROCTOR] ❌ onnxruntime unavailable — AI proctoring cannot run!")
+        sys.exit(1)
+
     # Privacy-safe boot diagnostic: model flags + versions + OS/arch, through
     # the existing event pipeline (POST /api/v1/event). METADATA ONLY — never
     # media or identity. Makes on-device boot observable server-side.

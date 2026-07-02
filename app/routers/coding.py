@@ -83,6 +83,52 @@ def _limits_for(time_limit_ms: int) -> ExecLimits:
                       mem_mb=EXEC_MEM_MB, output_kb=EXEC_OUTPUT_KB)
 
 
+async def _insert_submission_under_cap(row: dict[str, Any], cap: int) -> bool:
+    """Atomically re-check the submit-attempt cap and insert, holding a
+    Postgres advisory transaction lock across both so two /judge calls for
+    the SAME (session_id, question_id) racing in parallel can't both slip
+    past the cap.
+
+    The cap read earlier in coding_judge() (before running the — possibly
+    slow — hidden test cases) is a plain COUNT with no lock: two concurrent
+    requests can both read count = cap-1 and both proceed, letting an
+    attacker exceed the output-oracle attempt cap (invariant #3) by firing
+    parallel requests with different sources. Re-checking here, in the same
+    locked transaction as the insert, closes that window — deliberately
+    scoped to just the check+insert (not the test-execution above it) so the
+    lock is held only briefly, not for the duration of a call to execsvc.
+
+    pg_advisory_xact_lock is a session-independent lock keyed by the hashed
+    string: a caller on ANY connection blocks until the current lock holder's
+    transaction commits/rolls back, so serializing on this raw connection
+    correctly orders the _atable insert below (which runs on a separate
+    pooled connection) against a concurrent caller's own check+insert.
+
+    Returns True if inserted, False if the cap was already reached by the
+    time the lock was acquired (caller should 429 without a submission row).
+    """
+    from ..postgres_table import get_pool
+    from .. import db_context as _dbctx
+    session_id = row["session_id"]
+    question_id = row["question_id"]
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await _dbctx.apply_request_context(conn)
+            await conn.execute(
+                "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                f"coding_submit_cap:{session_id}:{question_id}",
+            )
+            count = await conn.fetchval(
+                "SELECT count(*) FROM coding_submissions WHERE session_id = $1 AND question_id = $2",
+                session_id, question_id,
+            )
+            if int(count or 0) >= cap:
+                return False
+            await _atable("coding_submissions").insert(row).execute()
+            return True
+
+
 @router.get("/api/v1/coding/testcases")
 @limiter.limit("60/minute")
 async def coding_testcases(request: Request):
@@ -351,7 +397,12 @@ async def coding_judge(body: dict[str, Any], request: Request):
             "focus_loss_count": int(telemetry.get("focus_loss_count") or 0),
         }
         # is_fully_solved is a GENERATED column — never inserted.
-        await _atable("coding_submissions").insert(row_to_insert).execute()
+        # Re-checks the cap atomically against a race (see
+        # _insert_submission_under_cap) instead of trusting the plain COUNT
+        # read at the top of this function, which two concurrent /judge
+        # calls for the same (session, question) could both pass.
+        if not await _insert_submission_under_cap(row_to_insert, cap):
+            raise HTTPException(status_code=429, detail="Submission limit reached for this problem")
         resp = {"passed": passed, "total": total, "average_execution_ms": avg_ms}
         await mark_idempotent(idem_key, resp)
         return resp

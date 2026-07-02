@@ -73,6 +73,52 @@ def _make_atable(table_data, recorder=None):
     return _factory
 
 
+def _make_pool(table_data):
+    """Mock asyncpg pool for _insert_submission_under_cap's advisory-lock
+    transaction. fetchval() reports len(table_data['coding_submissions']) as
+    the prior-attempt count, consistent with what _atable would show for the
+    plain-COUNT pre-check earlier in coding_judge()."""
+    prior_count = len(table_data.get("coding_submissions", []))
+
+    async def _fetchval(query, *args):
+        if "count(*)" in query.lower():
+            return prior_count
+        return None
+
+    conn = MagicMock()
+    conn.execute = MagicMock(side_effect=lambda *a, **k: _AsyncNoop())
+    conn.fetchval = _fetchval
+    txn_cm = MagicMock()
+    txn_cm.__aenter__ = MagicMock(side_effect=lambda: _AsyncReturn(None))
+    txn_cm.__aexit__ = MagicMock(side_effect=lambda *a: _AsyncReturn(False))
+    conn.transaction = MagicMock(return_value=txn_cm)
+    conn_cm = MagicMock()
+    conn_cm.__aenter__ = MagicMock(side_effect=lambda: _AsyncReturn(conn))
+    conn_cm.__aexit__ = MagicMock(side_effect=lambda *a: _AsyncReturn(False))
+    pool = MagicMock()
+    pool.acquire = MagicMock(return_value=conn_cm)
+
+    async def _get_pool():
+        return pool
+    return _get_pool
+
+
+class _AsyncReturn:
+    """Awaitable that resolves to a fixed value — for mocking dunder methods
+    (__aenter__/__aexit__) MagicMock can't make async by itself."""
+    def __init__(self, value):
+        self._value = value
+    def __await__(self):
+        async def _c():
+            return self._value
+        return _c().__await__()
+
+
+class _AsyncNoop(_AsyncReturn):
+    def __init__(self):
+        super().__init__(None)
+
+
 def _patches(config, table_data, recorder, run_one_mock=None):
     async def _fake_access(claims, session_id):
         return None
@@ -87,6 +133,12 @@ def _patches(config, table_data, recorder, run_one_mock=None):
     ]
     if run_one_mock is not None:
         patches.append(patch("app.routers.coding.run_one", run_one_mock))
+    # Appended LAST (not inserted earlier) so existing patches[N] indices in
+    # every test body stay valid — only /judge needs this one (it's the only
+    # endpoint that calls _insert_submission_under_cap's advisory-lock path);
+    # /run, /testcases and the admin preview-run endpoint never touch it, so
+    # tests for those simply don't include this index in their `with`.
+    patches.append(patch("app.postgres_table.get_pool", new=_make_pool(table_data)))
     return patches
 
 
@@ -276,7 +328,7 @@ class TestJudge:
             _exec_result(stdout="10", time_ms=5),
         ])
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -306,7 +358,7 @@ class TestJudge:
             _exec_result(stdout="10", time_ms=5),
         ])
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -329,7 +381,7 @@ class TestJudge:
         }
         mock_run = MagicMock(return_value=_exec_result(stdout="SECRET-EXPECTED-42", time_ms=7))
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge",
                                json=_judge_body(language="python", source="print('Hello, World!')"),
                                headers=_hdr())
@@ -352,7 +404,7 @@ class TestJudge:
         }
         mock_run = MagicMock(return_value=_exec_result(stdout="5"))
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
         assert resp.status_code == 200
         assert set(resp.json().keys()) == {"passed", "total", "average_execution_ms"}
@@ -368,7 +420,7 @@ class TestJudge:
         }
         mock_run = MagicMock(return_value=_exec_result(stdout="5"))
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge",
                                json=_judge_body(teacher_id="evil-teacher"),
                                headers=_hdr(tid="teacher-1"))
@@ -390,6 +442,55 @@ class TestJudge:
         assert "limit" in resp.text.lower()
         mock_run.assert_not_called()
 
+    def test_judge_race_closed_by_atomic_recheck(self, client):
+        """The plain COUNT pre-check (top of coding_judge) can be stale by the
+        time hidden-case execution finishes — two concurrent /judge calls for
+        the same (session, question) can both pass it. Simulate exactly that:
+        the pre-check sees 9 prior attempts (cap=10, so it proceeds), but the
+        atomic re-check inside _insert_submission_under_cap reports the cap
+        was ALREADY reached (a racing request's insert landed first) — must
+        429 and must NOT write a second submission row."""
+        rec = {}
+        prior = [{"id": f"prior-{i}"} for i in range(9)]  # pre-check sees 9 < 10
+        table_data = {
+            **_NO_QUESTION_OPTIONS,
+            "coding_submissions": prior,
+            "coding_test_cases": [
+                {"idx": 0, "input": "", "expected_output": "5", "float_tolerance": None},
+            ],
+        }
+        mock_run = MagicMock(return_value=_exec_result(stdout="5"))
+        patches = _patches(_config(max_attempts=10), table_data, rec, run_one_mock=mock_run)
+
+        # Override just the pool-mock's reported count to simulate the race:
+        # the atomic re-check sees 10 (cap reached), not the 9 the pre-check saw.
+        async def _fetchval(query, *args):
+            return 10 if "count(*)" in query.lower() else None
+        conn = MagicMock()
+        conn.execute = MagicMock(side_effect=lambda *a, **k: _AsyncNoop())
+        conn.fetchval = _fetchval
+        txn_cm = MagicMock()
+        txn_cm.__aenter__ = MagicMock(side_effect=lambda: _AsyncReturn(None))
+        txn_cm.__aexit__ = MagicMock(side_effect=lambda *a: _AsyncReturn(False))
+        conn.transaction = MagicMock(return_value=txn_cm)
+        conn_cm = MagicMock()
+        conn_cm.__aenter__ = MagicMock(side_effect=lambda: _AsyncReturn(conn))
+        conn_cm.__aexit__ = MagicMock(side_effect=lambda *a: _AsyncReturn(False))
+        pool = MagicMock()
+        pool.acquire = MagicMock(return_value=conn_cm)
+        async def _get_pool():
+            return pool
+
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], \
+             patch("app.postgres_table.get_pool", new=_get_pool):
+            resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
+        assert resp.status_code == 429
+        assert "limit" in resp.text.lower()
+        # Hidden cases WERE run (the race is only caught at the final insert
+        # point) but no submission row was written for the rejected attempt.
+        mock_run.assert_called_once()
+        assert rec.get("coding_submissions", []) == []
+
     def test_judge_submit_under_cap_succeeds(self, client):
         rec = {}
         prior = [{"id": f"prior-{i}"} for i in range(9)]
@@ -402,7 +503,7 @@ class TestJudge:
         }
         mock_run = MagicMock(return_value=_exec_result(stdout="5"))
         patches = _patches(_config(max_attempts=10), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
         assert resp.status_code == 200
         assert resp.json()["passed"] == 1
@@ -422,7 +523,7 @@ class TestJudge:
             _exec_result(stdout="1"), _exec_result(stdout="WRONG"), _exec_result(stdout="3"),
         ])
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
         assert resp.status_code == 200
         body = resp.json()
@@ -471,7 +572,7 @@ class TestJudge:
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
         with patches[0], patches[1], patches[2], patches[3], \
              patch("app.routers.coding.reserve_idempotency", side_effect=_fake_reserve), \
-             patches[5]:
+             patches[5], patches[6]:
             r1 = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
             r2 = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
         assert r1.status_code == 200
@@ -500,7 +601,7 @@ class TestJudge:
         }
         mock_run = MagicMock(return_value=_exec_result(stdout="5"))
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
         assert resp.status_code == 200
         row = rec["coding_submissions"][0]
@@ -520,7 +621,7 @@ class TestJudge:
         }
         mock_run = MagicMock(return_value=_exec_result(stdout="5"))
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr(eid="exam-coding-42"))
         assert resp.status_code == 200
         row = rec["coding_submissions"][0]
@@ -539,7 +640,7 @@ class TestJudge:
         }
         mock_run = MagicMock(return_value=_exec_result(stdout="0.3"))
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
         assert resp.status_code == 200
         assert resp.json()["passed"] == 1
@@ -556,7 +657,7 @@ class TestJudge:
         }
         mock_run = MagicMock(return_value=_exec_result(compile_error="SyntaxError: bad token"))
         patches = _patches(_config(), table_data, rec, run_one_mock=mock_run)
-        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5]:
+        with patches[0], patches[1], patches[2], patches[3], patches[4], patches[5], patches[6]:
             resp = client.post("/api/v1/coding/judge", json=_judge_body(), headers=_hdr())
         assert resp.status_code == 200
         body = resp.json()

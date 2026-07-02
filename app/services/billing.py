@@ -16,6 +16,7 @@ Environment variables:
     RAZORPAY_PLAN_PRO_ANNUAL      plan ID for annual/yearly billing
 """
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -446,7 +447,12 @@ async def bill_cycle_overage(org_id: str, sub_row_before: dict[str, Any]) -> dic
         status = "charged"
         try:
             if sub_id:
-                addon_id = _create_overage_addon(client, sub_id, res["overage_count"], net)
+                # _create_overage_addon is a synchronous Razorpay SDK call
+                # (real network I/O) — offload it so it doesn't block this
+                # worker's event loop. This runs on the subscription.charged
+                # webhook path, which Razorpay expects to ack promptly.
+                addon_id = await asyncio.to_thread(
+                    _create_overage_addon, client, sub_id, res["overage_count"], net)
         except Exception:
             logger.exception("Razorpay add-on creation failed for org=%s", oid)
             status = "failed"

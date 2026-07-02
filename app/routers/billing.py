@@ -2,6 +2,7 @@
 
 from typing import Any
 from ..log_safe import safe
+import asyncio
 import json
 import logging
 import re
@@ -240,11 +241,16 @@ async def create_subscription(body: dict[str, Any], request: Request):
         coupon_offer_id = coupon["razorpay_offer_id"]
 
     try:
-        result = billing_create_subscription(str(org_id), plan_id, gstin=gstin or None,
-                                              billing_cycle=billing_cycle,
-                                              coupon_code=coupon_code or None,
-                                              coupon_offer_id=coupon_offer_id,
-                                              trial_days=trial_days)
+        # billing_create_subscription is synchronous and makes a real
+        # Razorpay API call (client.subscription.create) — offload it so it
+        # doesn't block this worker's shared event loop for the duration of
+        # that network round-trip.
+        result = await asyncio.to_thread(
+            billing_create_subscription, str(org_id), plan_id, gstin=gstin or None,
+            billing_cycle=billing_cycle,
+            coupon_code=coupon_code or None,
+            coupon_offer_id=coupon_offer_id,
+            trial_days=trial_days)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
@@ -286,13 +292,13 @@ async def create_subscription(body: dict[str, Any], request: Request):
         # The replacement is now recorded — stop the superseded abandoned-checkout
         # sub from charging the customer (#17).
         if _stale_rzp_sub_id and _stale_rzp_sub_id != result.get("subscription_id"):
-            _best_effort_cancel_razorpay(_stale_rzp_sub_id, reason="superseded_by_retry")
+            await asyncio.to_thread(_best_effort_cancel_razorpay, _stale_rzp_sub_id, reason="superseded_by_retry")
     except Exception as e:
         logger.error("Failed to update subscription in DB after provider subscription creation: %s", e)
         # Compensating cancel: the Razorpay sub was created but we couldn't record
         # it. Cancel it so the customer isn't left with an orphan paid subscription
         # that charges them for a plan we never provisioned (#6).
-        _best_effort_cancel_razorpay(result.get("subscription_id", ""), reason="db_write_failed")
+        await asyncio.to_thread(_best_effort_cancel_razorpay, result.get("subscription_id", ""), reason="db_write_failed")
         raise HTTPException(
             status_code=500,
             detail="Subscription was created by the payment provider, but could not be recorded. Please contact support.",
@@ -677,7 +683,8 @@ async def cancel_subscription(request: Request):
     client = _get_client()
     if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
         try:
-            client.subscription.cancel(razorpay_sub_id, {"cancel_at_cycle_end": 1})
+            await asyncio.to_thread(
+                client.subscription.cancel, razorpay_sub_id, {"cancel_at_cycle_end": 1})
             logger.info("Subscription %s cancelled at cycle end for org=%s", razorpay_sub_id, org_id)
         except Exception as e:
             logger.error("Razorpay cancel failed for sub=%s: %s", razorpay_sub_id, e)
@@ -723,7 +730,8 @@ async def reactivate_subscription(request: Request):
     client = _get_client()
     if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
         try:
-            client.subscription.update(razorpay_sub_id, {"cancel_at_cycle_end": 0})
+            await asyncio.to_thread(
+                client.subscription.update, razorpay_sub_id, {"cancel_at_cycle_end": 0})
             logger.info("Subscription %s reactivated for org=%s", razorpay_sub_id, org_id)
         except Exception as e:
             logger.error("Razorpay reactivate failed for sub=%s: %s", razorpay_sub_id, e)
@@ -797,7 +805,7 @@ async def change_plan(request: Request):
             client = _get_client()
             if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
                 try:
-                    client.subscription.update(razorpay_sub_id, {
+                    await asyncio.to_thread(client.subscription.update, razorpay_sub_id, {
                         "plan_id": razorpay_plan_key(current_plan) or current_plan,
                         "schedule_change_at": "cycle_end",
                     })
@@ -865,7 +873,7 @@ async def change_plan(request: Request):
         proration_charged = False
         if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
             try:
-                client.subscription.update(razorpay_sub_id, {
+                await asyncio.to_thread(client.subscription.update, razorpay_sub_id, {
                     "plan_id": razorpay_plan_key(plan_id) or plan_id,
                     "schedule_change_at": "cycle_end",
                 })
@@ -874,7 +882,7 @@ async def change_plan(request: Request):
                 raise HTTPException(status_code=502, detail="Failed to upgrade with payment provider")
             if proration_inr > 0:
                 try:
-                    client.subscription.createAddon(razorpay_sub_id, {
+                    await asyncio.to_thread(client.subscription.createAddon, razorpay_sub_id, {
                         "item": {"name": f"Upgrade proration {current_plan}->{plan_id}",
                                  "amount": proration_inr * 100, "currency": "INR"},
                         "quantity": 1,
@@ -908,7 +916,7 @@ async def change_plan(request: Request):
 
         if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
             try:
-                client.subscription.update(razorpay_sub_id, {
+                await asyncio.to_thread(client.subscription.update, razorpay_sub_id, {
                     "plan_id": razorpay_plan_key(plan_id) or plan_id,
                     "schedule_change_at": "cycle_end",
                 })
@@ -955,12 +963,13 @@ async def billing_portal_link(request: Request):
     client = _get_client()
     if client and razorpay_sub_id and not razorpay_sub_id.startswith("mock_"):
         try:
-            rp_sub = client.subscription.fetch(razorpay_sub_id)
+            rp_sub = await asyncio.to_thread(client.subscription.fetch, razorpay_sub_id)
             customer_id = rp_sub.get("customer_id")
             if not customer_id:
                 raise HTTPException(status_code=502,
                     detail="No customer associated with this subscription")
-            result = client.post(
+            result = await asyncio.to_thread(
+                client.post,
                 f"/customers/{customer_id}/portal_sessions",
                 {"redirect_url": "https://app.procta.net/dashboard#billing"},
             )
@@ -1021,7 +1030,7 @@ async def list_invoices(request: Request):
 
     try:
         client = _get_client()
-        raw = client.invoice.all({"subscription_id": sub_id})
+        raw = await asyncio.to_thread(client.invoice.all, {"subscription_id": sub_id})
         invoices = [
             {"id": inv["id"], "amount": inv["amount"], "currency": inv["currency"],
              "status": inv["status"], "created_at": _to_iso(inv.get("created_at")),

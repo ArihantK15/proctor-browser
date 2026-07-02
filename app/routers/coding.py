@@ -26,6 +26,7 @@ Security invariants (reviewed line-by-line — see the spec's Anti-cheat/Complia
      returns HTTP 503 {"retryable": true} and writes NO submission row — never
      a silent 0/total, never an auto-fail (LeetCode-style "please wait").
 """
+import asyncio
 import hashlib
 import json
 import logging
@@ -196,7 +197,7 @@ async def coding_run(body: dict[str, Any], request: Request):
     for row in sample:
         expected = secrets_crypto.decrypt(row.get("expected_output") or "")
         try:
-            result = run_one(language, source, row.get("input") or "", limits)
+            result = await asyncio.to_thread(run_one, language, source, row.get("input") or "", limits)
         except ExecUnavailable:
             raise HTTPException(status_code=503, detail={"retryable": True,"error": "execution service unavailable"})
         if result.compile_error:
@@ -266,7 +267,7 @@ async def admin_coding_preview_run(body: dict[str, Any], request: Request):
     for row in sample:
         expected = secrets_crypto.decrypt(row.get("expected_output") or "")
         try:
-            result = run_one(language, source, row.get("input") or "", limits)
+            result = await asyncio.to_thread(run_one, language, source, row.get("input") or "", limits)
         except ExecUnavailable:
             raise HTTPException(status_code=503, detail={"retryable": True,"error": "execution service unavailable"})
         if result.compile_error:
@@ -351,7 +352,7 @@ async def coding_judge(body: dict[str, Any], request: Request):
                 # ONLY {language, source, stdin, limits} cross to the executor —
                 # row["expected_output"] is read here and used only below, never
                 # passed to run_one().
-                result = run_one(language, source, row.get("input") or "", limits)
+                result = await asyncio.to_thread(run_one, language, source, row.get("input") or "", limits)
                 if result.compile_error:
                     # The source is identical across all cases, so a compile
                     # error on the first run fails every case — stop here instead

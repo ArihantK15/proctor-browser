@@ -113,7 +113,11 @@ async def _sweep_once() -> dict[str, int]:
             continue
 
         try:
-            addon_id = _create_overage_addon(client, sub_id, int(row.get("overage_count") or 0), net)
+            # Synchronous Razorpay SDK call (real network I/O) — offload it
+            # so it doesn't block this worker's shared event loop while the
+            # sweeper works through a batch of failed rows.
+            addon_id = await asyncio.to_thread(
+                _create_overage_addon, client, sub_id, int(row.get("overage_count") or 0), net)
             await _atable("overage_charges").update(
                 {"status": "charged", "razorpay_addon_id": addon_id,
                  "retry_count": new_retry_count, "last_retry_at": _now_iso()}

@@ -63,15 +63,19 @@ const {
   getCurrentSessionId, setCurrentSessionId, getExamContext, setExamContext,
   getStudentToken, setStudentToken, getCalBiases, setCalBiases,
   getIsKiosk, setMonitorFns, setPollingFns, setPythonFns,
-  setMacMissionControlDisabled,
+  setMacMissionControlDisabled, disarmMissionControlWatchdog,
 } = require('./lib/kiosk-manager');
 
 // Self-healing safety net: if a prior session crashed mid-exam on macOS
 // without reaching releaseKiosk()'s restore call, the student's Mission
 // Control would stay disabled indefinitely outside any exam. Best-effort,
 // harmless no-op if it was never disabled — see
-// kiosk-manager.js's _setMacMissionControlDisabled.
+// kiosk-manager.js's _setMacMissionControlDisabled. Also tears down any
+// still-armed watchdog LaunchAgent from a crashed prior session — the
+// watchdog would have fired and self-cleaned within its own 6h window
+// regardless, this just closes the gap immediately on relaunch instead.
 setMacMissionControlDisabled(false);
+disarmMissionControlWatchdog();
 
 // ── Wire up kiosk-manager with backend module references ──────────
 // Threats and multi-monitor detection are reported at most once per
@@ -559,6 +563,7 @@ app.on('before-quit', (e) => {
   // leave the student's Mac without Mission Control afterward. No-op if
   // it was never disabled (see kiosk-manager.js).
   setMacMissionControlDisabled(false);
+  disarmMissionControlWatchdog();
   // If we're quitting to install an update, paint a clear overlay on
   // the lobby BEFORE we tear down the subprocesses. Without this the
   // app window goes blank → "Not responding" → NSIS pops → relaunch:

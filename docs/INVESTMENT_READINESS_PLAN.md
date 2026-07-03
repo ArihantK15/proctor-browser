@@ -1,9 +1,24 @@
 # Procta — Investment Readiness Plan (60 Days)
 
 **Author:** Arihant Kaul  
-**Date:** 2026-06-15  
+**Date:** 2026-06-15 (metrics and cost figures refreshed 2026-07-03 — see addendum below)  
 **Status:** Plan  
 **Version:** 1.0
+
+---
+
+## Addendum (2026-07-03): what's changed since this plan was written
+
+This plan was written on Day ~80 of the codebase. It's now ~98 days in, and a lot of the Week 1-2 "security & reliability hardening" items below have since shipped — this addendum records what's actually true today rather than leaving stale claims standing next to a corrected metrics table.
+
+- **Tests: 2,163 passing** (was 1,264 at plan-writing time), plus 27 real-Postgres integration tests and 9 Electron `node --test` suites not counted in the original figure. Strict mypy and 5 custom CI guard scripts also gate every merge now — none of that existed in June.
+- **The `except Exception: pass` security-path items in Section 3.1/3.2 are fixed** — `app/routers/exam.py`'s terminal-state and attestation checks now fail closed and log, and `proctor.py`'s cleanup handlers log per-operation instead of silently swallowing.
+- **Kiosk attestation (Section 3.4) is live and hardened** — HMAC-SHA256 v2 attestation with nonce anti-replay, session binding, and minimum client version enforcement, plus a separate lighter-weight app-attestation for the lobby's login/signup form (bypasses Cloudflare Turnstile only for genuine signed builds).
+- **Access codes are now compulsory on every exam** (server-generated/persisted, dashboard UI, Electron lobby, defense-in-depth 422 on empty) — this wasn't planned in the original doc at all; it shipped as a security hardening pass in late June/early July.
+- **A full third-party technical due-diligence audit exists**: `STARTUP_AUDIT_REPORT.md` (repo root), 22 sections, scored, with a verified remediation addendum. Treat it as the current source of truth for security/architecture/production-readiness claims — it supersedes the self-assessment tone of Sections 3-4 below.
+- **Cost figures corrected 2026-07-03**, see the footnote immediately below and `LAUNCH_COSTS_AND_SETUP.md`. The Windows code-signing line changed materially (was budgeting an unavailable Azure path; corrected to a verified Certum EV certificate), and Private Limited incorporation costs were revised upward and are now budgeted directly rather than deferred vaguely.
+
+---
 
 ---
 
@@ -26,14 +41,14 @@ Procta is a full-stack AI-powered exam proctoring platform targeting the Indian 
 
 Procta's thesis: **coaching chains need AI proctoring at ₹50–150/student.** The incumbents are priced for enterprise. Procta delivers at ₹80/student with equal or better technology (on-device ML, phone-cam room monitoring, kiosk-mode lockdown browser, real-time dashboards).
 
-**Current state (2026-06-15):**
+**Current state (2026-06-15; figures marked † refreshed 2026-07-03):**
 
 | Metric | Value |
 |--------|-------|
-| Codebase age | ~80 days (first commit 2026-03-27) |
-| Tests | 1,264 passing, 33 skipped, 0 failed |
-| SQL migrations | 100 |
-| Flask/FastAPI routers | 29 active modules |
+| Codebase age | ~80 days at plan-writing, **~98 days today** † (first commit 2026-03-27) |
+| Tests | 1,264 passing at plan-writing, **2,163 passing today** † (34 skipped, 0 failed), plus 27 real-Postgres integration tests and 9 Electron unit suites not in that count |
+| SQL migrations | 100 at plan-writing, **123 today** † |
+| FastAPI routers | 29 at plan-writing, **34 today** † |
 | Load test proven | 3,000 concurrent students |
 | Billing integration | Full Razorpay (test mode, go-live checklist ready) |
 | Infra cost | ~₹700/month servers* (pre-paid through 2028) |
@@ -41,7 +56,7 @@ Procta's thesis: **coaching chains need AI proctoring at ₹50–150/student.** 
 | Revenue | Pre-revenue |
 | Paying customers | 0 |
 
-> **\* Cost correction (2026-06-19):** "₹700/month" is *servers only*. It excludes code signing, company formation, GST/CA compliance, Apple/Google developer accounts, payment-gateway fees (~2% + GST), and legal docs. The true operating floor is ~₹40–70k/yr beyond servers, plus ~2% of revenue. Margin is ~90%, not ">95%". Full corrected breakdown and launch/setup sequencing: **[LAUNCH_COSTS_AND_SETUP.md](LAUNCH_COSTS_AND_SETUP.md)**.
+> **\* Cost correction, revised 2026-07-03:** "₹700/month" is *servers only*. It excludes code signing, company formation, GST/CA compliance, Apple/Google developer accounts, payment-gateway fees (~2% + GST), and legal docs. As of 2026-07-03 the true operating floor is **~₹40–60k/yr beyond servers** (Windows EV code-signing and Pvt Ltd figures were re-verified against live vendor pricing and corrected upward from an earlier estimate), plus **~₹25–55k/yr once Pvt Ltd compliance starts at the raise**, plus ~2% of revenue in payment fees. Margin is ~90%, not ">95%". The 18-month capital ask that folds all of this in, verified line by line, is **`Procta_Investment_Requirement.pdf`** (generated by `scripts/gen_investment_pdf.py`); the narrative breakdown and sourcing is **[LAUNCH_COSTS_AND_SETUP.md](LAUNCH_COSTS_AND_SETUP.md)**.
 
 **Investment goal:** Pre-seed / angel round. ₹1.5–3 Cr at ₹6–12 Cr pre-money valuation.
 
@@ -221,8 +236,8 @@ Create a private folder with:
 2. **Solution** — Procta: AI proctoring at ₹80/student. 10-minute deployment. Full feature parity.
 3. **Market** — ₹5,000+ Cr TAM. 50,000+ coaching institutes in India. JEE/NEET/UPSC mock tests at scale.
 4. **Product** — 30-second demo video. Kiosk lockdown, on-device ML, phone-cam, real-time dashboards, auto-grading.
-5. **Traction** — Waitlist signups, pilot conversations, product stats (1,264 tests, 100 migrations, 3,000 VU proven).
-6. **Technology** — Privacy moat: no video leaves student machine. 1,264 automated tests. Full CI/CD. 0 CodeQL alerts.
+5. **Traction** — Waitlist signups, pilot conversations, product stats (2,163 tests, 123 migrations, 3,000 VU proven).
+6. **Technology** — Privacy moat: no video leaves student machine. 2,163 automated tests, strict mypy, 5 CI guard scripts. Full CI/CD. 0 CodeQL alerts.
 7. **Business model** — ₹2,400–30,000/month tiers. ₹80/student overage. 80% gross margin. Virality via teacher referrals.
 8. **Competition** — Procta vs incumbents. Price 1/8th. Privacy-native. India-first. Phone-cam included.
 9. **Team** — You. 18 years old. Built this alone in 60 days. Hiring a co-founder (CRO/GTM).
@@ -311,7 +326,7 @@ See [Section 7](#7-the-hard-questions-prepare-answers).
 
 ### 7.3 "Why you and not a team of 5 IIT graduates?"
 
-> *"Because I've already shipped. In 60 days, alone, I built what teams at Mettl took years and hundreds of engineers to build. 1,264 automated tests, 100 database migrations, full billing integration, real-time dashboards, LTI 1.3, on-device ML with 3 models running at 30fps on consumer laptops. A team of 5 IIT grads would spend 3 months in meetings deciding the tech stack. I shipped."*
+> *"Because I've already shipped. In 60 days, alone, I built what teams at Mettl took years and hundreds of engineers to build. 2,163 automated tests, 123 database migrations, full billing integration, real-time dashboards, LTI 1.3, on-device ML with 3 models running at 30fps on consumer laptops. A team of 5 IIT grads would spend 3 months in meetings deciding the tech stack. I shipped."*
 
 ### 7.4 "What's your co-founder situation?"
 
@@ -323,7 +338,7 @@ See [Section 7](#7-the-hard-questions-prepare-answers).
 
 ### 7.6 "What happens when one of your ML models fails?"
 
-> *"Every model is wrapped in try/except with graceful degradation. If YOLO fails, face detection and gaze tracking still work. If the ONNX runtime crashes, the proctor falls back to rule-based detection. The system is designed to degrade gracefully — never catastrophically. We have 1,264 tests covering all critical paths."*
+> *"Every model is wrapped in try/except with graceful degradation. If YOLO fails, face detection and gaze tracking still work. If the ONNX runtime crashes, the proctor falls back to rule-based detection. The system is designed to degrade gracefully — never catastrophically. We have 2,163 tests covering all critical paths."*
 
 ### 7.7 "How do you handle privacy / DPDP compliance?"
 

@@ -222,10 +222,16 @@ def executive(elements, scenario_a_total, scenario_b_total):
     elements.append(Spacer(1, 6))
     elements.append(Paragraph(
         f"Recommended pitch number: <b>{inr(scenario_b_total)} "
-        "(approximately Rs. 4 lakh)</b> for the 18-month ramped "
+        "(approximately Rs. 4.8 lakh)</b> for the 18-month ramped "
         "sprint with a real paid acquisition channel running. The lean "
         f"figure {inr(scenario_a_total)} represents the operating "
-        "minimum that keeps the platform live without marketing spend.",
+        "minimum that keeps the platform live without marketing spend. "
+        "Both figures are higher than an earlier version of this "
+        "document because two previously-missing costs are now "
+        "included: Private Limited incorporation (a precondition of "
+        "accepting this round at all) and a corrected Windows "
+        "code-signing line (the original Azure Trusted Signing path "
+        "turned out not to be available to us — see Section 2).",
         BODY))
 
 
@@ -234,35 +240,89 @@ def one_time(elements):
     elements.append(Paragraph(
         "Items paid once at the start of the 18-month plan. Hosting and "
         "domain are prepaid two years so neither expires inside the "
-        "planning window.",
+        "planning window. Two items are new versus the prior version of "
+        "this document, both added after direct verification against "
+        "current vendor pricing rather than carried forward unchecked.",
         BODY))
     rows = [
         ("Development tools (IDEs, design assets, productivity SaaS, license fees)", 21000),
-        ("Hostinger KVM server, 16 GB, two-year prepay", 28000),
+        ("Hostinger KVM 4 server (4 vCPU, 16 GB), two-year prepay", 28000),
         ("Domain registration, two-year prepay", 1600),
+        ("Hostinger KVM 2 secondary server (2 vCPU, 8 GB), two-year prepay", 20500),
+        ("Windows EV code-signing certificate (Certum, ~15-month validity)", 27550),
+        ("Private Limited incorporation (two-director, standard filing)", 18000),
     ]
     elements.append(make_money_table(
-        rows, total_label="Subtotal", total_value=50600,
+        rows, total_label="Subtotal", total_value=116650,
         col_widths=(120, 40)))
+    elements.append(Spacer(1, 6))
+    elements.append(Paragraph(
+        "Secondary server: a second, smaller Hostinger KVM instance for "
+        "the demo/staging environment and as a warm failover for the "
+        "primary — the single-VPS setup is a known concentration risk "
+        "flagged in the June 2026 technical audit. Verified against "
+        "Hostinger's published pricing (hostinger.com/vps-hosting) at "
+        "USD 8.99 / month promotional rate on a two-year term.",
+        SMALL))
+    elements.append(Paragraph(
+        "Windows code-signing: the earlier version of this document "
+        "budgeted USD 10 / month for Azure Trusted Signing. That path is "
+        "not actually available to us — Microsoft limits individual "
+        "developer onboarding to the USA and Canada, and India is "
+        "excluded. The corrected line is a Certum EV (Extended "
+        "Validation) code-signing certificate at USD 289.99 (verified "
+        "at sslcertshop.com, list price USD 329), converted at "
+        "USD 1 = Rs. 95. EV removes the Windows SmartScreen warning "
+        "immediately rather than requiring reputation to build up over "
+        "downloads, unlike the cheaper OV-class certificates. A CA/"
+        "Browser Forum rule effective 23 February 2026 caps all new "
+        "code-signing certificates at 459 days (about 15 months) "
+        "regardless of the term purchased, so this one purchase does "
+        "not quite cover the full 18-month window; see Section 6 for "
+        "the follow-on purchase this implies.",
+        SMALL))
+    elements.append(Paragraph(
+        "Private Limited incorporation: accepting this round is itself "
+        "the trigger — an individual or sole proprietorship cannot "
+        "issue equity, so incorporation is a precondition of the raise "
+        "closing, not a discretionary later expense. Verified 2026 "
+        "market rate for a standard two-director Pvt Ltd filing is "
+        "Rs. 15,000 to Rs. 25,000 all-in (government fees, stamp duty, "
+        "digital signature certificates, professional filing fees); "
+        "Rs. 18,000 is used as the representative figure. See Section 3 "
+        "for the associated annual compliance cost.",
+        SMALL))
 
 
 def annual_recurring(elements):
     elements.append(Paragraph("3. Annual Recurring", H2))
     elements.append(Paragraph(
-        "Apple Developer Program renewal is annual, not one-time. Across "
-        "the 18-month window it is paid 1.5 times (year one upfront, "
+        "Two items renew annually rather than being paid once. Across "
+        "the 18-month window each is paid 1.5 times (year one upfront, "
         "year two prorated for six months).",
         BODY))
     rows = [
         ("Apple Developer Program (USD 99 / year)", 9500),
+        ("Private Limited annual compliance (ROC filings, statutory audit, CA retainer)", 30000),
     ]
     elements.append(make_money_table(
-        rows, total_label="Annual subtotal", total_value=9500,
+        rows, total_label="Annual subtotal", total_value=39500,
         col_widths=(120, 40)))
     elements.append(Paragraph(
-        f"Prorated across 18 months: <b>{inr(14250)}</b> "
-        "(1.5 years times Rs. 9,500).",
+        f"Prorated across 18 months: <b>{inr(59250)}</b> "
+        "(1.5 years times Rs. 39,500 / year).",
         BODY))
+    elements.append(Spacer(1, 4))
+    elements.append(Paragraph(
+        "Private Limited compliance: verified 2026 market range for a "
+        "small, pre-revenue Pvt Ltd (turnover under Rs. 2 crore) "
+        "covering ROC annual filings (AOC-4, MGT-7), statutory audit, "
+        "and a CA retainer is Rs. 25,000 to Rs. 55,000 / year; "
+        "Rs. 30,000 is used as the representative pre-revenue figure. "
+        "GST registration and filing are NOT included here — see "
+        "Section 6, since that liability only begins once invoices go "
+        "out.",
+        SMALL))
 
 
 def monthly(elements):
@@ -278,13 +338,19 @@ def monthly(elements):
         BODY))
     rows_now = [
         ("AI / development tool subscriptions (Claude, Cursor, GitHub Copilot)", 5000),
-        ("Windows app signing service (USD 10 / month, Azure Trusted Signing)", 950),
     ]
     elements.append(make_money_table(
         rows_now,
         total_label="Current monthly burn",
-        total_value=5950,
+        total_value=5000,
         col_widths=(120, 40)))
+    elements.append(Paragraph(
+        "Windows code-signing no longer appears here — it was previously "
+        "modelled as a USD 10 / month Azure Trusted Signing subscription, "
+        "which turned out not to be available to us (see Section 2). The "
+        "corrected cost is a one-time-per-issuance certificate purchase, "
+        "moved to the One-Time Setup table.",
+        SMALL))
 
     elements.append(Spacer(1, 8))
     elements.append(Paragraph(
@@ -310,7 +376,7 @@ def monthly(elements):
     elements.append(Paragraph(
         "Combined — fully ramped monthly burn", H3))
     elements.append(Paragraph(
-        f"<b>{inr(17950)} per month</b> when both current line items "
+        f"<b>{inr(17000)} per month</b> when both current line items "
         "and the scale-up items are active. This is the figure used in "
         "the Scenario B runway calculation.",
         BODY))
@@ -330,9 +396,9 @@ def runway(elements, scenario_a_total, scenario_b_total):
     elements.append(Paragraph(
         "Scenario A — Lean (no marketing spend live)", H3))
     rows_a = [
-        ("Current monthly burn x 18 (Rs. 5,950 x 18)", 107100),
-        ("Apple Developer Program (1.5 years x Rs. 9,500)", 14250),
-        ("One-time setup", 50600),
+        ("Current monthly burn x 18 (Rs. 5,000 x 18)", 90000),
+        ("Annual recurring, prorated (Apple + Pvt Ltd compliance, 1.5 years x Rs. 39,500)", 59250),
+        ("One-time setup", 116650),
     ]
     elements.append(make_money_table(
         rows_a,
@@ -349,9 +415,9 @@ def runway(elements, scenario_a_total, scenario_b_total):
     elements.append(Paragraph(
         "Scenario B — Ramped (marketing channel live)", H3))
     rows_b = [
-        ("Ramped monthly burn x 18 (Rs. 17,950 x 18)", 323100),
-        ("Apple Developer Program (1.5 years x Rs. 9,500)", 14250),
-        ("One-time setup", 50600),
+        ("Ramped monthly burn x 18 (Rs. 17,000 x 18)", 306000),
+        ("Annual recurring, prorated (Apple + Pvt Ltd compliance, 1.5 years x Rs. 39,500)", 59250),
+        ("One-time setup", 116650),
     ]
     elements.append(make_money_table(
         rows_b,
@@ -378,25 +444,33 @@ def not_in_budget(elements):
         BODY))
 
     items = [
-        ("Windows Organisation Validation (OV) code-signing certificate",
-         "A separate Sectigo or Certum OV certificate runs "
-         "Rs. 15,000 to Rs. 20,000 per year. The Azure Trusted Signing "
-         "line item (Rs. 950 / month) covers the cheaper Microsoft "
-         "first-party path. A standalone OV certificate is a Year 2 "
-         "decision; not budgeted here."),
+        ("Windows code-signing certificate, second issuance",
+         "The 2026 CA/Browser Forum rule caps a single code-signing "
+         "certificate at 459 days (about 15 months). If the EV "
+         "certificate in Section 2 is issued at the start of the "
+         "18-month window, it needs re-issuing around month 15 to stay "
+         "current through month 18. A renewal at the same vendor rate "
+         "(approximately Rs. 27,550) is a real cost inside this window "
+         "in the second year of a longer runway, but is not double-"
+         "counted into the 18-month total shown here since the first "
+         "purchase alone covers the great majority of the window."),
         ("Razorpay payout fees",
          "Approximately 2 percent per UPI Autopay collection. This is "
          "deducted from revenue at payout time, not an operating cost "
          "the company pays out of capital. Excluded from the burn."),
-        ("Accounting and GST filing",
-         "Roughly Rs. 2,500 per month if outsourced to a CA. Deferred "
-         "until invoices begin going out. No revenue today means no GST "
-         "liability today; this becomes a real line item the month "
-         "billing turns on."),
-        ("Hostinger renewal in Year 3",
-         "The server is prepaid two years, so it falls outside the "
-         "18-month window. The next renewal at the prevailing rate "
-         "(approximately Rs. 14,000 / year) is a future-period item."),
+        ("GST registration and filing",
+         "Roughly Rs. 2,500 per month if outsourced to a CA, on top of "
+         "the base Pvt Ltd compliance already budgeted in Section 3. "
+         "Deferred until invoices begin going out. No revenue today "
+         "means no GST liability today; this becomes a real line item "
+         "the month billing turns on."),
+        ("Hostinger renewals in Year 3",
+         "Both servers are prepaid two years, so neither falls inside "
+         "the 18-month window. The next renewal at Hostinger's stated "
+         "post-promotional rate is approximately Rs. 33,000 / year for "
+         "the primary KVM 4 and approximately Rs. 17,000 / year for the "
+         "secondary KVM 2 — a future-period item, and notably higher "
+         "than the promotional two-year prepay rate used in Section 2."),
         ("Founder living expenses and opportunity cost",
          "Explicitly omitted. This document captures the operating "
          "cost of running Procta as a company; founder compensation "
@@ -431,15 +505,20 @@ def use_of_funds(elements, total, comp):
     rows = [
         ("Performance marketing (Meta + Google Ads + content)",
          comp["marketing"], "Rs. 10,000 / month x 18"),
-        ("Hosting and infrastructure",
-         comp["hosting"], "Server two-year prepay"),
+        ("Hosting and infrastructure (two servers)",
+         comp["hosting"], "Primary Rs. 28,000 + secondary Rs. 20,500, both two-year prepay"),
         ("Developer tools and software (subscriptions)",
          comp["devtools_monthly"], "Rs. 5,000 / month x 18"),
-        ("Operations (email, Vercel Pro, Windows signing)",
-         comp["operations"],
-         "Email / Vercel Rs. 2,000 x 18 + Windows signing Rs. 950 x 18"),
+        ("Operations (email, Vercel Pro)",
+         comp["operations"], "Rs. 2,000 / month x 18"),
+        ("Windows EV code-signing certificate",
+         comp["windows_signing"], "One-time, ~15-month validity"),
         ("Apple Developer Program",
          comp["apple"], "1.5 years x Rs. 9,500"),
+        ("Company incorporation (Private Limited, one-time)",
+         comp["pvt_ltd_incorporation"], "Two-director standard filing"),
+        ("Company compliance (ROC, audit, CA retainer)",
+         comp["pvt_ltd_compliance"], "1.5 years x Rs. 30,000"),
         ("Setup and procurement (one-time)",
          comp["setup"], "Dev tools Rs. 21,000 + domain Rs. 1,600"),
     ]
@@ -532,32 +611,49 @@ def _on_page(canvas, doc):
 
 def main():
     # Single source of truth for the totals so every section reconciles.
-    one_time_total = 21000 + 28000 + 1600
-    assert one_time_total == 50600
+    # Verified 2026 figures (see one_time()/annual_recurring() body text
+    # for sourcing): Hostinger KVM 2/KVM 4 two-year prepay rates from
+    # hostinger.com/vps-hosting; Certum EV code-signing from
+    # sslcertshop.com; Pvt Ltd incorporation/compliance from 2026 market
+    # surveys (RegisterKaro, PatronAccounting, Kanakkupillai et al).
+    one_time_total = 21000 + 28000 + 1600 + 20500 + 27550 + 18000
+    assert one_time_total == 116650, one_time_total
+
+    annual_recurring_total = 9500 + 30000
+    assert annual_recurring_total == 39500
+
+    annual_18mo = int(round(annual_recurring_total * 1.5))
+    assert annual_18mo == 59250
 
     apple_18mo = int(round(9500 * 1.5))
     assert apple_18mo == 14250
+    pvt_ltd_compliance_18mo = int(round(30000 * 1.5))
+    assert pvt_ltd_compliance_18mo == 45000
+    assert apple_18mo + pvt_ltd_compliance_18mo == annual_18mo
 
-    monthly_current = 5000 + 950
+    monthly_current = 5000
     monthly_scaled  = monthly_current + 2000 + 10000
-    assert monthly_current == 5950
-    assert monthly_scaled  == 17950
+    assert monthly_current == 5000
+    assert monthly_scaled  == 17000
 
-    scenario_a = (monthly_current * 18) + apple_18mo + one_time_total
-    scenario_b = (monthly_scaled  * 18) + apple_18mo + one_time_total
-    assert scenario_a == 171950, scenario_a
-    assert scenario_b == 387950, scenario_b
+    scenario_a = (monthly_current * 18) + annual_18mo + one_time_total
+    scenario_b = (monthly_scaled  * 18) + annual_18mo + one_time_total
+    assert scenario_a == 265900, scenario_a
+    assert scenario_b == 481900, scenario_b
 
     # Scenario B "Use of Funds" components — each maps to a runway line
     # item so the category breakdown reconciles to scenario_b exactly
     # (no rounding residual, no double-counted line).
     comp = {
-        "marketing":        10000 * 18,                 # 180000
-        "hosting":          28000,                      # server prepay
-        "devtools_monthly": 5000 * 18,                  # 90000
-        "operations":       (2000 * 18) + (950 * 18),   # 36000 + 17100 = 53100
-        "apple":            apple_18mo,                  # 14250
-        "setup":            21000 + 1600,               # 22600 one-time tools + domain
+        "marketing":             10000 * 18,          # 180000
+        "hosting":               28000 + 20500,       # 48500 — both servers, two-year prepay
+        "devtools_monthly":      5000 * 18,            # 90000
+        "operations":            2000 * 18,            # 36000 — email/Vercel only
+        "windows_signing":       27550,                 # Certum EV, one-time
+        "apple":                 apple_18mo,             # 14250
+        "pvt_ltd_incorporation": 18000,                 # one-time filing
+        "pvt_ltd_compliance":    pvt_ltd_compliance_18mo,  # 45000
+        "setup":                 21000 + 1600,          # 22600 one-time tools + domain
     }
     assert sum(comp.values()) == scenario_b, (sum(comp.values()), scenario_b)
 

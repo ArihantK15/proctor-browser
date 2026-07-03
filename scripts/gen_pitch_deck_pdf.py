@@ -379,6 +379,42 @@ def architecture_diagram(width=640, height=150):
     return d
 
 
+def coding_flow_diagram(width=640, height=150):
+    d = Drawing(width, height)
+    g = Group()
+    bw, bh = 116, 66
+    gap = 56
+    pad = 6
+    yb = 46
+    boxes = [
+        (["Student", "CodeMirror editor", "Python / JS / TS /",
+          "C / C++ / Java"], BG_SOFT, ACCENT),
+        (["Run (sample tests)", "Judged against", "public examples,",
+          "instant feedback"], BG_SOFT, ACCENT),
+        (["Submit (hidden tests)", "isolate sandbox,", "no network,",
+          "CPU/mem/time capped"], EMERALD_SOFT, EMERALD),
+        (["Gradebook", "Pass/fail per case", "recorded", "authoritatively"],
+         BG_SOFT, ACCENT),
+    ]
+    xs = [pad + i * (bw + gap) for i in range(4)]
+    for x, (lines, fill, stroke) in zip(xs, boxes):
+        _box(g, x, yb, bw, bh, lines, fill, stroke, bold_first=True)
+    labels = ["writes + runs", "when ready", "graded server-side"]
+    for i in range(3):
+        _arrow(g, xs[i] + bw, yb + bh / 2, xs[i + 1], label=labels[i])
+    g.add(String(width / 2, 18,
+                 "The student never sees hidden-test inputs or expected "
+                 "outputs - only pass/fail after Submit.",
+                 fontName="Helvetica-Oblique", fontSize=8.5, fillColor=MUTED,
+                 textAnchor="middle"))
+    g.add(String(width / 2, height - 10,
+                 "Inbuilt coding questions (execution flow)",
+                 fontName="Helvetica-Bold", fontSize=10, fillColor=INK,
+                 textAnchor="middle"))
+    d.add(g)
+    return d
+
+
 # ── Section title helper ───────────────────────────────────────────
 def section_head(elements, kicker, title):
     elements.append(Paragraph(kicker.upper(), KICKER))
@@ -408,7 +444,7 @@ def slide_cover(elements):
     elements.append(Spacer(1, 14 * mm))
     elements.append(Paragraph(
         f"Investor briefing &nbsp;|&nbsp; {date.today().strftime('%B %Y')} "
-        "&nbsp;|&nbsp; Seeking pre-seed (~Rs. 4 lakh, 18-month runway)",
+        "&nbsp;|&nbsp; Seeking pre-seed (~Rs. 4.8 lakh, 18-month runway)",
         BODY))
     elements.append(PageBreak())
 
@@ -496,11 +532,18 @@ def slide_features(elements):
         ListFlowable([
             ListItem(Paragraph("Auto-graded MCQ, AI-suggested short-answer "
                      "grading, composite risk score, AI session narrative.", BODY)),
+            ListItem(Paragraph("Inbuilt coding questions: server-side "
+                     "sandboxed execution judges Python, JS/TS, C/C++, and "
+                     "Java against hidden tests - a wedge into CS-department "
+                     "and technical-hiring evaluation none of the compared "
+                     "vendors compete in.", BODY)),
             ListItem(Paragraph("Scorecard PDFs, bulk ZIP export, emailed "
                      "results.", BODY)),
         ], bulletType="bullet", start="circle"),
     ]
     elements.append(two_col(col1, col2))
+    elements.append(Spacer(1, 10))
+    elements.append(coding_flow_diagram())
     elements.append(PageBreak())
 
 
@@ -519,11 +562,11 @@ def slide_low_cost(elements):
             ListItem(Paragraph("<b>No continuous video.</b> Only flagged JPEG "
                      "snapshots are uploaded - roughly <b>88x</b> less data "
                      "per exam-hour than continuous-upload competitors.", BODY)),
-            ListItem(Paragraph("<b>One Mumbai region.</b> A single droplet plus "
-                     "Redis, not multi-region video-streaming infrastructure.", BODY)),
+            ListItem(Paragraph("<b>One Mumbai region.</b> A single Hostinger VPS "
+                     "plus Redis, not multi-region video-streaming infrastructure.", BODY)),
         ], bulletType="bullet", start="circle"),
         Paragraph("Net effect: the entire company runs on an 18-month budget "
-                  "of about Rs. 4 lakh - where a video-first competitor's "
+                  "of about Rs. 4.8 lakh - where a video-first competitor's "
                   "cloud bill alone would exceed that.", BODY_J),
     ]
     chart = bar_chart(
@@ -573,8 +616,10 @@ def slide_security(elements):
          "retention with auto-purge, Mumbai-region data residency, export and "
          "erasure endpoints."],
         ["Tenant isolation",
-         "Row-Level Security on every table; JWT-scoped session ownership; "
-         "encrypted at rest."],
+         "Row-Level Security (native Postgres) on every table; JWT-scoped "
+         "session ownership; evidence encrypted at rest in AWS S3 Mumbai; "
+         "answer keys envelope-encrypted (AES-256-GCM) at the application "
+         "layer."],
         ["Hardened client",
          "Electron kiosk lockdown, sandboxed renderers, CSP, and runtime "
          "process-integrity scanning."],
@@ -606,6 +651,7 @@ def slide_why_us(elements):
         ["INR pricing + GST + UPI Autopay", "Yes", "No", "Partial"],
         ["Public per-student rate card", "Yes", "No", "No"],
         ["Built for DPDP Act / Mumbai residency", "Yes", "Partial", "Yes"],
+        ["Inbuilt coding-question judging", "Yes", "No", "No"],
         ["Live human-proctor team (where we are weaker)", "No", "Yes", "Yes"],
     ]
     elements.append(make_table(rows, col_widths=[120, 30, 38, 38],
@@ -668,6 +714,7 @@ def slide_comparison(elements, pricing):
         ["Public per-student price card", "Y", "N", "N", "N", "N"],
         ["Live human-proctor escalation", "N", "Y", "Y", "Y", "Y"],
         ["Canvas LMS depth", "P", "Y", "P", "Y", "Y"],
+        ["Inbuilt coding-question judging", "Y", "N", "N", "N", "N"],
     ]
     left = [
         make_table(rows, col_widths=[50, 16, 15, 17, 24, 24], center_from_col=1),
@@ -697,7 +744,7 @@ def slide_comparison(elements, pricing):
 
 def slide_ask(elements, comp, scenario_a, scenario_b):
     section_head(elements, "The ask",
-                 "Pre-seed ~Rs. 4 lakh for an 18-month ramped sprint.")
+                 "Pre-seed ~Rs. 4.8 lakh for an 18-month ramped sprint.")
     left = [
         kpi_row([
             (inr(scenario_b), "Scenario B (ramped, 18 mo)", ACCENT_DARK),
@@ -710,21 +757,30 @@ def slide_ask(elements, comp, scenario_a, scenario_b):
                      "acquisition channel running.", BODY)),
             ListItem(Paragraph("Rs. 10,000/month performance marketing for the "
                      "full window.", BODY)),
-            ListItem(Paragraph("Prepaid 2-year hosting and domain, dev tools, "
-                     "and code-signing programs.", BODY)),
+            ListItem(Paragraph("Prepaid 2-year hosting (primary + secondary "
+                     "server) and domain, dev tools, and Windows EV "
+                     "code-signing.", BODY)),
+            ListItem(Paragraph("Private Limited incorporation and its first "
+                     "18 months of ROC/audit/CA compliance - a precondition "
+                     "of this round closing, not a deferred cost.", BODY)),
         ], bulletType="bullet", start="circle"),
-        Paragraph("Excluded by design (so the rest is trusted): Windows OV "
-                  "cert, accounting/GST, founder living costs, Year-3 hosting "
-                  "renewal, and a future support hire.", SMALL),
+        Paragraph("Excluded by design (so the rest is trusted): the second "
+                  "Windows cert issuance the 459-day validity cap forces "
+                  "around month 15, GST filing, founder living costs, "
+                  "Year-3 hosting renewal, and a future support hire.", SMALL),
     ]
     right = [
         Paragraph("Use of funds (Scenario B)", H3),
         pie_chart(
             ["Performance marketing", "Developer tools / software",
-             "Operations (email, Vercel, signing)", "Hosting and infrastructure",
-             "Setup and procurement (one-time)", "Apple Developer Program"],
+             "Operations (email, Vercel)", "Hosting and infrastructure",
+             "Setup and procurement (one-time)", "Windows EV code-signing",
+             "Apple Developer Program", "Pvt Ltd incorporation",
+             "Pvt Ltd compliance (18 mo)"],
             [comp["marketing"], comp["devtools"], comp["operations"],
-             comp["hosting"], comp["setup"], comp["apple"]],
+             comp["hosting"], comp["setup"], comp["windows_signing"],
+             comp["apple"], comp["pvt_ltd_incorporation"],
+             comp["pvt_ltd_compliance"]],
         ),
         Paragraph(f"Total {inr(scenario_b)} - every category derives from the "
                   "runway line items and reconciles exactly (no rounding "
@@ -751,7 +807,7 @@ def slide_close(elements):
                  "magnitude price advantage that competitors cannot match "
                  "without re-architecting away from server-side video.", BODY)),
         ListItem(Paragraph("<b>The ask is small and the runway is long</b> - "
-                 "~Rs. 4 lakh funds an 18-month sprint to the first named "
+                 "~Rs. 4.8 lakh funds an 18-month sprint to the first named "
                  "coaching-chain logo.", BODY)),
     ], bulletType="bullet", start="circle"))
     elements.append(Spacer(1, 10))
@@ -786,23 +842,39 @@ def _on_page(canvas, doc):
 # ── Build ──────────────────────────────────────────────────────────
 def main():
     # Single source of truth (mirrors gen_investment_pdf.py) ----------
-    one_time_total = 21000 + 28000 + 1600
+    # Revised 2026-07-03: the $10/month Azure Trusted Signing line was
+    # never actually buildable (not available to Indian individuals);
+    # corrected to a verified Certum EV code-signing certificate. Pvt Ltd
+    # incorporation + compliance added — accepting this round requires an
+    # entity to issue equity into, so it's a precondition of the raise,
+    # not a deferred expense. A secondary/demo Hostinger VPS was also
+    # added (single-VPS was a concentration risk flagged in the June 2026
+    # technical audit). See gen_investment_pdf.py for full sourcing.
+    one_time_total = 21000 + 28000 + 1600 + 20500 + 27550 + 18000
+    annual_recurring_total = 9500 + 30000
+    annual_18mo = int(round(annual_recurring_total * 1.5))
     apple_18mo = int(round(9500 * 1.5))
-    monthly_current = 5000 + 950
+    pvt_ltd_compliance_18mo = int(round(30000 * 1.5))
+    monthly_current = 5000
     monthly_scaled = monthly_current + 2000 + 10000
-    scenario_a = monthly_current * 18 + apple_18mo + one_time_total
-    scenario_b = monthly_scaled * 18 + apple_18mo + one_time_total
-    assert one_time_total == 50600
+    scenario_a = monthly_current * 18 + annual_18mo + one_time_total
+    scenario_b = monthly_scaled * 18 + annual_18mo + one_time_total
+    assert one_time_total == 116650
+    assert annual_18mo == 59250
     assert apple_18mo == 14250
-    assert scenario_a == 171950 and scenario_b == 387950, (scenario_a, scenario_b)
+    assert apple_18mo + pvt_ltd_compliance_18mo == annual_18mo
+    assert scenario_a == 265900 and scenario_b == 481900, (scenario_a, scenario_b)
 
     comp = {
-        "marketing":  10000 * 18,
-        "hosting":    28000,
-        "devtools":   5000 * 18,
-        "operations": (2000 + 950) * 18,
-        "apple":      apple_18mo,
-        "setup":      21000 + 1600,
+        "marketing":             10000 * 18,
+        "hosting":               28000 + 20500,
+        "devtools":              5000 * 18,
+        "operations":            2000 * 18,
+        "windows_signing":       27550,
+        "apple":                 apple_18mo,
+        "pvt_ltd_incorporation": 18000,
+        "pvt_ltd_compliance":    pvt_ltd_compliance_18mo,
+        "setup":                 21000 + 1600,
     }
     assert sum(comp.values()) == scenario_b, (sum(comp.values()), scenario_b)
 

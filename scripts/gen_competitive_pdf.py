@@ -217,7 +217,7 @@ def company_snapshots(elements):
     snapshots = [
         ("Procta",
          "Indian student-founded venture. Single-tenant Electron desktop "
-         "client plus FastAPI backend. Self-hosted on DigitalOcean "
+         "client plus FastAPI backend. Self-hosted on Hostinger "
          "Mumbai-region infrastructure. Built around on-device ML and a "
          "zero-raw-video privacy posture from day one. Pricing in INR with "
          "transparent per-student rates and UPI Autopay.",
@@ -290,19 +290,29 @@ def capability_matrix(elements):
         ["Live human proctor escalation",      "N", "Y",  "Y",   "Y",   "Y"],
         ["Hindi-language UI",                  "N", "P",  "P",   "N",   "N"],
         ["DPDP Act data-residency posture",    "Y", "Y",  "Y",   "P",   "P"],
-        ["Self-hosted / on-prem option",       "Y", "Y",  "N",   "P",   "N"],
+        ["Self-hosted / on-prem option",       "P", "Y",  "N",   "P",   "N"],
         ["Public per-student price card",      "Y", "N",  "N",   "N",   "N"],
         ["Cluster review (bulk false-positive triage)",
                                                "Y", "P",  "N",   "N",   "P"],
         ["Hardware governor (CPU-adaptive)",   "Y", "N",  "N",   "N",   "N"],
+        ["Inbuilt coding-question execution",  "Y", "N",  "N",   "N",   "N"],
     ]
     elements.append(make_table(rows, col_widths=[60, 22, 22, 22, 26, 24]))
     elements.append(Paragraph(
         "Key takeaways: Procta is the only vendor that runs the full "
         "ML stack on-device by default, the only one that detects spoken "
-        "keywords on-device, and the only one that publishes a per-student "
-        "rate card. Enterprise vendors lead on live-human escalation and "
-        "Canvas LMS depth.",
+        "keywords on-device, the only one that publishes a per-student "
+        "rate card, and the only one with inbuilt coding-question judging "
+        "(server-side sandboxed execution against hidden test cases) "
+        "shipped as part of the core product — a real wedge into "
+        "CS-department and technical-hiring evaluation, a market none of "
+        "the compared vendors compete in today. Enterprise vendors lead "
+        "on live-human escalation and Canvas LMS depth. Procta's "
+        "self-hosting is marked partial: the stack runs on docker-compose "
+        "and could in principle be deployed by a customer's own "
+        "infrastructure team, but there is no packaged, supported "
+        "on-prem product offering today, unlike Mettl's genuine "
+        "enterprise on-prem tier.",
         BODY))
 
 
@@ -346,9 +356,9 @@ def architecture(elements):
          "Continuous video at 200-500 KB/sec sustained. Equivalent of "
          "30-100 times Procta's bandwidth per student."],
         ["Backend",
-         "FastAPI on uvicorn, Supabase Postgres (with plain-Postgres "
-         "fallback), Redis 7 for cache and live-frame thumbnails. "
-         "Single-region Mumbai deployment.",
+         "FastAPI on uvicorn, native Postgres with row-level security "
+         "(migrated off Supabase in early 2026), Redis 7 for cache and "
+         "live-frame thumbnails. Single-region Mumbai deployment.",
          "Typically AWS multi-region with Kinesis Video Streams or "
          "similar. Higher operational cost passed through in pricing."],
         ["Pricing model",
@@ -457,8 +467,10 @@ def privacy_dpdp(elements):
          "enables fast identification of impact scope across an exam cohort. "
          "Postgres-side audit logging."],
         ["Data residency.",
-         "Production database hosted in Mumbai (DigitalOcean BLR1 region). "
-         "No data transfer outside India for the standard configuration."],
+         "Production database hosted on a Hostinger VPS in Mumbai. "
+         "Forensic evidence and off-site database backups both live in "
+         "AWS S3's ap-south-1 (Mumbai) region. No data transfer outside "
+         "India for the standard configuration."],
         ["Right of access and erasure.",
          "Per-student data export available via admin dashboard. Erasure "
          "request endpoint marks the session row plus all evidence files for "

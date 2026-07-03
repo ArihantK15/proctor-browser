@@ -326,15 +326,23 @@ def build():
         ("AI session narrative",
          "1-paragraph human-readable summary of a student's session "
          "(LLM over the last 80 violation events). Cached 60 s."),
+        ("Inbuilt coding questions",
+         "Server-side sandboxed execution (isolate, network-isolated, "
+         "per-run CPU/memory/output caps) judges Python, JavaScript, "
+         "TypeScript, C, C++, and Java against hidden tests. CodeMirror "
+         "editor in the kiosk client; Run grades against sample cases "
+         "only, Submit is judged server-side against hidden cases the "
+         "student never sees inputs or expected outputs for."),
     ])
 
     # ── 6. Operations & infrastructure ──
     section(elements, "6. Operations and Infrastructure")
     feature_table(elements, [
         ("FastAPI + async stack",
-         "All hot-path endpoints async via <code>_atable</code>; "
-         "supabase client wraps run in a worker thread for sync calls. "
-         "300+ concurrent students target on $6 droplet."),
+         "All hot-path endpoints async via <code>_atable</code>, backed "
+         "by a native asyncpg connection pool (no Supabase dependency). "
+         "Load-tested to 3,000 concurrent virtual students (p95 submit "
+         "51ms, 0.00% error rate) on a single Hostinger KVM VPS."),
         ("Hardware governor (CPU-adaptive proctor cadence)",
          "Reads CPU% via psutil every 5 s on the student machine. "
          "When CPU > 85% for two consecutive samples, ML inference "
@@ -424,15 +432,22 @@ def build():
     section(elements, "8. Privacy and Compliance Posture")
     feature_table(elements, [
         ("RLS policies on all tables",
-         "Every table enforces teacher_id filtering at the DB level "
-         "via Supabase RLS. Even if the API has a bug, cross-tenant "
-         "data is unreachable."),
+         "Every table enforces teacher_id filtering at the DB level via "
+         "native Postgres row-level security — the restricted "
+         "<code>procta_app</code> runtime role can only see rows scoped "
+         "by session-context functions (<code>app.teacher_id()</code>, "
+         "<code>app.is_privileged()</code>). Even if the API has a bug, "
+         "cross-tenant data is unreachable."),
         ("JWT-scoped session ownership",
          "Session keys embed teacher_id UUID; access validated against "
          "JWT <code>tid</code> claim on every authenticated call."),
-        ("Encrypted at rest",
-         "Supabase Postgres encryption + DigitalOcean volume "
-         "encryption."),
+        ("Encrypted at rest and application-layer envelope encryption",
+         "Forensic evidence (screenshots) stored in AWS S3 (Mumbai, "
+         "India data residency) with SSE-S3 encryption at rest. Exam "
+         "answer keys and coding hidden test cases are additionally "
+         "envelope-encrypted (AES-256-GCM) at the application layer "
+         "before they ever reach the database, so a stolen database "
+         "dump or a compromised DB role sees ciphertext, not answers."),
         ("HTTPS-only + HSTS",
          "Caddy auto-provisions Let's Encrypt; HSTS preload-eligible."),
         ("Zero raw-video storage",
@@ -461,15 +476,14 @@ def build():
             "school-procurement leverage.")
     feature_table(elements, [
         ("Windows code signing",
-         "Azure Trusted Signing $10/mo. Removes SmartScreen warning "
-         "for Windows downloads — currently deal-blocker for school "
-         "IT."),
+         "Certum EV code-signing certificate (~$290 per ~15-month "
+         "issuance, per the 2026 CA/Browser Forum validity cap). "
+         "Removes the SmartScreen warning immediately on install — "
+         "currently a deal-blocker for school IT evaluating an "
+         "unsigned installer."),
         ("Mobile PWA (lite proctoring)",
          "Camera-based proctoring still works; tab-switch prevention "
          "doesn't. Position as low-stakes-quiz tool."),
-        ("Inbuilt coding questions",
-         "Server-side sandboxed execution (Firecracker + isolate) judges "
-         "JS/TS/Python/C/C++/Java against hidden tests. Design approved; build pending."),
         ("Per-criterion rubric grading",
          "Extend short-answer to (clarity / correctness / depth) × "
          "marks. Universities specifically asked."),
@@ -499,12 +513,16 @@ def build():
          "shortcuts, fluid loading states, drag-to-reorder, "
          "auto-escaping (kills the entire XSS class), and a real "
          "design language for sales screenshots."),
-        ("Inbuilt coding questions",
-         "Server-side sandboxed execution (Firecracker microVM + isolate, "
-         "network-isolated) runs JS/TS/Python/C/C++/Java against hidden tests "
-         "and grades authoritatively. CodeMirror editor; Run = sample tests, "
-         "Submit = hidden graded tests. Ships as a self-hostable on-prem "
-         "appliance. Design approved; build pending."),
+        ("Self-hostable on-prem coding-execution appliance",
+         "Coding-question execution ships today as a Procta-hosted "
+         "service (see Section 5). A packaged, self-hostable appliance "
+         "variant would let a university's own IT run the sandbox "
+         "on-prem for institutions with a no-external-code-execution "
+         "policy. Stronger VM-level isolation (Firecracker microVM, "
+         "in addition to the current isolate sandbox) was explored for "
+         "this but is blocked on hosting: it needs a host that exposes "
+         "nested KVM virtualization, which the current production VPS "
+         "does not."),
         ("AI exam generator from syllabus",
          "Upload a PDF syllabus or paste a topic list; LLM produces a "
          "balanced 40-question exam tagged by Bloom's level + "

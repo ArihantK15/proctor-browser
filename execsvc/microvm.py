@@ -1,6 +1,20 @@
 """Firecracker microVM lifecycle: boot from rootfs+kernel, exec a command
 inside, capture output, destroy. One responsibility: the VM boundary.
 
+PARKED, not wired into app.py (confirmed 2026-07-03): the production host
+(Hostinger VPS running execsvc) exposes no nested KVM — `/dev/kvm` does not
+exist, `egrep -c '(vmx|svm)' /proc/cpuinfo` returns 0, and the `firecracker`
+binary isn't installed. Hostinger's hypervisor doesn't pass nested
+virtualization through to the guest, which is a hosting-tier decision, not
+something fixable in this codebase. `run_in_microvm` is also functionally
+incomplete independent of that: it never actually sends `cmd`/`stdin` into
+the guest (no vsock or serial channel exists yet — see the "Implementation
+sketch" note below), and no rootfs/kernel image has been built. The live
+`/run` endpoint in app.py uses `isolate` only (see runner.py); do not wire
+this module in without first (a) moving execsvc to a host that exposes
+`/dev/kvm`, and (b) implementing the actual guest I/O channel this module
+currently only sketches.
+
 The security-critical property of this module is `build_vm_config`: the
 generated Firecracker config NEVER contains a `network-interfaces` entry
 (that absence is what guarantees the sandbox has no network egress), and the

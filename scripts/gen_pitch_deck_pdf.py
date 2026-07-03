@@ -798,7 +798,9 @@ def slide_close(elements):
     elements.append(ListFlowable([
         ListItem(Paragraph("<b>Product is in active development</b> - 70+ "
                  "features already built across proctoring, dashboard, grading "
-                 "and billing, with desktop clients for macOS and Windows; "
+                 "and billing, with a signed Windows desktop client shipping "
+                 "today (macOS deferred to post-revenue - the Indian coaching-"
+                 "institute market is overwhelmingly Windows); "
                  "release-readiness work is ongoing.", BODY)),
         ListItem(Paragraph("<b>DPDP Act is forcing the issue</b> - data "
                  "minimisation and residency are now procurement criteria, and "

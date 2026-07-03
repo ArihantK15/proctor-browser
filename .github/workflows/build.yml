@@ -285,6 +285,36 @@ jobs:
         if: matrix.target == 'mac'
         run: node scripts/verify-macos-build.mjs
 
+      # Refuses to let an ad-hoc-signed build reach a real tagged release.
+      # Ad-hoc signing (no CSC_LINK) has no Developer ID identity, and
+      # Squirrel.Mac/electron-updater REQUIRES real code signing for
+      # auto-update to work at all (verified against Squirrel.Mac#179 and
+      # electron-builder's own auto-update docs) — an ad-hoc release would
+      # install fine (behind the "unidentified developer" prompt) but then
+      # NEVER receive another update, silently, for every Mac student who
+      # installed it. There would be no error, no crash — just permanently
+      # stale app versions with no way to reach them again except a fresh
+      # manual install. Verified 2026-07-03 that none of CSC_LINK/APPLE_ID/
+      # APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID are configured as repo
+      # secrets yet — this gate exists so that gap fails loud in CI instead
+      # of shipping silently the first time someone pushes a version tag.
+      - name: Refuse unsigned macOS publish
+        if: matrix.target == 'mac' && startsWith(github.ref, 'refs/tags/')
+        run: |
+          if [ -z "$CSC_LINK_SECRET" ]; then
+            echo "::error::Refusing to publish an ad-hoc-signed macOS release."
+            echo "CSC_LINK (and the other APPLE_* secrets) are not configured."
+            echo "An ad-hoc build cannot auto-update (Squirrel.Mac requires a"
+            echo "real Developer ID signature) — every Mac install from this"
+            echo "tag would be stuck on this version forever with no update"
+            echo "path. Configure CSC_LINK/CSC_KEY_PASSWORD/APPLE_ID/"
+            echo "APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID as repo secrets"
+            echo "before tagging a real macOS release."
+            exit 1
+          fi
+        env:
+          CSC_LINK_SECRET: ${{ secrets.CSC_LINK }}
+
       - name: Publish macOS release (only after the gate passes)
         if: matrix.target == 'mac' && startsWith(github.ref, 'refs/tags/')
         shell: bash

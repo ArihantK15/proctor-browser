@@ -524,7 +524,27 @@ let _quittingForUpdate = false;
 function setQuittingForUpdate() { _quittingForUpdate = true; }
 module.exports._setQuittingForUpdate = setQuittingForUpdate;
 
-app.on('before-quit', () => {
+app.on('before-quit', (e) => {
+  // Backstop against a raw Cmd+Q quitting a locked-down exam on macOS.
+  // kiosk-manager registers 'Cmd+Q' via globalShortcut, but that's phantom
+  // coverage there — verified against Electron issue #13440 ("CMD+Q exits
+  // kiosk mode on OSX"): the OS delivers Cmd+Q to NSApplication's
+  // terminate: independent of any app-level shortcut registration, and
+  // Menu.setApplicationMenu(null) only removes the clickable File>Quit
+  // route, not the raw key equivalent. Same class of bug as Cmd+Tab/
+  // Cmd+Space (also OS-level, not interceptable via globalShortcut) —
+  // this is the only real backstop for Cmd+Q specifically, because unlike
+  // Tab/Space it would otherwise fully terminate the app, not just
+  // switch focus away from it.
+  // Both legitimate quit-during-exam paths flip kiosk state to false
+  // before calling app.quit(), so neither is blocked here: the panic/
+  // emergency chord calls releaseKiosk() first (see kiosk-manager.js
+  // handlePanicUnlock), and auto-update quits are flagged via
+  // _quittingForUpdate below regardless of kiosk state.
+  if (!_quittingForUpdate && getIsKiosk()) {
+    e.preventDefault();
+    return;
+  }
   // If we're quitting to install an update, paint a clear overlay on
   // the lobby BEFORE we tear down the subprocesses. Without this the
   // app window goes blank → "Not responding" → NSIS pops → relaunch:

@@ -20,6 +20,32 @@ const KIOSK_ALLOWED = _IS_PACKAGED
 // Base set registered on every platform. Cmd+* accelerators simply fail to
 // register on Windows/Linux (no Command key) and are skipped — the arming
 // loop only tracks successful registrations — so a shared base is safe.
+//
+// Known phantom entries on macOS, researched 2026-07-03 (kept in the list
+// anyway — registering them is harmless and they DO work on the other
+// platform they're aimed at, e.g. Alt+Tab genuinely blocks via Windows'
+// RegisterHotKey — but do not assume the macOS half of the pair does
+// anything):
+//   - Cmd+Tab:   OS App Switcher, dispatched by the WindowServer before it
+//     reaches Carbon's RegisterEventHotKey (what globalShortcut uses on
+//     Mac) — confirmed still open as electron/electron#18207. The real
+//     defense is the blur/focus refocus watcher in kiosk-manager.js
+//     (createExamWindow's 'blur' handler), which yanks focus back within
+//     100ms of ANY focus loss, regardless of cause.
+//   - Cmd+Q:     also NOT reliably intercepted by globalShortcut on macOS
+//     (electron/electron#13440, "CMD+Q exits kiosk mode on OSX") — Cocoa
+//     routes it to NSApplication terminate: independent of app-level
+//     shortcut registration. The real backstop is the kiosk-state check in
+//     main.js's `before-quit` handler, which preventDefaults the actual
+//     app quit while an exam is armed (registering the accelerator here is
+//     still worth keeping as defense-in-depth for any environment where it
+//     does register).
+// Cmd+Space (Spotlight, in _BLOCKED_MAC below) is the same phantom-
+// coverage class — globalShortcut doesn't actually intercept it either
+// (electron/electron#9203) — but it's still caught by the same blur/focus
+// watcher as Cmd+Tab: Spotlight's search overlay steals keyboard focus
+// from the exam window the instant it opens, which fires 'blur' and gets
+// yanked back within 100ms same as any other focus-stealing switch.
 const _BLOCKED_BASE = [
   'Alt+F4','Cmd+Q','Cmd+W','Cmd+M','Cmd+H',
   'Cmd+Tab','Alt+Tab','F11','F12','Escape',

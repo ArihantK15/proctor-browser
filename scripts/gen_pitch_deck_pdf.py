@@ -758,8 +758,9 @@ def slide_ask(elements, comp, scenario_a, scenario_b):
             ListItem(Paragraph("Rs. 10,000/month performance marketing for the "
                      "full window.", BODY)),
             ListItem(Paragraph("Prepaid 2-year hosting (primary + secondary "
-                     "server) and domain, dev tools, and Windows EV "
-                     "code-signing.", BODY)),
+                     "server) and domain, dev tools, and code-signing for "
+                     "both launch platforms: Windows EV certificate and "
+                     "Apple Developer Program.", BODY)),
             ListItem(Paragraph("Private Limited incorporation and its first "
                      "18 months of ROC/audit/CA compliance - a precondition "
                      "of this round closing, not a deferred cost.", BODY)),
@@ -798,10 +799,9 @@ def slide_close(elements):
     elements.append(ListFlowable([
         ListItem(Paragraph("<b>Product is in active development</b> - 70+ "
                  "features already built across proctoring, dashboard, grading "
-                 "and billing, with a signed Windows desktop client shipping "
-                 "today (macOS deferred to post-revenue - the Indian coaching-"
-                 "institute market is overwhelmingly Windows); "
-                 "release-readiness work is ongoing.", BODY)),
+                 "and billing, with desktop clients for both Windows and macOS "
+                 "launching together on day one; release-readiness work "
+                 "(code signing on both platforms) is the open item ahead of GA.", BODY)),
         ListItem(Paragraph("<b>DPDP Act is forcing the issue</b> - data "
                  "minimisation and residency are now procurement criteria, and "
                  "our architecture satisfies them by construction.", BODY)),

@@ -35,15 +35,19 @@ The desktop app must be code-signed or end users hit scary OS warnings.
   - **SimplySign cloud signing** — no USB token, works in GitHub Actions CI.
   - **Tradeoff:** OV-class, *not* EV → SmartScreen reputation **builds over downloads/time**, not instant. Sign early so reputation accrues before the GA push.
 
-### macOS — NOT at launch (decided 2026-06-19)
-- Apple Developer Program ($99/yr) is **not active and not funded.** Without it, mac builds are ad-hoc signed and Gatekeeper blocks downloaded copies.
-- **Decision: launch Windows-only.** The Indian coaching-institute market is overwhelmingly Windows, so dropping macOS removes the $99/yr cost rather than deferring a problem. Add macOS (Apple membership) **post-revenue**.
-- When mac is added later, an Apple Developer **Organization** account (post-incorporation) needs a D-U-N-S number. Same $99/yr.
+### macOS — LAUNCHING DAY ONE (corrected 2026-07-03, was wrong)
+
+> **Correction:** this section previously said "launch Windows-only, add macOS post-revenue." That decision is reversed — **macOS ships in the same day-one launch as Windows, not deferred.** Apple Developer Program enrollment is a required pre-launch purchase, in the same category as the Windows EV certificate: budgeted, not yet completed, needs to happen before GA — not a "someday" item.
+
+- Apple Developer Program ($99/yr, ~₹9,500) is **not yet enrolled — this is an open pre-launch action item**, exactly like the Windows EV cert purchase. Without it, mac builds are ad-hoc signed and Gatekeeper blocks downloaded copies; this must close before GA, not after.
+- **Decision: launch both Windows and macOS together.** Budgeted in `Procta_Investment_Requirement.pdf` (Section 3, Annual Recurring) as a day-one cost, not a deferred one.
+- Enrolling as an **Organization** account (rather than Individual) needs a D-U-N-S number and, once incorporated, ties to the Pvt Ltd entity from Section 3 below — sequence the D-U-N-S application early since it has its own lead time, separate from the $99/yr fee itself.
+- `build/entitlements.mac.plist`, `build/icon.icns`, and the `mac:` target (dmg + zip, hardened runtime) already exist in `package.json` — the packaging side is ready. What's missing is (a) the paid enrollment itself, (b) wiring `CSC_LINK`/notarization credentials into CI once enrolled, and (c) auditing the kiosk-lockdown code paths for macOS parity with Windows (window management, fullscreen enforcement, process/app monitoring — these likely use different OS APIs per platform and need independent verification, not an assumption that "it compiles for mac" means "it locks down a mac exam the same way it locks down a Windows one").
 
 ### Decision summary
-- **For the pilot:** buy nothing. Walk hand-onboarded institutes past SmartScreen on a call.
-- **For GA:** Certum Individual (Windows) + Apple Developer ($99/yr, macOS). Optionally buy Certum early during the pilot so Windows reputation builds before launch.
-- **CI wiring:** SimplySign (Windows) is a separate step from the mac `CSC_LINK` path — to be added when credentials exist.
+- **For the pilot:** minimize spend, but do not skip platform parity — walk hand-onboarded institutes past SmartScreen/Gatekeeper on a call if signing isn't live yet, on **either** platform equally.
+- **For GA (day one):** Certum EV (Windows) + Apple Developer Program ($99/yr, macOS) are both required, both budgeted, both pre-launch action items — not sequenced one after the other.
+- **CI wiring:** SimplySign (Windows) and the mac `CSC_LINK`/notarization path are separate build.yml steps; both need to be live before the day-one release, not just one of them.
 
 ---
 
@@ -70,8 +74,8 @@ Currently operating as an individual (student). This works for a pilot and for C
 
 | Item | Cost | Blocks what? | Status |
 |---|---|---|---|
-| Apple Developer Program | $99/yr (~₹8.5k) | Signed/notarized macOS build | **NOT at launch** — Windows-only; add post-revenue |
-| Windows code signing — EV (chosen path, revised 2026-07-03) | ~$289.99 per ~15-month issuance (Certum EV, verified vs sslcertshop.com) | Instant SmartScreen-clean Windows installs, no reputation-building wait | Deferred to GA; budgeted in `Procta_Investment_Requirement.pdf` |
+| Apple Developer Program | $99/yr (~₹9.5k) | Signed/notarized macOS build | **Required at launch, day one alongside Windows** — open pre-launch action item; budgeted in `Procta_Investment_Requirement.pdf` |
+| Windows code signing — EV (chosen path, revised 2026-07-03) | ~$289.99 per ~15-month issuance (Certum EV, verified vs sslcertshop.com) | Instant SmartScreen-clean Windows installs, no reputation-building wait | Required at launch; budgeted in `Procta_Investment_Requirement.pdf` |
 | Windows code signing — OV (fallback if capital is tight) | ~$116–189/yr (Certum Individual) | SmartScreen-clean, but builds reputation over downloads/time | Not chosen — kept as a cheaper fallback option |
 | Google OAuth verification (Classroom) | **Free** (review time only) | Classroom features at GA | Ready to submit (signup/RLS now fixed) — [GOOGLE_CLASSROOM_VERIFICATION.md](GOOGLE_CLASSROOM_VERIFICATION.md) |
 | Google CASA security assessment | **₹0 — NOT required** | — | **Confirmed 2026-06-19:** Cloud Console Data Access shows **no restricted scopes** (only non-sensitive + one sensitive). CASA is triggered only by *restricted* scopes. |
@@ -118,25 +122,25 @@ Currently operating as an individual (student). This works for a pilot and for C
 | Windows signing — OV, fallback | ~₹10–16k | Cheaper, but SmartScreen reputation builds over time instead of instant |
 | GST/ITR compliance (CA) | ~₹15–30k | Once charging customers |
 | Domain/email | ~₹2–6k | |
-| Apple Developer | ₹0 at launch | Windows-only launch; ~₹8.5k/yr when mac is added post-revenue |
+| Apple Developer Program | ~₹9.5k/yr ($99) | Required at launch, day one alongside Windows — not deferred |
 | Google CASA | ₹0 | Confirmed no restricted scopes |
-| **Recurring floor, EV path (beyond ₹8.4k/yr servers)** | **~₹39–58k/yr** + payment fees (~2% of revenue) | Excludes Pvt Ltd compliance (~₹25–55k/yr), which only starts once incorporated at the raise |
+| **Recurring floor, EV path (beyond ₹8.4k/yr servers)** | **~₹48–68k/yr** + payment fees (~2% of revenue) | Excludes Pvt Ltd compliance (~₹25–55k/yr), which only starts once incorporated at the raise |
 
-**Takeaway:** the *true* operating floor to run Procta as a paid Windows-only product is roughly **₹40–60k/year** beyond servers (excluding Pvt Ltd compliance, future macOS, and SOC 2), plus ~2% of revenue in payment fees. Once Pvt Ltd is live (at the raise), add ~₹25–55k/yr for ROC/audit/CA on top. That's still tiny against even ₹5L/mo revenue — the unit economics survive intact — but it is **not** "₹700/month, 95% margin."
+**Takeaway:** the *true* operating floor to run Procta as a paid Windows-and-macOS product (both launching day one) is roughly **₹48–68k/year** beyond servers (excluding Pvt Ltd compliance and SOC 2), plus ~2% of revenue in payment fees. Once Pvt Ltd is live (at the raise), add ~₹25–55k/yr for ROC/audit/CA on top. That's still tiny against even ₹5L/mo revenue — the unit economics survive intact — but it is **not** "₹700/month, 95% margin."
 
 ---
 
 ## 8. How to go about it — sequenced
 
-1. **Now (pilot, ~₹0):** run the pilot as an individual, Windows-only; walk users past SmartScreen. Buy nothing.
-2. **Start the slow clock now:** decide on `classroom.profile.emails`, then submit **Google OAuth verification** (unblocked — signup/RLS fixed). Price Certum Individual for later.
-3. **As first revenue appears:** register a **Sole Proprietorship** + GST + business bank account; buy the Certum Individual cert so Windows reputation builds during the pilot.
-4. **Before the raise / at GA scale:** incorporate **Private Limited**; revisit EV signing and Azure Trusted Signing (once India individual support opens); budget SOC 2 from raised funds.
+1. **Now (pilot, ~₹0):** run the pilot as an individual on both Windows and macOS; walk users past SmartScreen/Gatekeeper on a call where signing isn't live yet. Buy nothing yet, but don't build pilot infra as if macOS is optional.
+2. **Start the slow clock now:** decide on `classroom.profile.emails`, then submit **Google OAuth verification** (unblocked — signup/RLS fixed). Enroll in **Apple Developer Program** and price **Certum EV** — both are day-one launch blockers, start both clocks together (Apple D-U-N-S lookup has its own lead time).
+3. **As first revenue appears:** register a **Sole Proprietorship** + GST + business bank account; buy the Certum EV cert and confirm the Apple Developer enrollment is live — both must be done before GA, not sequenced after revenue.
+4. **Before the raise / at GA scale:** incorporate **Private Limited**; budget SOC 2 from raised funds.
 5. **Update the investment model** with the §7 floor and the ~90% (not 95%) margin.
 
 ### Decisions — resolved 2026-06-19
 - [x] **Incorporation:** stay an individual for now; register a sole proprietorship only when the first paying customer appears. Pvt Ltd waits until the raise.
-- [x] **Apple/macOS:** not funded → **launch Windows-only**; add macOS post-revenue.
+- [x] ~~**Apple/macOS:** not funded → **launch Windows-only**; add macOS post-revenue.~~ **Reversed 2026-07-03** — see below.
 - [x] **Google CASA:** not required (no restricted scopes confirmed in console).
 - [x] ~~**Certum cert:** affordable (~₹800/mo) but deferred to GA, as agreed.~~ **Superseded 2026-07-03** — see below.
 
@@ -145,6 +149,7 @@ Currently operating as an individual (student). This works for a pilot and for C
 - [x] **Azure Trusted Signing confirmed dead, not just deferred.** The investment PDF had separately budgeted this as the actual chosen path ($10/month); it isn't available to Indian individuals at all. Removed from the capital ask and replaced with the EV line above.
 - [x] **Pvt Ltd cost figures corrected upward.** 2026 market rate for standard two-director filing is ~₹15–25k (up to ₹32k), not ₹8–15k. Annual compliance ~₹25–55k/yr for a small pre-revenue company was already roughly right and is unchanged.
 - [x] **Pvt Ltd incorporation is now budgeted directly in the capital ask**, not deferred as a vague "later" line — accepting outside equity requires an entity to issue it into, so incorporation is a precondition of this raise closing, not a discretionary future expense.
+- [x] **macOS launch decision reversed: ships day one alongside Windows, not deferred.** The 2026-06-19 "Windows-only" decision is wrong and is retracted. Apple Developer Program ($99/yr) moves from "not funded, post-revenue" to a required, budgeted, open pre-launch action item — same status and urgency as the Windows EV certificate purchase. This changes the recurring floor (§7) from ~₹39–58k/yr to ~₹48–68k/yr. Downstream consequence: every "Windows-only" claim in the investor materials (pitch deck, README, features PDF) needs auditing for the same correction, and the actual macOS kiosk-lockdown code paths need verification for parity with Windows — packaging (entitlements, icon, dmg/zip target) already exists in `package.json`, but that is not the same claim as "the lockdown enforcement works identically on both platforms."
 
 ### Still open
 - [ ] **Drop `classroom.profile.emails`?** If Procta's own invite flow already covers emails, dropping it leaves only non-sensitive scopes and lightens Google verification. Decide before submitting.

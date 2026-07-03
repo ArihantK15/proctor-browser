@@ -86,6 +86,18 @@ const _BLOCKED_BASE = [
 //   F3                 → Mission Control hardware key
 // Gated to darwin: Control+Arrow is legitimate word/line navigation on
 // Windows and must NOT be blocked there.
+//
+// NOT coverable at all, researched 2026-07-04: on a trackpad-equipped Mac
+// (every MacBook, any Magic Trackpad), 3/4-finger swipes reach Mission
+// Control / Space-switching the exact same way the keyboard shortcuts
+// above do, but there is no macOS API — public or otherwise — for a
+// userspace app to intercept or disable trackpad gestures. This is
+// Apple's platform security model working as intended (apps can't hijack
+// system-level input gestures), not a bug in this list. The keyboard
+// shortcuts below are real, working coverage for keyboard-only Macs
+// (external keyboard, no trackpad) — they just don't help a student on a
+// laptop trackpad. No code fix exists; noting it so nobody assumes the
+// keyboard coverage below implies gesture coverage too.
 const _BLOCKED_MAC = [
   'Cmd+Space', 'Cmd+Shift+5',
   'Control+Up', 'Control+Down', 'Control+Left', 'Control+Right', 'F3',

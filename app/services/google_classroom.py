@@ -223,6 +223,12 @@ async def list_students(creds: Credentials, course_id: str) -> list[dict[str, An
     except HttpError as e:
         logger.warning("[google_classroom] list students failed: %s", e)
         return []
+    except RefreshError:
+        # Must propagate, not be absorbed by the broad except below — the
+        # router (_do_google_sync_roster) catches this specifically to clear
+        # the dead token and tell the teacher to reconnect, instead of a
+        # silent "0 students imported" from returning [] here.
+        raise
     except Exception as e:  # malformed profile payloads, etc. — never 500 the caller
         logger.warning("[google_classroom] list students parse failed: %s", e)
         return []

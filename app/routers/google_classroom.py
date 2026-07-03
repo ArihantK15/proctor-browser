@@ -7,6 +7,7 @@ from typing import Any
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request, HTTPException
+from google.auth.exceptions import RefreshError
 from starlette.responses import RedirectResponse, HTMLResponse
 
 from ..auth import require_admin
@@ -128,7 +129,21 @@ async def _do_google_courses(request: Request):
         await _atable("google_auth_tokens").delete().eq("teacher_id", tid).execute()
         return {"connected": False, "courses": []}
 
-    courses = await list_courses(creds)
+    try:
+        courses = await list_courses(creds)
+    except RefreshError:
+        # _build_credentials()'s proactive expiry check only catches tokens
+        # with a known expiry timestamp — Credentials() here is built without
+        # one (see _build_credentials), and outright *revocation* (vs simple
+        # expiry) can only be discovered by actually attempting to use the
+        # token. That attempt happens lazily inside list_courses()'s
+        # .execute() call, which only ever caught HttpError — so a revoked
+        # token surfaced as an unhandled 500 (PYTHON-1T/1V/1X) instead of the
+        # same clean "reconnect" response the expired-token path already
+        # gives one line above.
+        logger.info("[google_classroom] course listing hit a revoked/expired token for teacher %s — clearing it", tid)
+        await _atable("google_auth_tokens").delete().eq("teacher_id", tid).execute()
+        return {"connected": False, "courses": []}
 
     # Check which courses are already linked
     links = await _atable("google_classroom_links").select("google_course_id,exam_id").eq("teacher_id", tid).execute()
@@ -215,11 +230,20 @@ async def _do_google_sync_roster(body: dict[str, Any], request: Request):
         await _atable("google_auth_tokens").delete().eq("teacher_id", tid).execute()
         raise HTTPException(status_code=400, detail="Google Classroom session expired — please reconnect")
 
-    # Tag imported students with the Google class name as their cohort (batch),
-    # so the synced roster is immediately usable for exam→batch assignment.
-    course_name = (await get_course_name(creds, course_id))[:120]
-
-    students = await list_students(creds, course_id)
+    try:
+        # Tag imported students with the Google class name as their cohort
+        # (batch), so the synced roster is immediately usable for
+        # exam→batch assignment.
+        course_name = (await get_course_name(creds, course_id))[:120]
+        students = await list_students(creds, course_id)
+    except RefreshError:
+        # Same gap as _do_google_courses: _build_credentials()'s proactive
+        # expiry check misses outright revocation, which only surfaces when
+        # these calls actually try to use the token. Give the teacher the
+        # same clean "reconnect" outcome instead of a raw 500.
+        logger.info("[google_classroom] roster sync hit a revoked/expired token for teacher %s — clearing it", tid)
+        await _atable("google_auth_tokens").delete().eq("teacher_id", tid).execute()
+        raise HTTPException(status_code=400, detail="Google Classroom session expired — please reconnect")
     imported = 0
     updated = 0
     skipped_no_email = 0

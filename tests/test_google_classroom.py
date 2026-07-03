@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from unittest.mock import MagicMock
 
 import pytest
+from google.auth.exceptions import RefreshError
 from googleapiclient.errors import HttpError
 
 from app.services import google_classroom as gc
@@ -63,6 +64,20 @@ async def test_list_courses_http_error_returns_empty(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_courses_refresh_error_propagates(monkeypatch):
+    """A revoked/expired token surfaces as RefreshError, not HttpError, and
+    must NOT be swallowed here — the router (app/routers/google_classroom.py
+    _do_google_courses) catches it to clear the dead token and tell the
+    teacher to reconnect (PYTHON-1T/1V/1X: this used to be an unhandled 500
+    because only HttpError was ever caught at this layer)."""
+    svc = MagicMock()
+    svc.courses.return_value.list.return_value.execute.side_effect = RefreshError("invalid_grant")
+    monkeypatch.setattr(gc, "build", lambda *a, **k: svc)
+    with pytest.raises(RefreshError):
+        await gc.list_courses(creds=object())
+
+
+@pytest.mark.asyncio
 async def test_list_students_shapes_rows(monkeypatch):
     svc = MagicMock()
     svc.courses.return_value.students.return_value.list.return_value.execute.return_value = {
@@ -91,6 +106,20 @@ async def test_list_students_tolerates_missing_email(monkeypatch):
         {"user_id": "u1", "email": "", "name": "No Email"},
         {"user_id": "u2", "email": "s@x.test", "name": "Sam"},
     ]
+
+
+@pytest.mark.asyncio
+async def test_list_students_refresh_error_propagates(monkeypatch):
+    """Same contract as list_courses: a revoked/expired token must not be
+    swallowed by the broad 'malformed profile payload' except-Exception
+    clause below it — the router (_do_google_sync_roster) needs to see the
+    real RefreshError to clear the dead token and tell the teacher to
+    reconnect, instead of silently reporting 0 students imported."""
+    svc = MagicMock()
+    svc.courses.return_value.students.return_value.list.return_value.execute.side_effect = RefreshError("invalid_grant")
+    monkeypatch.setattr(gc, "build", lambda *a, **k: svc)
+    with pytest.raises(RefreshError):
+        await gc.list_students(creds=object(), course_id="c1")
 
 
 @pytest.mark.asyncio

@@ -1494,15 +1494,14 @@
       <div class="tool-card" data-section="exam">
         <div class="tool-card-body">
           <h3>Exam Access Code</h3>
-          <p>Students must enter this code along with their roll number to start the exam. Leave empty to disable.</p>
+          <p>Every exam requires a code — students always enter it along with their roll number to start. A code is auto-generated if none is set; you can change it below, but it can't be turned off.</p>
           <div class="tool-card-field">
             <input type="text" id="access-code-input" class="access-code" placeholder="e.g. ABC123">
           </div>
         </div>
         <div class="tool-card-actions">
           <button class="btn btn-primary btn-sm" data-action="saveAccessCode">Save</button>
-          <button class="btn btn-secondary btn-sm" data-action="generateAccessCode">Generate</button>
-          <button class="btn btn-secondary btn-sm" data-action="clearAccessCode" style="color:var(--red)">Clear</button>
+          <button class="btn btn-secondary btn-sm" data-action="generateAccessCode">Generate new code</button>
         </div>
         <div class="tool-card-result" id="access-code-status" style="font-size:12px"></div>
       </div>

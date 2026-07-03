@@ -13,6 +13,7 @@ from typing import Any
 
 from ..database import async_table as _atable
 from ..limiter import limiter
+from ..repositories.questions import get_access_code as _get_access_code
 from ..models import TeacherSignupIn, TeacherLoginIn, RefreshIn, StudentSignupIn, StudentLoginIn, PasswordResetIn
 from ..auth import (
     issue_admin_token, _get_teacher_by_id, _get_teacher_by_uid,
@@ -1907,6 +1908,15 @@ async def student_exams(request: Request):
         else:
             status = window
 
+        # Access codes are compulsory for every exam now — auto-generates
+        # and persists one if this exam predates that requirement (avoids
+        # a per-request DB write for the common case where cfg already
+        # carries a code). access_code_required is always True as a
+        # result; kept as a field for older Electron builds still reading
+        # it, since the lobby now shows the code prompt unconditionally.
+        if not str(cfg.get("access_code") or "").strip():
+            await _get_access_code(teacher_id, exam_id=exam_id)
+
         exams.append({
             "exam_title": cfg.get("exam_title") or cfg.get("title") or "Exam",
             "teacher_name": teacher_name,
@@ -1916,7 +1926,7 @@ async def student_exams(request: Request):
             "starts_at": starts_at,
             "ends_at": ends_at,
             "duration_minutes": duration,
-            "access_code_required": bool(str(cfg.get("access_code") or "").strip()),
+            "access_code_required": True,
             "status": status,
             "submitted_at": session.get("submitted_at") if session else None,
         })

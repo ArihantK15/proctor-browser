@@ -5,6 +5,8 @@ Extracted from app/dependencies.py.
 
 import logging
 import os
+import secrets
+import string
 
 from ..database import async_table as _atable
 from typing import Optional
@@ -161,17 +163,45 @@ async def load_exam_config(teacher_id: Optional[str] = None, exam_id: Optional[s
     }
 
 
+# Access codes are now compulsory for every exam (no more "no code
+# required" mode). Built from ascii_uppercase + digits rather than a
+# literal string so it doesn't read as one — excludes visually-confusable
+# characters (0/O, 1/I/L) since students type this by hand off a
+# projector/whiteboard.
+_ACCESS_CODE_ALPHABET = "".join(
+    c for c in string.ascii_uppercase + string.digits if c not in "IL01O"
+)
+_ACCESS_CODE_LENGTH = 6
+
+
+def generate_access_code() -> str:
+    return "".join(secrets.choice(_ACCESS_CODE_ALPHABET) for _ in range(_ACCESS_CODE_LENGTH))
+
+
 async def get_access_code(teacher_id: Optional[str] = None, exam_id: Optional[str] = None) -> str:
     if not teacher_id and not exam_id:
-        return os.getenv("EXAM_ACCESS_CODE", "").strip().upper()
+        code = os.getenv("EXAM_ACCESS_CODE", "").strip().upper()
+        # No teacher/exam key to persist a generated code against (e.g. the
+        # single-tenant env-var fallback) — best-effort only in that mode.
+        return code or generate_access_code()
     try:
         config = await load_exam_config(teacher_id, exam_id=exam_id)
-        code = config.get("access_code", "")
+        code = str(config.get("access_code") or "").strip().upper()
         if code:
-            return str(code).strip().upper()
+            return code
     except Exception:
         logger.debug("questions: exam-config access-code fallback failed", exc_info=True)
-    return os.getenv("EXAM_ACCESS_CODE", "").strip().upper()
+        return os.getenv("EXAM_ACCESS_CODE", "").strip().upper() or generate_access_code()
+    # No code on file for this exam — every exam requires one now, so
+    # generate and persist one instead of leaving students permanently
+    # unable to start it. Covers both freshly-created exams and legacy
+    # ones saved before access codes were mandatory.
+    new_code = generate_access_code()
+    try:
+        await set_access_code(new_code, teacher_id=teacher_id, exam_id=exam_id)
+    except Exception:
+        logger.warning("questions: failed to persist auto-generated access code", exc_info=True)
+    return new_code
 
 
 async def set_access_code(code: str, teacher_id: Optional[str] = None, exam_id: Optional[str] = None):

@@ -8,7 +8,7 @@ from ..auth import require_admin
 from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope
 from ..database import async_table as _atable
 from .. import cache as _cache
-from ..repositories.questions import load_exam_config as _load_exam_config, load_questions as _load_questions
+from ..repositories.questions import load_exam_config as _load_exam_config, load_questions as _load_questions, generate_access_code as _generate_access_code
 from ..repositories.sessions import cohort_roll_numbers as _cohort_roll_numbers
 from ..invites import _get_invite_base_url, _new_invite_token, _new_access_code, _claim_and_bump_cap
 from ..utils import now_ist, fmt_ist
@@ -537,7 +537,10 @@ async def create_exam_from_template(template_id: str, request: Request):
         "teacher_id": tid,
         "exam_title": tmpl.get("exam_title", "New Exam"),
         "duration_minutes": tmpl.get("duration_minutes", 60),
-        "access_code": tmpl.get("access_code", ""),
+        # Access codes are compulsory for every exam — fall back to a fresh
+        # one instead of copying the template's (which may itself be empty
+        # for templates saved before this was mandatory).
+        "access_code": str(tmpl.get("access_code") or "").strip().upper() or _generate_access_code(),
         "shuffle_questions": tmpl.get("shuffle_questions", False),
         "shuffle_options": tmpl.get("shuffle_options", False),
     }

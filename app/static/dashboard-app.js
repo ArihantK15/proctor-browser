@@ -5017,6 +5017,9 @@ async function forceSubmit(sid){
 }
 
 // ── ACCESS CODE ────────────────────────────────────────────────
+// Compulsory for every exam — the server auto-generates one on first read
+// if none is on file (legacy exams saved before this was mandatory) and
+// the POST endpoint now rejects an empty code, so `enabled` is always true.
 async function loadAccessCode(){
   try{
     const r=await authFetch(`${BASE}/api/v1/admin/access-code${_examQuery('?')}`);
@@ -5024,8 +5027,8 @@ async function loadAccessCode(){
     const d=await r.json();
     document.getElementById('access-code-input').value=d.access_code||'';
     const st=document.getElementById('access-code-status');
-    st.style.color=d.enabled?'var(--emerald)':'var(--muted)';
-    st.textContent=d.enabled?`Active: students need code "${d.access_code}" to start`:'Disabled: no code required';
+    st.style.color='var(--emerald)';
+    st.textContent=`Active: students need code "${d.access_code}" to start`;
   }catch(e){}
 }
 
@@ -5039,23 +5042,23 @@ function generateAccessCode(){
 async function saveAccessCode(){
   const code=document.getElementById('access-code-input').value.trim().toUpperCase();
   const st=document.getElementById('access-code-status');
+  if(!code){
+    st.style.color='var(--red)';
+    st.textContent='An access code is required — it can no longer be disabled. Click "Generate new code" if you don\'t have one to enter.';
+    return;
+  }
   try{
     const r=await authFetch(`${BASE}/api/v1/admin/access-code`,{
       method:'POST',body:JSON.stringify({access_code:code, exam_id:currentExamId})
     });
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     const d=await r.json();
-    st.style.color=d.enabled?'var(--emerald)':'var(--muted)';
-    st.textContent=d.enabled?`Saved! Students need code "${d.access_code}" to start`:'Cleared — no code required';
+    st.style.color='var(--emerald)';
+    st.textContent=`Saved! Students need code "${d.access_code}" to start`;
   }catch(e){
     st.style.color='var(--red)';
     st.textContent='Failed to save: '+e.message;
   }
-}
-
-function clearAccessCode(){
-  document.getElementById('access-code-input').value='';
-  saveAccessCode();
 }
 
 // ── REGISTERED COUNT ────────────────────────────────────────────

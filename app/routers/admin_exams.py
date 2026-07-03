@@ -9,7 +9,7 @@ from ..auth import require_admin
 from ..auth.scope import resolve_scope, scope_to_teacher_ids, apply_teacher_scope, assert_can_author
 from ..database import async_table as _atable
 from .. import cache as _cache
-from ..repositories.questions import load_questions as _load_questions
+from ..repositories.questions import load_questions as _load_questions, generate_access_code as _generate_access_code
 from ..models import SessionStatus, RESULT_STATUSES
 from ..limiter import limiter
 from ..constants import MAX_TIME_EXTENSION_MINUTES
@@ -134,6 +134,10 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
     title = body.exam_title.strip() or "New Exam"
     duration = body.duration_minutes
     exam_id = str(_uuid.uuid4())
+    # Access codes are compulsory for every exam (no "no code required"
+    # mode) — generate one at creation instead of leaving it empty and
+    # relying on a later lazy-generate-on-read to backfill it.
+    access_code = _generate_access_code()
     try:
         result = await _atable("exam_config").insert({
             "exam_id":          exam_id,
@@ -142,12 +146,19 @@ async def create_exam(request: Request, body: CreateExamIn = Body(...)):
             "duration_minutes": duration,
             "phone_camera_enabled": body.phone_camera,
             "proctoring_sensitivity": "balanced",
+            "access_code":      access_code,
         }).execute()
     except Exception as e:
         _admin_log.error("[CreateExam] DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to create exam. Please try again.")
     row = result.data[0] if result.data else {}
-    resp_data = {"exam_id": row.get("exam_id", exam_id), "exam_title": title, "duration_minutes": duration, "phone_camera": body.phone_camera}
+    resp_data = {
+        "exam_id": row.get("exam_id", exam_id),
+        "exam_title": title,
+        "duration_minutes": duration,
+        "phone_camera": body.phone_camera,
+        "access_code": row.get("access_code", access_code),
+    }
     if idem_key and _cache:
         cache_key = f"idem:create_exam:{tid}:{idem_key}"
         _cache.set(cache_key, resp_data, ttl=3600)  # 1-hour window
@@ -342,7 +353,10 @@ async def duplicate_exam(exam_id: str, request: Request, body: DuplicateExamIn):
         "exam_title": new_title,
         "starts_at":  None,
         "ends_at":    None,
-        "access_code": "",
+        # A duplicate is a distinct exam instance — give it its own code
+        # rather than reusing the source's (or leaving it empty, which
+        # access codes can no longer be).
+        "access_code": _generate_access_code(),
     }
     for col in COPYABLE:
         if col in src and src[col] is not None:

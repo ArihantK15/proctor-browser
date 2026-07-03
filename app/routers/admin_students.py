@@ -879,8 +879,13 @@ async def csv_template(request: Request):
 async def get_access_code(request: Request):
     teacher = await require_admin(request)
     exam_id = request.query_params.get("exam_id")
+    # Auto-generates and persists a code if this exam doesn't have one yet
+    # (new exams, or legacy ones saved before access codes were mandatory)
+    # — every exam has a non-empty code from here on, so `enabled` is
+    # always true. Kept in the response for old dashboard builds that may
+    # still read it during a rollout.
     code = await _get_access_code(teacher["id"], exam_id=exam_id)
-    return {"access_code": code, "enabled": bool(code)}
+    return {"access_code": code, "enabled": True}
 
 
 @router.post("/api/v1/admin/access-code")
@@ -890,10 +895,18 @@ async def set_access_code(request: Request, body: AccessCodeIn = Body(...)):
     assert_can_author(teacher)  # manager-only admins can't author exam settings
     exam_id = body.exam_id
     new_code = body.access_code.strip().upper()
+    # Access codes are compulsory for every exam — there's no "disabled"
+    # state anymore, so an empty value here would silently strip a
+    # student-facing security control. Reject it instead of upserting.
+    if not new_code:
+        raise HTTPException(
+            status_code=422,
+            detail="An access code is required and cannot be cleared. Generate a new one instead.",
+        )
     await _set_access_code(new_code, teacher["id"], exam_id=exam_id)
     if _cache:
         _cache.delete(f"exam_config:{teacher['id']}:{exam_id or '_'}")
-    return {"access_code": new_code, "enabled": bool(new_code)}
+    return {"access_code": new_code, "enabled": True}
 
 
 @router.get("/api/v1/admin/qr")

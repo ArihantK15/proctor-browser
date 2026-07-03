@@ -279,7 +279,8 @@ class TestDuplicateExam:
     def test_duplicate_copies_grading_and_proctoring_settings(self, client):
         """A duplicate must carry the source's pass_mark / proctoring sensitivity
         / phone-cam / audio settings, not silently reset them to column defaults.
-        Per-instance fields (schedule, access code, exam_id) reset."""
+        Per-instance fields (schedule, exam_id) reset; access_code gets a fresh
+        value of its own rather than being copied or left empty."""
         from unittest.mock import patch as _mpatch, MagicMock
         src = {
             "exam_id": "exam-1", "exam_title": "Midterm", "duration_minutes": 90,
@@ -324,8 +325,10 @@ class TestDuplicateExam:
         assert cfg["phone_camera_enabled"] is True
         assert cfg["audio_keywords"] == "bomb,gun"
         assert cfg["audio_keywords_language"] == "en+hi"
-        # per-instance fields reset, not copied
-        assert cfg["access_code"] == ""
+        # per-instance fields reset, not copied — access_code is compulsory
+        # for every exam, so a duplicate gets its OWN freshly generated
+        # code rather than an empty one or the source's code.
+        assert cfg["access_code"] and cfg["access_code"] != src.get("access_code")
         assert cfg["starts_at"] is None
         assert cfg["exam_id"] != "exam-1"
 

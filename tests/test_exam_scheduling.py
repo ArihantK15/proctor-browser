@@ -383,7 +383,11 @@ class TestWindowStatus:
         assert resp.status_code == 200, resp.text
 
     def test_null_access_code_does_not_crash_lobby(self, client):
-        """Exam configs may store NULL access_code; lobby should still render."""
+        """Exam configs may store NULL access_code (legacy exams predating
+        the mandatory-access-code requirement); the lobby must still render,
+        and access_code_required is now always True — the server
+        auto-generates and persists a code for exams that don't have one
+        rather than treating a null code as "none required"."""
         config = {**EXAM_CONFIG, "access_code": None}
         sm = shared_supabase_mock()
         with patch.object(sm, "table", side_effect=_table_side_effect({
@@ -398,7 +402,7 @@ class TestWindowStatus:
         assert resp.status_code == 200, resp.text
         exams = resp.json().get("exams", [])
         assert exams
-        assert exams[0]["access_code_required"] is False
+        assert exams[0]["access_code_required"] is True
 
     def test_account_id_linked_roster_rows_are_visible(self, client):
         """A linked account should see exams even if email lookup misses."""

@@ -85,7 +85,7 @@ What happens, in order:
    user can no longer authenticate. (Done before any erasure work.)
 2. **Identifiers anonymised** (teacher) or thorough delete (student
    — delegates to `auth.py:_track_a_hybrid_delete_student_account` which notifies
-   the issuing teacher and handles supabase if applicable).
+   the issuing teacher).
 3. **OAuth tokens hard-deleted** (`google_auth_tokens`).
 4. **API keys deactivated** (`api_keys.is_active = false`).
 5. **Ephemeral data deleted** (`email_otps`).

@@ -18,11 +18,11 @@ This file tracks *operations*: what to run, when, and what to watch.
 □ Local release gate passed: MODE=full scripts/quality_check.sh
 □ Migrations reviewed for destructive operations
 □ Rollback commit identified (git log --oneline -5)
-□ Database backup verified (Supabase dashboard or pg_dump)
+□ Database backup verified (`docker logs proctor-ofelia | grep daily-backup` for the local dump, `tail /var/log/procta-s3-backup.log` for the S3 Mumbai off-site copy — see docs/OBSERVABILITY.md §Backups)
 
 ── Deploy ──
 
-□ ssh root@<droplet>
+□ ssh root@<your-vps>
 □ cd ~/proctor-browser && git pull
 □ Run new migrations: for f in migrations/*.sql; do psql "$DB_URL" -f "$f" 2>&1 | tail -3; done
 □ docker compose build api
@@ -72,7 +72,7 @@ Expected value after backfill: `0` for linked Procta student-account
 sessions. LTI learner records are LMS-managed by design.
 
 ```bash
-ssh root@<your-droplet>
+ssh root@<your-vps>
 cd ~/proctor-browser
 git pull
 docker compose build api          # rebuild backend image
@@ -102,12 +102,15 @@ Each commit on `main` is independently revertable.
 These are idempotent (safe to re-run); apply them in this order:
 
 ```bash
-# Set your Supabase connection string. Get it from
-# Supabase dashboard → Project Settings → Database → Connection string
-# (use the URI form for psql).
-export DB_URL="postgresql://postgres.<project>:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres"
+# Set the connection string for the self-hosted Postgres container.
+# Use MIGRATIONS_DATABASE_URL (the owner role, needed for DDL) — see
+# scripts/run_postgres_migrations.py for why the restricted procta_app
+# runtime role can't run migrations post-RLS-cutover.
+export DB_URL="postgresql://procta:<password>@localhost:5432/procta"
 
-# All migrations live in migrations/. Run each:
+# Migrations normally run automatically as part of the deploy preflight
+# (scripts/run_postgres_migrations.py, see .github/workflows/deploy.yml).
+# All migrations live in migrations/. To apply manually:
 for f in migrations/*.sql; do
   echo "── $f ──"
   psql "$DB_URL" -f "$f" 2>&1 | tail -5
@@ -135,7 +138,7 @@ Specifically these were never run on prod yet:
 
 ### 2.2 LLM provider — pick one (free tier)
 
-Add to `~/proctor-browser/.env` on the droplet:
+Add to `~/proctor-browser/.env` on the VPS:
 
 ```bash
 # Recommended: Groq (free, 14,400 req/day, no credit card)
@@ -148,7 +151,7 @@ LLM_MODEL=llama-3.3-70b-versatile
 
 Alternatives if you'd rather not use Groq — see `.env.example` for
 OpenRouter (Gemini Flash 2.0 is :free), Cerebras (also free), or
-local Ollama (no key, runs on the droplet but slow without a GPU).
+local Ollama (no key, runs on the VPS but slow without a GPU).
 
 After adding the key, restart the api container:
 ```bash
@@ -170,9 +173,9 @@ the dashboard is the reliable signal.
 ### 2.4 Screenshots cleanup cron — prevents disk fill
 
 Without this, the `./screenshots/` bind mount grows ~50 MB / 100 active
-students / day. A few weeks of usage will fill the droplet.
+students / day. A few weeks of usage will fill the VPS.
 
-**Install** (one-time, on the droplet):
+**Install** (one-time, on the VPS):
 
 ```bash
 # Crontab — runs Sunday 03:00 IST, deletes screenshots older than 90 days.
@@ -197,11 +200,19 @@ tail /var/log/procta-screenshots-cleanup.log
 The script lives at `scripts/procta-screenshots-cleanup.sh` in the
 repo — see comments inside for retention tuning.
 
-### 2.5 Off-site backup of `screenshots/`
+### 2.5 Off-site backup of `screenshots/` (optional, supplementary)
 
-The Postgres database is backed up by Supabase automatically. The
-forensic screenshots are NOT — they live on droplet ephemeral disk.
-If the droplet dies, evidence is gone. Set up nightly off-site sync:
+**Superseded as the primary mechanism** by `scripts/backup_to_s3.sh`
+(installed via `scripts/install_s3_backup.sh`, cron at `/etc/cron.d/
+procta-s3-backup`), which already ships nightly DB dump + `screenshots/`
++ `question_images/` to AWS S3 (ap-south-1, Mumbai) — see
+`docs/OBSERVABILITY.md` §Backups for the current setup. Postgres is
+self-hosted (not Supabase-managed) and runs on a Hostinger VPS (not a
+DigitalOcean droplet). The restic path below is kept only for teams that
+want longer-tail forensic-frame retention beyond the S3 backup's 30-day
+lifecycle — it was never actually wired up in production (no
+`/etc/cron.d/procta-backup` exists on the current host); confirm that's
+still true before assuming it's running.
 
 ```bash
 # Install restic (Debian/Ubuntu)
@@ -319,13 +330,14 @@ LLM_BASE_URL from `.env.example`.
 Rotate these in order:
 
 ```bash
-# 1. Supabase service-role key — Supabase dashboard → Settings →
-#    API → "Reset service_role key". Update SUPABASE_SERVICE_ROLE_KEY
-#    in .env, then `docker compose up -d --force-recreate api`.
+# 1. Postgres owner-role password (procta user, used for DDL/migrations
+#    and by DATABASE_URL/MIGRATIONS_DATABASE_URL) — rotate via
+#    `ALTER USER procta WITH PASSWORD '...'` and update both env vars,
+#    then `docker compose up -d --force-recreate api worker autosave-worker`.
 
-# 2. JWT secret — generate a fresh random string, update
-#    SUPABASE_JWT_SECRET in .env. Note: this invalidates every
-#    teacher session. They'll have to log in again.
+# 2. JWT_SECRET — generate a fresh random string, update JWT_SECRET
+#    in .env. Note: this invalidates every teacher/student session.
+#    They'll have to log in again.
 
 # 3. Admin password — update ADMIN_PASSWORD in .env.
 
@@ -352,9 +364,12 @@ docker compose logs -f api 2>&1 | grep -E "ERROR|WARN|\[invites\]|\[webhook\]"
 
 # How many invites sent today?
 docker compose exec api python -c "
-from database import supabase
-r = supabase.table('invite_send_counters').select('*').execute()
-for row in r.data: print(row)
+import asyncio
+from app.database import async_table
+async def main():
+    r = await async_table('invite_send_counters').select('*').execute()
+    for row in r.data: print(row)
+asyncio.run(main())
 "
 
 # Disk pressure on screenshots/?
@@ -362,13 +377,16 @@ df -h /app/screenshots 2>/dev/null || df -h .
 
 # Find sessions still 'in_progress' that should have completed (>4h ago)
 docker compose exec api python -c "
-from database import supabase
+import asyncio
+from app.database import async_table
 from datetime import datetime, timezone, timedelta
-cutoff = (datetime.now(timezone.utc) - timedelta(hours=4)).isoformat()
-r = supabase.table('exam_sessions').select('session_key,roll_number,started_at')\
-  .eq('status','in_progress').lt('started_at',cutoff).execute()
-print(f'{len(r.data)} stale in-progress sessions')
-for s in r.data[:10]: print(s)
+async def main():
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=4)).isoformat()
+    r = await async_table('exam_sessions').select('session_key,roll_number,started_at')\
+        .eq('status','in_progress').lt('started_at',cutoff).execute()
+    print(f'{len(r.data)} stale in-progress sessions')
+    for s in r.data[:10]: print(s)
+asyncio.run(main())
 "
 ```
 

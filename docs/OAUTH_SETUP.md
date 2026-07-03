@@ -1,5 +1,16 @@
 # OAuth Setup — Supabase Sign-In + Google Classroom
 
+> **Part 1 (Supabase Sign-In) is DEAD, not just stale — correction added
+> 2026-07-03.** Google + Microsoft social sign-in were removed entirely
+> on 2026-05-23 in favour of email + password as the sole sign-in method
+> (`app/routers/auth.py`, search "OAUTH SIGN-IN — REMOVED"). Procta has
+> also since migrated off Supabase entirely (native Postgres now — see
+> `docs/SECRETS.md`), so even re-enabling this exactly as documented
+> below would not work without first standing up a Supabase Auth project
+> again. Part 1 is kept below for historical reference only — do not
+> follow it expecting a working feature. **Part 2 (Google Classroom) is
+> unaffected and still current** — it never depended on Supabase.
+
 This document covers two **separate** OAuth integrations that share zero
 configuration:
 

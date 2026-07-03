@@ -37,8 +37,8 @@ out of date, file an issue — keeping this accurate is on us.
 | `main.js`, `preload.js`, `lib/` | Electron main process. |
 | `website/` | Marketing site (Vite + React). |
 | `weights/` | ML model artefacts (gaze, head pose). Migrating to Git LFS. |
-| `migrations/` | Forward-only SQL migrations against Supabase / Postgres. |
-| `tests/` | Pytest test suite (601 tests, run in <15 s). |
+| `migrations/` | Forward-only SQL migrations against native Postgres. |
+| `tests/` | Pytest test suite (2,163 tests, run in <15 s). |
 | `.github/workflows/` | CI: pytest, Semgrep, pip-audit, docker-smoke, deploy, CodeQL. |
 
 ## Prerequisites
@@ -74,7 +74,7 @@ npm install
 
 # Copy + edit env
 cp .env.example .env
-$EDITOR .env   # fill in SUPABASE_URL, RAZORPAY_KEY, etc.
+$EDITOR .env   # fill in DATABASE_URL, RAZORPAY_KEY, etc.
 ```
 
 ### Git LFS

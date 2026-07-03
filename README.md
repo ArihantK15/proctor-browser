@@ -53,21 +53,21 @@
 
 <!-- ── Badges ──────────────────────────────────────────── -->
 <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:28px">
-  <img src="https://img.shields.io/badge/electron-^42.0.1-47848F?logo=electron&logoColor=white" alt="Electron">
+  <img src="https://img.shields.io/badge/electron-^42.4.1-47848F?logo=electron&logoColor=white" alt="Electron">
   <img src="https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/fastapi-0.115-009688?logo=fastapi&logoColor=white" alt="FastAPI">
-  <img src="https://img.shields.io/badge/supabase-postgresql-3FCF8E?logo=supabase&logoColor=white" alt="Supabase">
-  <img src="https://img.shields.io/badge/tests-615_total-6366f1" alt="Tests">
-  <img src="https://img.shields.io/badge/version-2.2.1-6366f1" alt="Version">
+  <img src="https://img.shields.io/badge/postgresql-native-336791?logo=postgresql&logoColor=white" alt="PostgreSQL">
+  <img src="https://img.shields.io/badge/tests-2163_total-6366f1" alt="Tests">
+  <img src="https://img.shields.io/badge/version-2.5.3-6366f1" alt="Version">
   <img src="https://img.shields.io/badge/license-proprietary-e11d48" alt="License">
 </div>
 
 <!-- ── Tagline ─────────────────────────────────────────── -->
 <p align="center" style="font-size:17px;color:#64748b;max-width:640px;margin:0 auto 32px;line-height:1.6">
   A secure, intelligent, and scalable platform for conducting cheat-resistant online examinations.
-  <strong style="color:#e2e8f0">42,816 lines of Python</strong> ·
-  <strong style="color:#e2e8f0">29 API routers</strong> ·
-  <strong style="color:#e2e8f0">46 database migrations</strong>
+  <strong style="color:#e2e8f0">42,300+ lines of Python</strong> ·
+  <strong style="color:#e2e8f0">34 API routers</strong> ·
+  <strong style="color:#e2e8f0">123 database migrations</strong>
 </p>
 
 </div>
@@ -153,7 +153,7 @@ Real-time behavioral monitoring running as a sidecar process. Face tracking, gaz
 <div style="background:#1e293b;border-radius:12px;padding:24px;border:1px solid rgba(148,163,184,0.1)">
 
 ### 📊 Backend & Dashboard
-**FastAPI + Supabase + React**
+**FastAPI + native Postgres + React**
 
 Full control center for teachers and admins. Live session monitoring, violation timeline, AI risk scoring, question bank management, grade review with evidence, student analytics, and bulk operations — all served through a responsive web dashboard.
 
@@ -413,9 +413,9 @@ Full control center for teachers and admins. Live session monitoring, violation 
 │                                            └─────────┬──────────┘   │
 │                                                      │              │
 │                                   ┌──────────────────┼──────┐       │
-│                                   │     Supabase     │      │       │
-│                                   │  (PostgreSQL +   │      │       │
-│                                   │   Auth + Realtime)│      │       │
+│                                   │  Native Postgres │      │       │
+│                                   │  (self-hosted,   │      │       │
+│                                   │   row-level sec.)│      │       │
 │                                   └──────────────────┘      │       │
 │                                                              │       │
 │  Infrastructure: Docker · Caddy (auto HTTPS) · Hostinger KVM 4 ·   │
@@ -445,11 +445,11 @@ Responsive (mobile-first)
 <h4 style="margin:0 0 8px;color:#34d399;font-size:15px">⚙️ Backend</h4>
 <div style="color:#94a3b8;font-size:13px;line-height:1.7">
 FastAPI (Python 3.12)<br>
-29 API router modules<br>
+34 API router modules<br>
 JWT auth + refresh rotation<br>
 WebSocket + SSE streaming<br>
 Rate limiting (slowapi)<br>
-Supabase (PostgreSQL)
+Native PostgreSQL (row-level security)
 </div>
 </div>
 
@@ -617,9 +617,10 @@ this in production. If you're interested, open a discussion.
 
 ### What student data does Procta collect, and where does it live?
 
-- **PII** (name, email, roll number): Supabase Postgres,
+- **PII** (name, email, roll number): native Postgres,
   RLS-isolated per organisation.
-- **Exam answers**: same DB, encrypted at rest.
+- **Exam answers**: same DB, answer keys additionally envelope-encrypted
+  (AES-256-GCM) at the application layer.
 - **Camera / room-scan snapshots**: short-lived JPEGs in Redis
   (TTL ≤ 10s for live frames), longer-lived only when a violation is
   flagged — then stored in the screenshots cache for review and

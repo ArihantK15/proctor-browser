@@ -62,8 +62,8 @@ In scope:
   rules, etc.
 
 Out of scope:
-- Third-party services we depend on (Razorpay, Supabase, Cloudflare,
-  DigitalOcean). Report those directly to the vendor.
+- Third-party services we depend on (Razorpay, AWS S3, Cloudflare,
+  Hostinger). Report those directly to the vendor.
 - Social-engineering attacks against our team or users.
 - Denial-of-service attacks that don't lead to a privilege boundary
   being crossed (rate-limit bypass that just makes us slower without
@@ -112,7 +112,7 @@ For transparency, here's what we run on our end:
   for everything else. No raw passwords or full credit-card numbers
   are ever logged.
 - **Storage of student data**: row-level-security policies on
-  Supabase + Postgres; per-org isolation enforced at the query
+  native Postgres; per-org isolation enforced at the query
   layer (`app/auth/scope.py`).
 
 ## Recent advisories

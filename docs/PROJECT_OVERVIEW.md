@@ -1,6 +1,6 @@
 # Procta — Project Overview
 
-**Prepared for academic review · 2026-05-28**
+**Prepared for academic review · 2026-05-28** (database/backup facts corrected 2026-07-03 — see notes below; Supabase was fully retired since this was written)
 
 > A complete walkthrough of what Procta is, how it was built, what it
 > costs to run, and where it goes next. Written for someone seeing the
@@ -78,7 +78,8 @@ SaaS** with real Razorpay payments, full audit hardening, and CI/CD pipeline.
 | Item | Provider | Cost |
 |---|---|---|
 | `procta.net` domain | Namecheap | **₹800/year** |
-| Database | Supabase free tier (Postgres 16, 500 MB included) | ₹0 |
+| Database | Native Postgres 16, self-hosted in Docker on the Hostinger KVM 4 (migrated off Supabase; see correction below) | included in KVM cost |
+| Evidence storage + off-site backups | AWS S3, ap-south-1 (Mumbai) | usage-based (screenshots + nightly DB dump) |
 | Email transactional | Resend free tier (3,000/month, 100/day) | ₹0 |
 | CDN + DNS | Cloudflare free | ₹0 |
 | LLM grading | Groq free tier (30 req/min) | ₹0 |
@@ -100,7 +101,7 @@ mobile phone bill.
 ### Backend
 - **FastAPI** 0.110-0.135 (pinned away from 0.136.3 — that release was a supply-chain attack, caught + patched same day on 2026-05-26)
 - **Python 3.11**, uvicorn with 4 workers behind Caddy
-- **Postgres 16** via Supabase REST API + `async_table` wrapper
+- **Postgres 16**, self-hosted, via a native asyncpg pool + `async_table`/`postgres_table` wrapper (migrated off Supabase; row-level security is native Postgres RLS gated on session-context functions, not Supabase's `auth.uid()`)
 - **Redis 7** for cache (live-frames, sessions, CSRF tokens, idempotency keys, room-cam frames)
 - **RQ** (Redis Queue) workers for background jobs — scoring, reminders, email send
 - **JWT auth** with HS256 + per-purpose key ring (`admin`, `student`, `student_auth`, `room_cam`, `reauth`, `email_verify`, `password_reset`) + key rotation support
@@ -191,7 +192,7 @@ mobile phone bill.
 - **GDPR / DPDP-style** account-delete flow with anonymisation
 - **Audit log** (auth_events table)
 - **Idempotency** on Razorpay webhooks (24 h dedup on event.id)
-- **Backups**: Supabase manages Postgres; screenshots dir on KVM + daily DigitalOcean Spaces sync (planned)
+- **Backups**: nightly `pg_dump` to local disk (Ofelia cron), plus off-site sync to AWS S3 ap-south-1 (Mumbai) — both the primary DB dump and the screenshots/question-images directories. A monthly automated restore drill runs against the S3 copy.
 
 ---
 
@@ -237,9 +238,17 @@ alerts**. Categories swept:
 
 ## 8. Codebase shape (numbers, not hand-waving)
 
-- **583 commits** since 2026-03-27
-- **614 backend tests** (pytest, ~13 s) + 33 skipped
-- **50 SQL migrations** (forward-only, applied automatically on deploy)
+> **These are 2026-05-28 snapshot numbers — a fast-moving project outgrows
+> them within weeks. Verified current as of 2026-07-03:** 2,163 backend
+> tests passing (34 skipped) plus 27 real-Postgres integration tests and
+> 9 Electron unit suites, 123 SQL migrations, 34 routers in
+> `app/routers/`. Re-run `find migrations -name '*.sql' | wc -l`,
+> `pytest --collect-only -q | wc -l`, etc. rather than trusting either
+> the numbers below or the corrected ones above by the time you read this.
+
+- **583 commits** since 2026-03-27 (at time of writing)
+- **614 backend tests** (pytest, ~13 s) + 33 skipped (at time of writing — 2,163 as of 2026-07-03)
+- **50 SQL migrations** (forward-only, applied automatically on deploy) (at time of writing — 123 as of 2026-07-03)
 - **25,840 lines of Python** in `app/` (excluding generated React bundles, tests, scripts)
 - **6,000-line** legacy vanilla-JS teacher dashboard (`app/static/dashboard-app.js`) — being incrementally migrated to React
 - **3 React apps** built independently: teacher dashboard, student dashboard, marketing site

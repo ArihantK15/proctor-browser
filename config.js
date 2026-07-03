@@ -46,6 +46,26 @@ const KIOSK_ALLOWED = _IS_PACKAGED
 // watcher as Cmd+Tab: Spotlight's search overlay steals keyboard focus
 // from the exam window the instant it opens, which fires 'blur' and gets
 // yanked back within 100ms same as any other focus-stealing switch.
+//
+// Cmd+Shift+3/4/5 (screenshot/screen-recording, below and in _BLOCKED_MAC)
+// are the SAME class again, and unlike the three above there is NO
+// existing backstop for them: Apple's own docs group Screenshots under
+// the same "symbolic hotkeys" system as Spotlight/Mission Control, where
+// system-assigned combos take precedence over any third-party
+// RegisterEventHotKey registration — no dedicated Electron issue number
+// found for this specific combo, but it follows directly from the same
+// WindowServer-priority mechanism already confirmed above, so treat it as
+// equally unenforced until verified otherwise. This one actually matters:
+// a screenshot/recording doesn't require sustained focus loss (Cmd+Shift+3
+// captures instantly with the window still key), so the blur/focus watcher
+// doesn't catch it — a student can grab exam content and share it outside
+// the proctored session. No safe fix at the shortcut layer exists (same
+// reasoning as Tor Browser detection — don't guess). The real fix is
+// macOS's `systemPreferences.subscribeNotification(
+// 'com.apple.screenIsBeingCapturedDidChange', ...)`, which detects *active*
+// screen recording/sharing (not one-off screenshots) and could feed the
+// existing violation/event pipeline the same way remote-desktop process
+// detection does — not implemented, tracked as a follow-up.
 const _BLOCKED_BASE = [
   'Alt+F4','Cmd+Q','Cmd+W','Cmd+M','Cmd+H',
   'Cmd+Tab','Alt+Tab','F11','F12','Escape',

@@ -1220,10 +1220,9 @@ class _HardwareGovernor:
         lo_signal = (cpu is not None and cpu <= THROTTLE_RELEASE_PCT)
         if thermal_cool:
             lo_signal = True
-        elif self._thermal_pressure is not None and not thermal_cool:
-            # Thermal pressure in the ambiguous band (0.5‑0.74) —
-            # don't count as a recovery signal unless CPU also agrees.
-            lo_signal = lo_signal
+        # else: thermal pressure in the ambiguous band (0.5-0.74) — don't
+        # count as a recovery signal unless CPU also agrees (lo_signal
+        # already reflects CPU alone, so there's nothing to change here).
 
         if hi_signal:
             self._hi_streak += 1
@@ -1263,6 +1262,7 @@ class _HardwareGovernor:
                     "on_battery": self._on_battery,
                     "battery_pct": self._battery_pct,
                     "rss_mb": self._rss_mb,
+                    "effective_fps": self.effective_fps,
                 })
         except Exception:
             # Never let a logging hiccup take down the main loop.
@@ -3034,7 +3034,42 @@ def _proctor_frame_init_state() -> dict:
     }
 
 
-def run_proctoring(cap, W, H):
+def _on_throttle_transition(info):
+    # Adaptive CPU governor — see class docstring at the top of the
+    # file. Logs every throttle transition back to the server as a
+    # `client_throttled` event so teachers can see why a student's
+    # cadence dropped without it being treated as a violation.
+    # Module-level (not nested in run_proctoring) so main() can build the
+    # governor — and pass it to _start_audio() — before run_proctoring()
+    # even starts; the audio worker used to never see throttling at all
+    # because the governor didn't exist yet when it was wired up.
+    thr_state = "throttled" if info.get("throttled") else "recovered"
+    cpu_pct = info.get("cpu_pct")
+    cpu_txt = f"{cpu_pct:.0f}%" if isinstance(cpu_pct, (int, float)) else "n/a"
+    thermal_val = info.get("thermal")
+    thermal_txt = (f"thermal={thermal_val:.2f}"
+                   if isinstance(thermal_val, (int, float))
+                   else "thermal=n/a")
+    # Surface battery / RAM cause so a force-floor reads differently from a
+    # plain CPU throttle (teachers correlate "exam felt slow" with hardware).
+    batt_pct = info.get("battery_pct")
+    batt_txt = (f", batt={batt_pct:.0f}%{'(unplugged)' if info.get('on_battery') else ''}"
+                if isinstance(batt_pct, (int, float)) else "")
+    rss_val = info.get("rss_mb")
+    rss_txt = f", rss={rss_val:.0f}MB" if isinstance(rss_val, (int, float)) else ""
+    fps_val = info.get("effective_fps", 0.0)
+    print(f"[PROCTOR] hardware governor {thr_state}: cpu={cpu_txt} "
+          f"{thermal_txt}{batt_txt}{rss_txt} -> {fps_val:.1f} fps")
+    try:
+        log_event("client_throttled", "info",
+                  f"CPU {cpu_txt}, {thermal_txt}{batt_txt}{rss_txt}, "
+                  f"effective {fps_val:.1f} fps "
+                  f"(state={thr_state})")
+    except Exception:
+        pass
+
+
+def run_proctoring(cap, W, H, governor):
     print(f"[PROCTOR] 🟢 Monitoring LIVE — Session: {SESSION_ID}")
     _print_tuning_summary()
 
@@ -3152,44 +3187,10 @@ def run_proctoring(cap, W, H):
 
     MAX_FAILURES = 30
 
-    # Adaptive CPU governor — see class docstring at the top of the
-    # file. Logs every throttle transition back to the server as a
-    # `client_throttled` event so teachers can see why a student's
-    # cadence dropped without it being treated as a violation.
-    def _on_throttle_transition(info):
-        thr_state = "throttled" if info.get("throttled") else "recovered"
-        cpu_pct = info.get("cpu_pct")
-        cpu_txt = f"{cpu_pct:.0f}%" if isinstance(cpu_pct, (int, float)) else "n/a"
-        thermal_val = info.get("thermal")
-        thermal_txt = (f"thermal={thermal_val:.2f}"
-                       if isinstance(thermal_val, (int, float))
-                       else "thermal=n/a")
-        # Surface battery / RAM cause so a force-floor reads differently from a
-        # plain CPU throttle (teachers correlate "exam felt slow" with hardware).
-        batt_pct = info.get("battery_pct")
-        batt_txt = (f", batt={batt_pct:.0f}%{'(unplugged)' if info.get('on_battery') else ''}"
-                    if isinstance(batt_pct, (int, float)) else "")
-        rss_val = info.get("rss_mb")
-        rss_txt = f", rss={rss_val:.0f}MB" if isinstance(rss_val, (int, float)) else ""
-        print(f"[PROCTOR] hardware governor {thr_state}: cpu={cpu_txt} "
-              f"{thermal_txt}{batt_txt}{rss_txt} -> {governor.effective_fps:.1f} fps")
-        try:
-            log_event("client_throttled", "info",
-                      f"CPU {cpu_txt}, {thermal_txt}{batt_txt}{rss_txt}, "
-                      f"effective {governor.effective_fps:.1f} fps "
-                      f"(state={thr_state})")
-        except Exception:
-            pass
-
-    governor = _HardwareGovernor(on_transition=_on_throttle_transition)
-
-    # Coding-exam FPS floor: prevent WASM Run/Submit bursts from throttling
-    # proctoring below the configured minimum.  Set PROCTOR_CODING_FPS_FLOOR
-    # (float) in the Electron env for coding exams; 0 / unset = no floor
-    # (non-coding exams are completely unaffected).
-    _coding_fps_floor = float(os.getenv("PROCTOR_CODING_FPS_FLOOR", "0") or "0")
-    if _coding_fps_floor > 0:
-        governor.set_min_fps_floor(_coding_fps_floor)
+    # `governor` now arrives as a parameter — main() constructs it (via the
+    # module-level _on_throttle_transition above) before _start_audio() so
+    # the audio worker gets the SAME instance instead of never seeing one
+    # at all (it used to be built here, after audio had already started).
 
     # Feed the live effective FPS into the behavioral matchers so their off-task
     # DURATION math uses the real (throttled) capture rate, not a constant 15.
@@ -4174,8 +4175,23 @@ def main():
             cap.read()
         time.sleep(0.5)
 
+        # Adaptive CPU/thermal governor — built here (before audio starts)
+        # rather than inside run_proctoring() so BOTH the audio worker and
+        # the main proctoring loop share the same live instance. It used
+        # to be constructed only inside run_proctoring(), which starts
+        # after _start_audio() — so the audio worker's governor=None
+        # default meant it never actually throttled with video.
+        governor = _HardwareGovernor(on_transition=_on_throttle_transition)
+        # Coding-exam FPS floor: prevent WASM Run/Submit bursts from
+        # throttling proctoring below the configured minimum. Set
+        # PROCTOR_CODING_FPS_FLOOR (float) in the Electron env for coding
+        # exams; 0 / unset = no floor (non-coding exams unaffected).
+        _coding_fps_floor = float(os.getenv("PROCTOR_CODING_FPS_FLOOR", "0") or "0")
+        if _coding_fps_floor > 0:
+            governor.set_min_fps_floor(_coding_fps_floor)
+
         # ── Start audio analysis ────────────────────────────────────────────
-        _start_audio()
+        _start_audio(governor=governor)
 
         # ── Pre-exam system check (runs after camera is ready) ────────────────
         print("[PROCTOR] Running pre-exam system check...")
@@ -4198,7 +4214,7 @@ def main():
             run_enrollment(cap, W, H)
 
         try:
-            run_proctoring(cap, W, H)
+            run_proctoring(cap, W, H, governor)
         except KeyboardInterrupt:
             print("\n[PROCTOR] Stopped by signal")
         except SystemExit:

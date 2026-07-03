@@ -3519,9 +3519,14 @@ async function doHeartbeat(){
   }
 }
 
-function goQ(i)   { curQ=i; renderQ(); }
-function prevQ()  { if(curQ>0){ curQ--; renderQ(); } }
-function nextQ()  { if(curQ<questions.length-1){ curQ++; renderQ(); } }
+// Flush the 400ms debounce before leaving a question — otherwise a fast
+// type-then-navigate (e.g. finishing a coding answer and immediately
+// hitting Next) can leave the latest keystrokes only in memory until the
+// debounce timer would've fired, with nothing but beforeunload/pagehide
+// as a backstop against a crash in that window.
+function goQ(i)   { _persistAnswersNow(); curQ=i; renderQ(); }
+function prevQ()  { if(curQ>0){ _persistAnswersNow(); curQ--; renderQ(); } }
+function nextQ()  { if(curQ<questions.length-1){ _persistAnswersNow(); curQ++; renderQ(); } }
 
 // ── TIMER ──────────────────────────────────────────────────────────
 function startTimer(){

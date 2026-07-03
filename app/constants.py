@@ -193,9 +193,16 @@ CORS_ALLOWED_ORIGINS = [o.strip() for o in _CORS_RAW.split(",") if o.strip()] if
 # Electron window origins. Otherwise packaged/dev desktop builds can
 # login from a restored cookie but fail later API preflights as plain
 # "Failed to fetch".
-for _origin in ("procta-lobby://lobby", "procta-lobby://exam", "null"):
+for _origin in ("procta-lobby://lobby", "procta-lobby://exam"):
     if _origin not in CORS_ALLOWED_ORIGINS:
         CORS_ALLOWED_ORIGINS.append(_origin)
+# "null" was deliberately dropped from this list (removed 2026-07-03,
+# flagged by an external audit) — combined with allow_credentials=True
+# (app/main.py), it let any sandboxed iframe / data: / file:// document
+# (which the browser reports as Origin: null) make credentialed
+# cross-origin requests against this API. Nothing legitimate needs it:
+# the only data:-URL page in this app (kiosk-manager.js's "Secure
+# browser required" block screen) is static HTML with no fetch() calls.
 
 # ─── App URL (used for absolute URLs in emails, OAuth callbacks, etc) ───
 APP_URL = os.getenv("APP_URL", "https://procta.net").rstrip("/")

@@ -40,6 +40,34 @@ def _semver_gte(installed: str, minimum: str) -> bool:
     return _parts(installed) >= _parts(minimum)
 
 
+def _verify_sig_and_ts(att: dict[str, Any], sig: str) -> tuple[bool, str]:
+    """Shared core of both attestation flavours: HMAC-SHA256 over the
+    canonical payload, checked with a constant-time compare, plus a fresh
+    timestamp. Kiosk-specific checks (session_key/roll/nonce/kiosk flag/
+    client_version) and the lobby's lighter checks are layered on by their
+    respective callers below.
+    """
+    if not KIOSK_ATTESTATION_SECRET:
+        return False, "attestation not configured"
+
+    canonical = _canonical(att)
+    expected_sig = hmac.new(
+        KIOSK_ATTESTATION_SECRET.encode(),
+        canonical.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected_sig, sig):
+        return False, "invalid signature"
+
+    ts = att.get("ts")
+    if not isinstance(ts, (int, float)):
+        return False, "missing or invalid timestamp"
+    if abs(time.time() - ts) > _TS_TOLERANCE:
+        return False, "timestamp out of tolerance"
+
+    return True, "ok"
+
+
 def verify_attestation(
     att: dict[str, Any],
     sig: str,
@@ -56,26 +84,9 @@ def verify_attestation(
 
     Returns (ok, reason) where *ok* is True only when every check passes.
     """
-    if not KIOSK_ATTESTATION_SECRET:
-        return False, "attestation not configured"
-
-    # --- signature ---
-    canonical = _canonical(att)
-    expected_sig = hmac.new(
-        KIOSK_ATTESTATION_SECRET.encode(),
-        canonical.encode(),
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(expected_sig, sig):
-        return False, "invalid signature"
-
-    # --- timestamp ---
-    ts = att.get("ts")
-    if not isinstance(ts, (int, float)):
-        return False, "missing or invalid timestamp"
-    now = time.time()
-    if abs(now - ts) > _TS_TOLERANCE:
-        return False, "timestamp out of tolerance"
+    ok, reason = _verify_sig_and_ts(att, sig)
+    if not ok:
+        return False, reason
 
     # --- session_key (attest endpoint only) ---
     if expected_session_key is not None:
@@ -127,21 +138,7 @@ def verify_app_attestation(att: dict[str, Any], sig: str) -> bool:
     fresh timestamp — no kiosk/session/nonce/client-version checks, since
     those are exam-window concepts that don't apply to the lobby.
     """
-    if not KIOSK_ATTESTATION_SECRET:
-        return False
     if not isinstance(att, dict) or not isinstance(sig, str) or not sig:
         return False
-
-    canonical = _canonical(att)
-    expected_sig = hmac.new(
-        KIOSK_ATTESTATION_SECRET.encode(),
-        canonical.encode(),
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(expected_sig, sig):
-        return False
-
-    ts = att.get("ts")
-    if not isinstance(ts, (int, float)):
-        return False
-    return abs(time.time() - ts) <= _TS_TOLERANCE
+    ok, _reason = _verify_sig_and_ts(att, sig)
+    return ok

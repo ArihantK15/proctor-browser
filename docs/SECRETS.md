@@ -25,7 +25,7 @@ only exceptions are `app/dashboard-ui/.env.production` and
 | Env var | Purpose | Issuer | Rotate every | Notes |
 |---|---|---|---|---|
 | `DATABASE_URL` | Postgres connection string (contains password) | self-hosted (you set it in `postgres` container) | 6 months | Rotation requires coordinated update of POSTGRES_PASSWORD inside the container + this URL + a restart |
-| `JWT_SECRET` | Signs FastAPI access tokens | generated at install | 6 months | All active sessions invalidate on rotation — users get logged out |
+| `SUPABASE_JWT_SECRET` | Boot-required (`app.constants._required_env`); legacy migration root/derivation seed for the per-purpose `JWT_*_SIGNING_KEY` vars — name predates the Postgres migration, not Supabase-related today | generated at install | 6 months | Session-invalidation effect depends on whether per-purpose signing keys are set — see Rotation playbook §2 |
 | `TOTP_ENCRYPTION_KEY` | Encrypts Google Classroom OAuth tokens stored in `google_auth_tokens.token_json` | generated at install; Fernet key | 12 months | Rotation requires decrypting all stored tokens with old key + re-encrypting with new — see Rotation playbook §1 |
 | `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` | Payment gateway API auth | Razorpay dashboard → API Keys | 12 months or on staff offboarding | Pair rotates together |
 | `RAZORPAY_WEBHOOK_SECRET` | Verifies signed Razorpay webhook payloads | Razorpay dashboard → Webhooks → edit | 12 months | Mismatched secret → 401 on incoming webhooks |
@@ -69,11 +69,19 @@ Procedure when you must rotate:
 2. Update `TOTP_ENCRYPTION_KEY` in `/root/proctor-browser/.env`.
 3. `docker compose restart api worker`.
 
-### 2. `JWT_SECRET`
+### 2. `SUPABASE_JWT_SECRET`
 
-Rotation kicks every active session. Plan for it.
+Rotation kicks every active session — **if** the per-purpose
+`JWT_ADMIN_SIGNING_KEY` / `JWT_STUDENT_SIGNING_KEY` / etc. vars
+(`app/constants.py`) are unset and tokens are still being signed off the
+`SUPABASE_JWT_SECRET`-derived legacy key. If those per-purpose keys are
+already set explicitly in prod, rotating this alone does *not* touch
+already-issued tokens — check `app/constants.py`'s `_derive_key`/
+`_ACCEPT_LEGACY_DERIVED` gating before assuming the steps below apply.
+The var name predates the Postgres migration; it is not Supabase-related
+today, just never renamed. Plan for it either way.
 
-1. Update `JWT_SECRET` in `.env`.
+1. Update `SUPABASE_JWT_SECRET` in `.env`.
 2. `docker compose restart api worker autosave-worker`.
 3. Existing access tokens (~15-minute lifetime per the JWT settings)
    start failing immediately. Users see a re-login prompt within 15 min.
@@ -157,7 +165,7 @@ support ticket, on a developer's stolen laptop):
    Razorpay: dashboard → API logs; Sentry: ingest events from that
    project.
 3. **Within the week:** rotate all *related* secrets too. If
-   `JWT_SECRET` leaked, also rotate `TOTP_ENCRYPTION_KEY` since both
+   `SUPABASE_JWT_SECRET` leaked, also rotate `TOTP_ENCRYPTION_KEY` since both
    sit in the same `.env`. If a Razorpay key leaked, also rotate the
    webhook secret.
 4. **Document:** add a row to `auth_events` describing the rotation

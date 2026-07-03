@@ -335,9 +335,11 @@ Rotate these in order:
 #    `ALTER USER procta WITH PASSWORD '...'` and update both env vars,
 #    then `docker compose up -d --force-recreate api worker autosave-worker`.
 
-# 2. JWT_SECRET — generate a fresh random string, update JWT_SECRET
-#    in .env. Note: this invalidates every teacher/student session.
-#    They'll have to log in again.
+# 2. SUPABASE_JWT_SECRET (name predates the Postgres migration; see
+#    .env.example for what it actually does today) — generate a fresh
+#    random string, update SUPABASE_JWT_SECRET in .env. See
+#    docs/SECRETS.md's rotation playbook for what this does and does not
+#    invalidate given the per-purpose JWT_*_SIGNING_KEY derivation.
 
 # 3. Admin password — update ADMIN_PASSWORD in .env.
 

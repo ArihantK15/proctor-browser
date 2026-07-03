@@ -115,7 +115,28 @@ const THREATS = [
   { rx: mk('clash'),       label: 'Clash',      type: 'vpn_detected' },
   { rx: mk('shadowsocks'), label: 'Shadowsocks', type: 'vpn_detected' },
   { rx: mk('ss-local'),    label: 'SS-Local',   type: 'vpn_detected' },
-  { rx: mk('torbrowser'),  label: 'Tor Browser',type: 'vpn_detected' },
+  // Tor Browser detection, researched 2026-07-03 (was silently non-functional
+  // — see below):
+  //   - Windows: verified the actual browser process is named "tor.exe" (Tor
+  //     Project renamed it away from "firefox.exe" specifically to avoid
+  //     confusion/camouflage concerns). Covered correctly below.
+  //   - macOS: verified the current executable is
+  //     /Applications/TorBrowser.app/Contents/MacOS/firefox — the bare
+  //     process name is literally "firefox", IDENTICAL to a legitimate
+  //     Firefox install. `ps -eo comm` only returns the bare command name,
+  //     not the full path, so there is no reliable way to tell Tor
+  //     Browser's process apart from a student's ordinary Firefox with this
+  //     scan mechanism. Do NOT add a bare mk('firefox') pattern here — that
+  //     would false-flag every legitimate Firefox user, which is worse than
+  //     not detecting Tor Browser at all. A real fix needs the scan to
+  //     capture full executable paths (e.g. `ps -eo comm,args` or
+  //     `wmic process get ExecutablePath` equivalents) and match on
+  //     "TorBrowser.app" / "Tor Browser" in the path instead of the bare
+  //     name — tracked as a follow-up, not attempted here.
+  //   The old mk('torbrowser') pattern below matched neither of the above —
+  //   it never matched any real observed process name on either platform —
+  //   so it looked like coverage that didn't actually exist. Removed rather
+  //   than left as misleading dead weight.
   { rx: /(?<![\w-])tor\.exe(?![\w-])/i, label: 'Tor', type: 'vpn_detected' },
   { rx: /\/tor(?![\w-])/i, label: 'Tor (unix)', type: 'vpn_detected' },
   { rx: mk('hotspotshield'), label: 'Hotspot Shield', type: 'vpn_detected' },

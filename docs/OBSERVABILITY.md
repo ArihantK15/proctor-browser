@@ -15,7 +15,7 @@ migration footers — start here when something breaks.
 | BetterStack uptime | external | https://app.procta.net/health, 30s polling |
 | `/health` endpoint | `app/routers/public.py:143` | always-on |
 | Local Postgres backups | Ofelia in `docker-compose.yml` | daily 00:00 UTC |
-| B2 off-site backups | `scripts/backup_to_b2.sh` | cron at 01:30 UTC |
+| S3 (Mumbai) off-site backups | `scripts/backup_to_s3.sh` | cron at 01:30 UTC |
 | Restic screenshot backups | `scripts/procta-backup.sh` | optional; see DEPLOY.md §2.5 |
 | TTL sweeper | `public.sweep_transient_rows()` + `app/services/ttl_sweeper.py` | every 6h under leader worker |
 | CI deploy | self-hosted GH runner | `actions.runner.ArihantK15-proctor-browser.<host>` systemd service |
@@ -91,21 +91,29 @@ ls -lh /root/proctor-browser/backups/postgres/ | tail
 docker logs --tail 30 proctor-ofelia | grep daily-backup
 ```
 
-### 2. B2 off-site (install via the installer)
+### 2. S3 (Mumbai) off-site (install via the installer)
 
 ```sh
-sudo /root/proctor-browser/scripts/install_b2_backup.sh
-sudo vi /etc/procta/secrets.env       # fill in B2_APPLICATION_KEY_ID / KEY
-sudo /root/proctor-browser/scripts/backup_to_b2.sh    # test now
-tail -f /var/log/procta-b2-backup.log
+sudo /root/proctor-browser/scripts/install_s3_backup.sh
+sudo vi /etc/procta/secrets.env       # fill/confirm AWS_ACCESS_KEY_ID / SECRET
+sudo /root/proctor-browser/scripts/backup_to_s3.sh    # test now
+tail -f /var/log/procta-s3-backup.log
 ```
 
 Scheduled at 01:30 UTC daily (90 min after the local dump). What ships:
-Postgres dump + `screenshots/` tar + `question_images/` tar. Bucket
-lifecycle keeps 30 days.
+Postgres dump + `screenshots/` tar + `question_images/` tar, all to an
+`ap-south-1` bucket. Bucket lifecycle keeps 30 days.
 
-**Restore:** `scripts/restore_from_b2.sh` (read the script before running
+**Restore:** `scripts/restore_from_s3.sh` (read the script before running
 — it's destructive).
+
+**Why S3 and not B2:** `scripts/backup_to_b2.sh` (Backblaze) has no India
+region — DB backups were leaving India while the evidence they reference
+(screenshots, question images) already lives in S3 Mumbai, an inconsistent
+data-residency posture against `docs/DPIA.md`. `install_s3_backup.sh`
+retires the B2 cron entry when it installs the S3 one. `backup_to_b2.sh`
+and `install_b2_backup.sh` stay in the repo as a manual off-site fallback
+only — nothing schedules them anymore once the S3 installer has run.
 
 ### 3. Restic screenshots (optional, for compliance retention)
 
@@ -227,12 +235,12 @@ TLS flakiness. Pause the monitor briefly; investigate; resume.
 
 - **Local dumps stop rotating:** `docker logs proctor-ofelia` for
   errors, `docker compose restart ofelia`.
-- **B2 hasn't received fresh files:** `tail -50
-  /var/log/procta-b2-backup.log`. Usually expired B2 credentials in
+- **S3 hasn't received fresh files:** `tail -50
+  /var/log/procta-s3-backup.log`. Usually expired/rotated AWS credentials in
   `/etc/procta/secrets.env`.
-- **No local OR B2 backup last 24h:** assume snapshot lag and
+- **No local OR S3 backup last 24h:** assume snapshot lag and
   manually trigger both: the Ofelia cmd from `docker-compose.yml`
-  then `sudo /root/proctor-browser/scripts/backup_to_b2.sh`.
+  then `sudo /root/proctor-browser/scripts/backup_to_s3.sh`.
 
 ### Self-hosted runner offline
 

@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+# DEPRECATED — superseded by scripts/backup_to_s3.sh (AWS S3, ap-south-1
+# Mumbai). Backblaze B2 has no India region, so scheduling this left DB
+# backups outside India while evidence (screenshots/question images)
+# already lives in S3 Mumbai — a data-residency mismatch. Run
+# scripts/install_s3_backup.sh to switch; it removes this script's cron
+# entry automatically. Kept here only as a manual off-site fallback.
+#
 # Procta backup → Backblaze B2.
 #
 # What gets backed up:

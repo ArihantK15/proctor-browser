@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+# DEPRECATED — use scripts/install_s3_backup.sh instead (AWS S3, ap-south-1
+# Mumbai). B2 has no India region; see scripts/backup_to_b2.sh for the full
+# rationale. Kept only for standing up a manual B2 fallback if ever needed.
+#
 # One-shot installer for the Procta off-site B2 backup cron.
 #
 # Run once on the prod server as root. Idempotent — re-running is safe

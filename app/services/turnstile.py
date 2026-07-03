@@ -19,12 +19,16 @@ Usage:
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import os
 from typing import Optional
 
 import httpx
 from fastapi import HTTPException, Request
+
+from .kiosk_attest import verify_app_attestation
 
 logger = logging.getLogger(__name__)
 
@@ -106,12 +110,39 @@ async def verify(token: str | None, remote_ip: str = "") -> bool:
     return ok
 
 
+def _app_attestation_ok(request: Request) -> bool:
+    """Lets the genuine Procta desktop app skip Turnstile on its own
+    login/signup form. The lobby renders that form via the procta-lobby://
+    custom scheme, whose "domain" (the literal host `lobby`) Cloudflare
+    won't let you allowlist for a Turnstile sitekey — there's no real DNS
+    name to register. Instead the app sends an HMAC signed with
+    KIOSK_ATTESTATION_SECRET, the same build-time secret already used for
+    exam kiosk attestation (app/services/kiosk_attest.py). A browser hitting
+    these endpoints directly has no way to produce a valid signature without
+    that secret, so this doesn't weaken protection against scripted signup/
+    login abuse — it only recognizes traffic from a real Procta binary.
+    """
+    b64 = request.headers.get("x-procta-app-attestation")
+    sig = request.headers.get("x-procta-app-signature")
+    if not b64 or not sig:
+        return False
+    try:
+        att = json.loads(base64.b64decode(b64))
+    except Exception:
+        return False
+    if not isinstance(att, dict):
+        return False
+    return verify_app_attestation(att, sig)
+
+
 async def verify_or_403(request: Request, token: str | None) -> None:
     """Convenience wrapper: raise 403 on failure.
 
     Use in endpoint bodies for one-line CAPTCHA gating:
         await verify_or_403(request, body.captcha_token)
     """
+    if _app_attestation_ok(request):
+        return
     ip = request.client.host if request.client else ""
     if not await verify(token, remote_ip=ip):
         raise HTTPException(

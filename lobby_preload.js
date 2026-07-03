@@ -36,6 +36,11 @@ contextBridge.exposeInMainWorld('procta_native', {
   // already loaded — main.js pushes via IPC in that case.
   // App version for the on-screen "Procta vX.Y.Z" badge.
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
+  // Signed {payload, sig} proving this is a genuine Procta build, so the
+  // login/signup form can skip Cloudflare Turnstile (which can't validate
+  // against the procta-lobby:// origin's non-domain host). See main.js's
+  // get-app-attestation handler for the signing details.
+  getAppAttestation: () => ipcRenderer.invoke('get-app-attestation'),
   // Pre-exam System Check (Phase 1.4). Exercises the full on-device
   // pipeline (Python, AI packages, models, camera, mic, speech models)
   // and resolves a green/red summary per component. On-device only —

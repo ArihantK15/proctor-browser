@@ -114,6 +114,70 @@ class TestVerifyAttestation:
             assert "attestation not configured" in reason
 
 
+# ── Tests: verify_app_attestation (desktop-app Turnstile exemption) ───
+
+
+class TestVerifyAppAttestation:
+    """Lightweight sibling of verify_attestation() used by turnstile.py to
+    let the Electron lobby's login/signup skip Turnstile — see
+    app/services/turnstile.py's _app_attestation_ok. No kiosk/session/
+    nonce/client-version checks, unlike the exam attestation above."""
+
+    @pytest.fixture(autouse=True)
+    def _env(self):
+        with patch.dict("os.environ", {"KIOSK_ATTESTATION_SECRET": "test-secret"}), \
+             patch("app.services.kiosk_attest.KIOSK_ATTESTATION_SECRET", "test-secret"):
+            yield
+
+    def test_valid(self):
+        from app.services.kiosk_attest import verify_app_attestation
+        att = {"ts": time.time()}
+        sig = _sign("test-secret", att)
+        assert verify_app_attestation(att, sig) is True
+
+    def test_bad_sig(self):
+        from app.services.kiosk_attest import verify_app_attestation
+        att = {"ts": time.time()}
+        assert verify_app_attestation(att, "bad-sig") is False
+
+    def test_stale_ts(self):
+        from app.services.kiosk_attest import verify_app_attestation
+        att = {"ts": time.time() - 1000}
+        sig = _sign("test-secret", att)
+        assert verify_app_attestation(att, sig) is False
+
+    def test_missing_ts(self):
+        from app.services.kiosk_attest import verify_app_attestation
+        att = {}
+        sig = _sign("test-secret", att)
+        assert verify_app_attestation(att, sig) is False
+
+    def test_no_secret_configured(self):
+        with patch("app.services.kiosk_attest.KIOSK_ATTESTATION_SECRET", ""):
+            from app.services.kiosk_attest import verify_app_attestation
+            att = {"ts": time.time()}
+            sig = _sign("test-secret", att)
+            assert verify_app_attestation(att, sig) is False
+
+    def test_non_dict_att_rejected(self):
+        from app.services.kiosk_attest import verify_app_attestation
+        assert verify_app_attestation("not-a-dict", "sig") is False  # type: ignore[arg-type]
+
+    def test_empty_sig_rejected(self):
+        from app.services.kiosk_attest import verify_app_attestation
+        att = {"ts": time.time()}
+        assert verify_app_attestation(att, "") is False
+
+    def test_does_not_accept_exam_attestation_fields(self):
+        """Exam kiosk-state fields (kiosk, session_key, etc.) aren't
+        required — a bare {ts} attestation must verify on its own,
+        since the canonical form is derived from whatever's in `att`."""
+        from app.services.kiosk_attest import verify_app_attestation
+        att = {"ts": time.time(), "kiosk": False}  # kiosk:false is fine here
+        sig = _sign("test-secret", att)
+        assert verify_app_attestation(att, sig) is True
+
+
 # ── Tests: HTTP endpoint ────────────────────────────────────────────
 
 

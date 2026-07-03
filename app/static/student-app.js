@@ -15,6 +15,32 @@ function fetchWithTimeout(url, opts={}, timeoutMs=30000) {
   return fetch(url, {...opts, signal: opts.signal || ctrl.signal}).finally(()=>clearTimeout(timer));
 }
 
+// Inside the Procta app, the lobby renders this page via the procta-lobby://
+// custom scheme, whose "domain" (the literal host `lobby`) Cloudflare can't
+// allowlist for the Turnstile sitekey — there's no real DNS name to
+// register there. So instead of solving a widget that can't validate,
+// login/signup attach an HMAC signed with the build's baked-in
+// KIOSK_ATTESTATION_SECRET (main.js's get-app-attestation handler); the
+// server treats a valid signature as proof of a genuine Procta binary and
+// skips the Turnstile check for that request (see turnstile.py's
+// verify_or_403 / _app_attestation_ok). In a plain browser (no
+// window.procta_native) this just returns {} and Turnstile runs as normal.
+async function _appAttestationHeaders() {
+  if (!window.procta_native || typeof window.procta_native.getAppAttestation !== 'function') {
+    return {};
+  }
+  try {
+    const { payload, sig } = await window.procta_native.getAppAttestation();
+    if (!payload || !sig) return {};
+    return {
+      'X-Procta-App-Attestation': btoa(JSON.stringify(payload)),
+      'X-Procta-App-Signature': sig,
+    };
+  } catch (e) {
+    return {};
+  }
+}
+
 // OAuth (Google + Microsoft) sign-in was removed 2026-05-23 — see
 // HANDOFF.md. Email + password is the only sign-in path now.
 
@@ -258,7 +284,7 @@ async function doAuth() {
       const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/signup'), {
         method: 'POST',
         credentials: 'include',
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'application/json', ...(await _appAttestationHeaders())},
         body: JSON.stringify(signupBody),
       });
       if (!r.ok) {
@@ -296,7 +322,7 @@ async function doAuth() {
     const r = await fetchWithTimeout(apiUrl('/api/v1/student/auth/login'), {
       method: 'POST',
       credentials: 'include',
-      headers: {'Content-Type': 'application/json'},
+      headers: {'Content-Type': 'application/json', ...(await _appAttestationHeaders())},
       body: JSON.stringify(loginBody),
     });
     if (!r.ok) {
@@ -1457,15 +1483,15 @@ async function startPracticeExam() {
 }
 
 // ─── Start-exam flow ──────────────────────────────────────────
+// Access codes are compulsory for every exam now — always prompt for one
+// regardless of exam.access_code_required (kept server-side only as a
+// legacy field; every real exam always has a code, but this removes any
+// dependence on that flag being wired correctly for the gate to hold).
 function startExamFromCard(idx) {
   const exam = _examsCache[idx];
   if (!exam) return;
   _pendingExam = exam;
-  if (exam.access_code_required) {
-    openCodeModal();
-  } else {
-    showPreflight();
-  }
+  openCodeModal();
 }
 
 function openCodeModal() {

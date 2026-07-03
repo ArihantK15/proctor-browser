@@ -116,3 +116,32 @@ def verify_attestation(
         return False, f"client version {cv} below minimum {MIN_CLIENT_VERSION}"
 
     return True, "ok"
+
+
+def verify_app_attestation(att: dict[str, Any], sig: str) -> bool:
+    """Lightweight sibling of verify_attestation() for non-exam contexts —
+    currently the desktop lobby's login/signup form, which can't use
+    Cloudflare Turnstile because it loads via the procta-lobby:// custom
+    scheme (a non-DNS "domain" Cloudflare won't allowlist). Proves only
+    "this HMAC came from a build holding KIOSK_ATTESTATION_SECRET" plus a
+    fresh timestamp — no kiosk/session/nonce/client-version checks, since
+    those are exam-window concepts that don't apply to the lobby.
+    """
+    if not KIOSK_ATTESTATION_SECRET:
+        return False
+    if not isinstance(att, dict) or not isinstance(sig, str) or not sig:
+        return False
+
+    canonical = _canonical(att)
+    expected_sig = hmac.new(
+        KIOSK_ATTESTATION_SECRET.encode(),
+        canonical.encode(),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(expected_sig, sig):
+        return False
+
+    ts = att.get("ts")
+    if not isinstance(ts, (int, float)):
+        return False
+    return abs(time.time() - ts) <= _TS_TOLERANCE

@@ -730,9 +730,13 @@ ipcMain.handle('start-proctor', async (event, data) => {
 });
 
 // Lobby polls this (and receives `setup-state` pushes) to reflect the
-// background AI-setup progress on the Start-exam button. No frame gate —
-// it's non-sensitive status, same as get-app-version.
-ipcMain.handle('get-setup-state', () => {
+// background AI-setup progress on the Start-exam button. The payload
+// itself isn't secret, but every other handler in this file is
+// frame-gated against a compromised renderer/nested iframe (see
+// _assertMainFrame's docstring above) — gate this one too instead of
+// carving out an inconsistent exception.
+ipcMain.handle('get-setup-state', (event) => {
+  if (!_assertMainFrame(event, 'get-setup-state')) throw new Error('Frame not allowed');
   try { return getSetupState(); } catch { return { phase: 'idle', ready: false, label: '', pct: 0 }; }
 });
 
@@ -788,10 +792,14 @@ ipcMain.on('get-server-url-sync', (event) => {
   event.returnValue = _assertMainFrame(event, 'get-server-url-sync') ? SERVER_URL : '';
 });
 
-// App version for the on-screen "Procta vX.Y.Z" badge (lobby + exam). A
-// non-sensitive string, so no frame gate — handy for support + spotting
-// which build a student is on (e.g. when an update hasn't landed yet).
-ipcMain.handle('get-app-version', () => { try { return app.getVersion(); } catch { return ''; } });
+// App version for the on-screen "Procta vX.Y.Z" badge (lobby + exam).
+// Frame-gated like every other handler here — the string itself isn't
+// secret, but there's no reason to let a compromised sub-frame reach it
+// either.
+ipcMain.handle('get-app-version', (event) => {
+  if (!_assertMainFrame(event, 'get-app-version')) throw new Error('Frame not allowed');
+  try { return app.getVersion(); } catch { return ''; }
+});
 
 // Tier 1.4 — build attestation payload + HMAC signature for the
 // renderer. The client secret is never accessible in the sandboxed
@@ -822,6 +830,23 @@ ipcMain.handle('procta:sign-kiosk-state', (event) => {
   const attestation = { kiosk: getIsKiosk(), ts: Math.floor(Date.now() / 1000) };
   const sig = sign(attestation);
   return { attestation, sig };
+});
+
+// App attestation for the lobby's login/signup form. The lobby renders
+// student.html through the procta-lobby:// custom scheme (see the scheme
+// registration above), so its origin is the literal host "lobby" — not a
+// real domain — and Cloudflare Turnstile can't be domain-allowlisted for
+// it. Rather than disable bot protection on student login/signup, this
+// hands the renderer the same KIOSK_ATTESTATION_SECRET-backed HMAC already
+// used for exam kiosk-state (lib/attestation.js) so the server can verify
+// "this is a genuine Procta build" (app/services/kiosk_attest.py's
+// verify_app_attestation) and accept it in place of a Turnstile token —
+// forging it requires the baked-in secret, not just a plausible header.
+ipcMain.handle('get-app-attestation', (event) => {
+  if (!_assertMainFrame(event, 'get-app-attestation')) throw new Error('Frame not allowed');
+  const payload = { ts: Math.floor(Date.now() / 1000) };
+  const sig = sign(payload);
+  return { payload, sig };
 });
 
 // ── Pre-exam System Check (Phase 1.4) ─────────────────────────────

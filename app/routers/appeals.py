@@ -127,6 +127,14 @@ async def submit_appeal(body: AppealIn, request: Request):
     except HTTPException:
         raise
     except Exception as e:
+        err_lower = str(e).lower()
+        # uq_appeals_session_student_type_pending (phase88) already makes
+        # concurrent double-submits atomic at the DB level — a race that
+        # loses just hits this unique-violation, which used to fall through
+        # to a raw 500 instead of a message the student can act on.
+        if "duplicate key" in err_lower or "unique constraint" in err_lower:
+            raise HTTPException(status_code=409,
+                detail="You already have a pending appeal for this — a teacher will review it soon.")
         _log.error("[student/appeal] submit failed (rid=%s, session=%s): %s",
                    rid, body.session_key, e, exc_info=True)
         raise HTTPException(status_code=500,

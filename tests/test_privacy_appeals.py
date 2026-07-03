@@ -257,6 +257,37 @@ class TestFlagLinkedAppeals:
             assert captured["row"]["violation_id"] == 52010
             assert isinstance(captured["row"]["violation_id"], int)
 
+    def test_duplicate_pending_appeal_returns_409_not_500(self, student_headers, mock_student_account):
+        """uq_appeals_session_student_type_pending (phase88) makes a second
+        pending appeal of the same type on the same session a DB-level unique
+        violation. That must surface as a 409 the student can understand,
+        not the generic 500 the bare `except Exception` used to raise
+        (flagged in PR #72 review; the underlying race was already closed by
+        phase88's index, but the graceful-handling gap was real)."""
+        session_row = MagicMock(data=[{"student_id": "student-1", "email": "alice@test.com",
+                                       "teacher_id": "teacher-1", "exam_id": "exam-1"}])
+
+        def mock_atable(table_name):
+            m = MagicMock()
+            for attr in ("select", "eq", "limit", "insert"):
+                getattr(m, attr).return_value = m
+            if table_name == "exam_sessions":
+                m.execute = AsyncMock(return_value=session_row)
+            else:  # appeals insert hits the unique index
+                m.execute = AsyncMock(side_effect=Exception(
+                    'duplicate key value violates unique constraint '
+                    '"uq_appeals_session_student_type_pending"'))
+            return m
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable):
+            r = client.post("/api/v1/student/appeal", json={
+                "session_key": "owned_session",
+                "appeal_type": "grade",
+                "description": "I want to dispute this grade again",
+            }, headers=student_headers)
+            assert r.status_code == 409, r.text
+            assert "pending appeal" in r.json()["detail"].lower()
+
 
 class TestAppealInModel:
     """AppealIn.violation_id coercion (str→int) — see phase147 / PYTHON-W."""

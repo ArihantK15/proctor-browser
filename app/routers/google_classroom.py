@@ -141,7 +141,7 @@ async def _do_google_courses(request: Request):
         # token surfaced as an unhandled 500 (PYTHON-1T/1V/1X) instead of the
         # same clean "reconnect" response the expired-token path already
         # gives one line above.
-        logger.info("[google_classroom] course listing hit a revoked/expired token for teacher %s — clearing it", tid)
+        logger.info("[google_classroom] course listing hit a revoked/expired token for teacher %s — clearing it", tid)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         await _atable("google_auth_tokens").delete().eq("teacher_id", tid).execute()
         return {"connected": False, "courses": []}
 
@@ -241,7 +241,7 @@ async def _do_google_sync_roster(body: dict[str, Any], request: Request):
         # expiry check misses outright revocation, which only surfaces when
         # these calls actually try to use the token. Give the teacher the
         # same clean "reconnect" outcome instead of a raw 500.
-        logger.info("[google_classroom] roster sync hit a revoked/expired token for teacher %s — clearing it", tid)
+        logger.info("[google_classroom] roster sync hit a revoked/expired token for teacher %s — clearing it", tid)  # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
         await _atable("google_auth_tokens").delete().eq("teacher_id", tid).execute()
         raise HTTPException(status_code=400, detail="Google Classroom session expired — please reconnect")
     imported = 0

@@ -97,7 +97,20 @@ const _BLOCKED_BASE = [
 // shortcuts below are real, working coverage for keyboard-only Macs
 // (external keyboard, no trackpad) — they just don't help a student on a
 // laptop trackpad. No code fix exists; noting it so nobody assumes the
-// keyboard coverage below implies gesture coverage too.
+// keyboard coverage below implies gesture coverage too. lib/kiosk-manager.js
+// now disables Mission Control at the source instead (mcx-expose-disabled)
+// as a best-effort mitigation for this — see its own comment.
+//
+// Longer-term (not started, no timeline): Apple's FamilyControls/
+// ManagedSettings/DeviceActivity frameworks are the Apple-sanctioned way
+// to do managed restrictions, but they're an app-BLOCKING primitive
+// (prevent launching/switching to specific other apps), not a gesture/
+// Mission-Control-blocking one — adopting them would be a different,
+// arguably stronger capability (block ANY other app from opening during
+// an exam) rather than a direct fix for this specific gap. Requires a
+// native Swift helper (unreachable from Electron/Node directly) and a
+// separate Apple entitlement request with its own multi-week approval
+// lead time. Scoped as its own future project, not a quick fix.
 const _BLOCKED_MAC = [
   'Cmd+Space', 'Cmd+Shift+5',
   'Control+Up', 'Control+Down', 'Control+Left', 'Control+Right', 'F3',

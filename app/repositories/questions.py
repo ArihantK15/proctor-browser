@@ -147,7 +147,11 @@ async def load_exam_config(teacher_id: Optional[str] = None, exam_id: Optional[s
     result = (await query.limit(1).execute()) if (exam_id or teacher_id) else None
     if result and result.data:
         if _cache:
-            _cache.set(cache_key, result.data[0], ttl=86400)  # 24h — invalidation keeps it fresh
+            # 5m, not 24h: every writer (set_access_code, admin exam edits) does
+            # invalidate this key, but a missed invalidation path anywhere means
+            # up to a full day of students hitting a stale access code/schedule
+            # instead of a five-minute window.
+            _cache.set(cache_key, result.data[0], ttl=300)
         return result.data[0]
     return {
         "exam_title": "Exam", "duration_minutes": 60, "access_code": "",
@@ -190,8 +194,14 @@ async def get_access_code(teacher_id: Optional[str] = None, exam_id: Optional[st
         if code:
             return code
     except Exception:
-        logger.debug("questions: exam-config access-code fallback failed", exc_info=True)
-        return os.getenv("EXAM_ACCESS_CODE", "").strip().upper() or generate_access_code()
+        # Do NOT fabricate a code here. A freshly generate_access_code()'d
+        # value on every transient DB error would never match the code
+        # actually on file — silently 403ing a legitimate student ("Invalid
+        # exam access code") on every retry of a real outage, indistinguishable
+        # from them having mistyped it. Fail closed and let the caller's
+        # generic error handling surface the real problem instead.
+        logger.warning("questions: exam-config read failed while resolving access code", exc_info=True)
+        raise
     # No code on file for this exam — every exam requires one now, so
     # generate and persist one instead of leaving students permanently
     # unable to start it. Covers both freshly-created exams and legacy

@@ -136,9 +136,12 @@ const _BLOCKED_BASE = [
 // shortcuts below are real, working coverage for keyboard-only Macs
 // (external keyboard, no trackpad) — they just don't help a student on a
 // laptop trackpad. No code fix exists; noting it so nobody assumes the
-// keyboard coverage below implies gesture coverage too. lib/kiosk-manager.js
-// now disables Mission Control at the source instead (mcx-expose-disabled)
-// as a best-effort mitigation for this — see its own comment.
+// keyboard coverage below implies gesture coverage too. Tried disabling
+// Mission Control at the source instead (`com.apple.dock
+// mcx-expose-disabled`) — the preference wrote and applied cleanly, but a
+// real physical test on real hardware confirmed Mission Control still
+// opens anyway. Reverted — see lib/kiosk-manager.js's "TESTED AND
+// REVERTED" comment. Genuinely uncoverable by any means found so far.
 //
 // Longer-term (not started, no timeline): Apple's FamilyControls/
 // ManagedSettings/DeviceActivity frameworks are the Apple-sanctioned way

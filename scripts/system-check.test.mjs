@@ -119,6 +119,31 @@ describe('System Check — graceful degradation (warnings never block)', () => {
     assert.equal(r.components.camera.status, 'green');
     assert.equal(r.ok, true);
   });
+
+  test('screen recording granted → green', () => {
+    const r = _buildSystemCheckResult(greenInputs({ screenRecording: { ok: true, status: 'granted' } }));
+    assert.equal(r.components.screenRecording.status, 'green');
+    assert.equal(r.ok, true);
+  });
+
+  test('screen recording denied → warn, ok stays true (defense-in-depth, not a gate)', () => {
+    const r = _buildSystemCheckResult(greenInputs({ screenRecording: { ok: false, status: 'denied' } }));
+    assert.equal(r.components.screenRecording.status, 'warn');
+    assert.equal(r.ok, true);
+  });
+
+  test('screen recording granted-needs-restart → distinct warn message, ok stays true', () => {
+    const r = _buildSystemCheckResult(greenInputs({ screenRecording: { ok: false, status: 'granted-needs-restart' } }));
+    assert.equal(r.components.screenRecording.status, 'warn');
+    assert.match(r.components.screenRecording.detail, /reopen Procta/i);
+    assert.equal(r.ok, true);
+  });
+
+  test('screen recording absent from inputs (older caller) defaults to green/unknown', () => {
+    const { screenRecording, ...rest } = greenInputs();
+    const r = _buildSystemCheckResult(rest);
+    assert.equal(r.components.screenRecording.status, 'green');
+  });
 });
 
 describe('System Check — telemetry summary is metadata only', () => {

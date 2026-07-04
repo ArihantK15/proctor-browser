@@ -66,6 +66,45 @@ const KIOSK_ALLOWED = _IS_PACKAGED
 // screen recording/sharing (not one-off screenshots) and could feed the
 // existing violation/event pipeline the same way remote-desktop process
 // detection does — not implemented, tracked as a follow-up.
+//
+// TESTED AND REJECTED, 2026-07-04: disabling screenshot capture at the
+// source via `com.apple.symbolichotkeys` entries 28-31 (same mechanism
+// that genuinely works for Launchpad, entry 160 — see kiosk-manager.js).
+// Live-tested this specific combination and it's genuinely ambiguous
+// (couldn't get a clean keystroke-simulation result — osascript needs
+// Accessibility permission this test process didn't have), but MULTIPLE
+// independent sources (including a Jamf enterprise-IT community thread
+// specifically about disabling screenshots on managed Macs) report that
+// writing `enabled = 0` to entries 28-31 updates the plist but the
+// shortcuts KEEP WORKING anyway — unlike Launchpad, screenshot capture is
+// implemented at a lower level (CoreGraphics/WindowServer screencapture
+// daemon) that apparently doesn't consult symbolichotkeys the same way
+// Dock-mediated features (Mission Control, Launchpad) do. Did NOT ship
+// this — shipping something that looks like protection but silently
+// doesn't work is worse than no fix. If revisited, needs a real physical
+// keypress test on real hardware (not a simulated one) before trusting it.
+//
+// WINDOWS SIDE, researched 2026-07-04: PrintScreen has the SAME phantom-
+// coverage problem as macOS's symbolic hotkeys, via a different
+// mechanism — electron/electron#7629 confirms
+// `globalShortcut.register('PrintScreen', ...)` returns success but the
+// callback never fires on a real press. `Win+Shift+S` (Snip & Sketch,
+// the more commonly used modern screenshot shortcut) isn't in
+// _BLOCKED_BASE at all — a bigger gap than PrintScreen itself. Found a
+// real, per-user (HKCU, no admin needed) registry mechanism —
+// `HKEY_CURRENT_USER\Control Panel\Keyboard` →
+// `PrintScreenKeyForSnippingEnabled` (DWORD) = 0 — that reportedly stops
+// PrintScreen from opening the Snipping Tool overlay. NOT implemented:
+// this environment has no Windows hardware to verify the live-apply
+// behavior (does it need an Explorer restart / UpdatePerUserSystemParameters
+// refresh, or does it apply on the very next keypress?), unlike every
+// macOS fix in this file which was verified end-to-end on real hardware
+// before shipping. Needs a real Windows machine to confirm before
+// trusting it. The more aggressive option — a `Scancode Map` REG_BINARY
+// under HKLM that remaps the PrintScreen key to a no-op — was rejected
+// outright: it needs admin rights AND a logout/reboot to take effect,
+// same session-disruption risk class as the Launchpad trackpad-gesture
+// path that was already declined for the same reason.
 const _BLOCKED_BASE = [
   'Alt+F4','Cmd+Q','Cmd+W','Cmd+M','Cmd+H',
   'Cmd+Tab','Alt+Tab','F11','F12','Escape',

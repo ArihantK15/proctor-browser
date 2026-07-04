@@ -1368,7 +1368,7 @@ async function _pfCheckBandwidth() {
 // on-device: nothing here records or uploads media. Only available inside
 // the Procta app (the bridge is injected by lobby_preload.js); in a plain
 // browser the button explains that.
-const _SYSCHECK_ROWS = ['python', 'packages', 'models', 'camera', 'mic', 'audio'];
+const _SYSCHECK_ROWS = ['python', 'packages', 'models', 'camera', 'mic', 'audio', 'screenRecording'];
 let _syscheckRunning = false;
 
 function _setSyscheckRow(key, status, text) {

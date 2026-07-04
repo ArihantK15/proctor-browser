@@ -54,6 +54,12 @@ export default function Footer() {
               <li><Link to="/blog/online-exam-cheating-prevention-ai-proctoring" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Online Exam Cheating Prevention</Link></li>
               <li><Link to="/blog/dpdp-act-compliance-online-proctoring-indian-universities" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">DPDP Act & Proctoring</Link></li>
               <li><Link to="/trust" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Trust Center</Link></li>
+              <li>
+                <a href="https://status.procta.net" target="_blank" rel="noopener noreferrer" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                  <span aria-hidden="true" style={{ width: '7px', height: '7px', borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />
+                  System Status
+                </a>
+              </li>
               <li><Link to="/privacy" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Privacy Policy</Link></li>
               <li><Link to="/terms" className="text-sm text-slate-400 transition-colors hover:text-accent-light no-underline">Terms of Service</Link></li>
             </ul>

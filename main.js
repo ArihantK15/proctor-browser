@@ -51,6 +51,7 @@ const {
   startSetupInBackground, getSetupState, isSetupReady,
   startPython, stopPython, startCalibration, stopCalibration,
   reapOrphanProctors, ensureCameraAccess, ensureMicAccess, runSystemCheck,
+  ensureScreenRecordingAccess,
 } = require('./lib/python-manager');
 const { startPolling, stopPolling } = require('./lib/polling');
 const { permissionBlock } = require('./lib/permission-gate');
@@ -943,6 +944,68 @@ async function _blockOnPermission(kind) {  // kind: 'Camera' | 'Microphone'
   } catch (e) { /* dialog best-effort — the hard block below is what matters */ }
 }
 
+// Screen Recording status notice — added 2026-07-04 for the screen-
+// capture-while-blurred evidence feature (kiosk-manager.js). UNLIKE
+// _blockOnPermission above, this NEVER blocks exam start — screen
+// capture during a focus-loss attempt is defense-in-depth on top of
+// core proctoring (camera/mic), not a requirement for it, so a missing
+// permission here degrades gracefully rather than trapping the student
+// in the lobby. Purely informational, with the right actionable next
+// step for each of the three states runSystemCheck's screenRecording
+// component can report:
+//   'granted'                -> nothing to show, this function isn't called
+//   'denied'/'not-determined' -> never granted; offer to open the OS
+//                                privacy pane (mac: Privacy_ScreenCapture,
+//                                Windows: privacy-graphicscaptureprogrammatic)
+//   'granted-needs-restart'   -> mac-only state (see ensureScreenRecordingAccess's
+//                                own comment on why this exists) — granting in
+//                                System Settings does NOT take effect for an
+//                                already-running process; the ONLY correct next
+//                                step is quit + reopen, NOT re-opening Settings
+//                                (which is already done and would confuse them).
+async function _notifyScreenRecordingStatus(status) {
+  const lobby = getLobbyWindow();
+  const parent = lobby && !lobby.isDestroyed() ? lobby : undefined;
+  try {
+    if (status === 'granted-needs-restart') {
+      const { response } = await dialog.showMessageBox(parent, {
+        type: 'info',
+        title: 'Screen Recording — restart needed',
+        message: 'Screen Recording is granted, but Procta needs to restart to use it.',
+        detail: 'This exam will proceed normally. To enable full evidence capture ' +
+          'if you switch away from the exam window, quit and reopen Procta before ' +
+          'your next exam — macOS requires a full restart after granting this ' +
+          'permission, it does not apply to an already-running app.',
+        buttons: ['Continue to Exam', 'Quit Procta'],
+        defaultId: 0, cancelId: 0, noLink: true,
+      });
+      if (response === 1) { try { app.quit(); } catch (e) { /* ignore */ } }
+      return;
+    }
+    // Never granted (denied / not-determined / Windows equivalent).
+    const pane = process.platform === 'darwin'
+      ? 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+      : (process.platform === 'win32' ? 'ms-settings:privacy-graphicscaptureprogrammatic' : null);
+    const { response } = await dialog.showMessageBox(parent, {
+      type: 'info',
+      title: 'Screen Recording not enabled',
+      message: 'Procta can\'t capture extra evidence if you switch away from the exam window.',
+      detail: 'This exam will proceed normally either way — Screen Recording only adds ' +
+        'extra evidence on top of the required camera/microphone monitoring, it is not ' +
+        'required to take the exam.\n\n' +
+        (pane
+          ? `To enable it: click "Open Settings", turn on Screen Recording for Procta, ` +
+            `then quit and reopen Procta before your next exam.`
+          : 'To enable it, check your system\'s privacy/screen-recording settings for Procta.'),
+      buttons: pane ? ['Open Settings', 'Continue to Exam'] : ['Continue to Exam'],
+      defaultId: pane ? 1 : 0, cancelId: pane ? 1 : 0, noLink: true,
+    });
+    if (pane && response === 0) {
+      try { await shell.openExternal(pane); } catch (e) { console.error('[Perm] openExternal:', e.message); }
+    }
+  } catch (e) { /* dialog best-effort — never blocks the exam */ }
+}
+
 ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
   if (!_assertMainFrame(event, 'lobby-launch-exam')) throw new Error('Frame not allowed');
   if (!ctx || !ctx.rollNumber) return { ok: false, error: 'Missing roll number' };
@@ -981,6 +1044,17 @@ ipcMain.handle('lobby-launch-exam', async (event, ctx) => {
       return { ok: false, error: block.error };
     }
   } catch(e) { console.error('[Perm] preflight threw:', e.message); }
+
+  // Screen Recording pre-flight — SOFT, never blocks. Screen-capture-
+  // while-blurred is defense-in-depth (see kiosk-manager.js), not a
+  // requirement for the exam itself, so a missing/needs-restart status
+  // just shows an informational notice with the right next step and the
+  // exam proceeds regardless. Awaited so the notice appears BEFORE the
+  // exam window takes over the screen, not buried behind it.
+  try {
+    const sr = await ensureScreenRecordingAccess();
+    if (sr && !sr.ok) { await _notifyScreenRecordingStatus(sr.status); }
+  } catch(e) { console.error('[Perm] screen-recording preflight threw:', e.message); }
 
   if (getLobbyWindow() && !getLobbyWindow().isDestroyed()) {
     try { getLobbyWindow().hide(); } catch(e) {}

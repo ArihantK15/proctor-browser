@@ -87,21 +87,24 @@ in newly-added migration files. Violations exit 1 unless:
 Review the CI output for file:line details and this document for the expand-contract
 pattern.
 
-## Known gap — the repo cannot rebuild the DB from scratch
+## Resolved — the repo CAN rebuild the DB from scratch
 
-The core tables (`teachers`, `exam_sessions`, `answers`, `violations`,
-`question_bank`) live only in the **original Supabase pg_dump baseline**, which
-was never committed. The `migrations/*.sql` files are increments on top of that
-baseline, and their **filename-sort order is not dependency-correct** (e.g.
-`phase10_invite_clicks.sql` sorts before `phase10_student_invites.sql` it
-depends on). So `run_postgres_migrations.py` against an *empty* database fails —
-it only works because prod already has the baseline + history recorded.
+`migrations/baseline/000_baseline.sql` (the squashed prod schema dump) and
+`migrations/baseline/001_schema_migrations_data.sql` (the already-applied
+migration list at snapshot time) were committed 2026-06-11 — see
+`migrations/baseline/README.md` for what they are and how to refresh them.
+`scripts/bootstrap_db_from_baseline.sh` rebuilds a database from these files
+(baseline → seed `schema_migrations` → run only the migrations added after the
+snapshot), and the `schema-from-scratch` CI job has been active (not a no-op)
+ever since, proving the DB rebuilds from zero on every push. This is also the
+documented disaster-recovery path.
 
-**The wiring to close this is built and waiting for the dump** — see
-`migrations/baseline/README.md`. Capture the schema + the already-applied set
-from prod, commit them, and the `schema-from-scratch` CI gate self-activates and
-proves the DB rebuilds from zero on every push. `scripts/bootstrap_db_from_baseline.sh`
-is the same path for disaster recovery. Until the dump lands, that gate is a
-no-op (green) and `integration_tests/schema.sql` is a focused, hand-built fixture
-(NOT the prod schema) that lets the integration suite exercise real Postgres —
-see `docs/superpowers/specs/2026-06-10-deploy-safety-and-db-tests.md`.
+Historical note, kept for context: before 2026-06-11, the core tables
+(`teachers`, `exam_sessions`, `answers`, `violations`, `question_bank`) lived
+only in the original Supabase pg_dump, which was never committed, and the
+`migrations/*.sql` files' filename-sort order is not fully dependency-correct
+on its own (e.g. `phase10_invite_clicks.sql` sorts before
+`phase10_student_invites.sql`, which it depends on) — `run_postgres_migrations.py`
+against a genuinely empty database (no baseline applied first) still fails for
+that reason. Always go through `bootstrap_db_from_baseline.sh`, not the raw
+migration runner alone, when building from zero.

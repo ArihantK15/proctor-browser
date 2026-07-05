@@ -210,7 +210,17 @@ async def get_access_code(teacher_id: Optional[str] = None, exam_id: Optional[st
     try:
         await set_access_code(new_code, teacher_id=teacher_id, exam_id=exam_id)
     except Exception:
+        # Same reasoning as the read-failure branch above: an unpersisted
+        # code returned here would never match what's actually on file.
+        # Since _validate_access_code (exam.py) re-calls this function fresh
+        # on every single student attempt, silently returning it would mean
+        # EVERY validation regenerates its own throwaway code that matches
+        # nothing — permanently locking every student out of this exam
+        # (worse than one bad request) until the underlying DB issue clears,
+        # with no visible error anywhere. Fail closed and let the caller's
+        # generic error handling surface the real problem instead.
         logger.warning("questions: failed to persist auto-generated access code", exc_info=True)
+        raise
     return new_code
 
 

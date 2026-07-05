@@ -1914,8 +1914,23 @@ async def student_exams(request: Request):
         # carries a code). access_code_required is always True as a
         # result; kept as a field for older Electron builds still reading
         # it, since the lobby now shows the code prompt unconditionally.
+        #
+        # Best-effort here: this call's return value isn't even used (the
+        # side effect — persisting a code for a legacy exam that predates
+        # them — is the only point), and it runs inside a loop building
+        # this student's WHOLE exam list. get_access_code() now fails
+        # closed (raises) on a persist error rather than fabricating an
+        # unpersisted code, which is correct at the source — but letting
+        # that propagate here would crash the entire list over one exam's
+        # transient DB hiccup, hiding every other exam the student has.
+        # It'll simply retry next time this endpoint is hit.
         if not str(cfg.get("access_code") or "").strip():
-            await _get_access_code(teacher_id, exam_id=exam_id)
+            try:
+                await _get_access_code(teacher_id, exam_id=exam_id)
+            except Exception:
+                logger.warning(
+                    "auth: best-effort access-code provisioning failed for exam_id=%s",
+                    exam_id, exc_info=True)
 
         exams.append({
             "exam_title": cfg.get("exam_title") or cfg.get("title") or "Exam",

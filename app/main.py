@@ -197,6 +197,16 @@ async def lifespan(_app) -> AsyncIterator[None]:
         )
         print(f"[startup] ttl sweeper started ({worker_name})", flush=True)
 
+    if is_leader and os.environ.get("PLAGIARISM_SCHEDULER_DISABLED", "") != "1":
+        from .services.plagiarism_scheduler import plagiarism_scheduler_loop
+        _plagiarism_scheduler_task = asyncio.create_task(plagiarism_scheduler_loop())
+        _plagiarism_scheduler_task.add_done_callback(
+            lambda t: print(f"[startup] plagiarism scheduler ended: {t.exception()}", flush=True)
+            if not t.cancelled() and t.exception()
+            else None
+        )
+        print(f"[startup] plagiarism scheduler started ({worker_name})", flush=True)
+
     # Session-state reconciler — self-heals exam_sessions rows that drifted
     # (stuck SUBMITTED, completed-without-score, missing submitted_at) and
     # alerts on drift. Redundancy layer so a transient scoring/worker failure

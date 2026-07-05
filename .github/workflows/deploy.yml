@@ -65,6 +65,45 @@ jobs:
           set -euo pipefail
           cd /root/proctor-browser
 
+          # ── Self-heal preflight ────────────────────────────────────────
+          # If the docker daemon crashed since the last deploy (real incident,
+          # 2026-07-04: dockerd restarted mid-build, took down the ENTIRE
+          # stack — postgres/redis/caddy/pgbouncer/ofelia too, not just api —
+          # and nothing came back automatically until manually recovered),
+          # every OTHER service being down would silently sabotage this
+          # deploy too (migrations can't reach a dead postgres, etc). Bring
+          # up whatever's already defined using EXISTING images first —
+          # idempotent no-op if everything's already healthy, self-heals a
+          # crashed daemon's aftermath if not. This must never fail the
+          # deploy outright (|| true) — if it can't fully recover, the
+          # rollback-capture below still surfaces that as a hard stop.
+          echo "==> self-heal preflight: bringing up any stopped services"
+          docker compose --compatibility up -d || true
+
+          # ── Hard stop: postgres must be healthy before anything else ────
+          # Migrations and the api container can't do anything useful without
+          # a live DB — checking this explicitly, right after self-heal,
+          # catches the exact 2026-07-04 failure mode (self-heal couldn't
+          # fully recover) BEFORE wasting minutes on a build+migrate cycle
+          # against a broken environment, and before this could ever again
+          # look like a silent warning nobody saw until 20+ minutes in.
+          echo "==> verifying postgres is healthy after self-heal (max 30s)..."
+          PG_OK=0
+          for i in $(seq 1 6); do
+            PG_STATUS=$(docker inspect --format='{{.State.Health.Status}}' proctor-postgres 2>/dev/null || echo unknown)
+            if [ "$PG_STATUS" = "healthy" ]; then
+              PG_OK=1
+              break
+            fi
+            sleep 5
+          done
+          if [ "$PG_OK" != "1" ]; then
+            echo "::error::HARD STOP — postgres is not healthy after self-heal (status: ${PG_STATUS:-unknown}). Refusing to proceed with migrations/build against a broken environment. Check the Hostinger box directly: docker compose --compatibility ps"
+            docker compose --compatibility logs --tail=40 postgres || true
+            exit 1
+          fi
+          echo "==> postgres healthy, proceeding"
+
           # ── Rollback capture ──────────────────────────────────────────
           # Record the image each service is running on RIGHT NOW (ref + id)
           # so a failed healthcheck can revert to the last-known-good image
@@ -144,7 +183,7 @@ jobs:
               sleep 5
             done
           else
-            echo "WARNING: no previous image captured (first deploy?) — cannot auto-rollback"
+            echo "::error::No previous image captured (first deploy, or postgres-healthy check above should have already caught a broken environment) — cannot auto-rollback. Prod may be left on a broken build. Check the Hostinger box directly."
           fi
           exit 1
 

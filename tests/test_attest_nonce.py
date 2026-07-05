@@ -158,6 +158,44 @@ class TestVerifyAttestationNonce:
         assert not ok
         assert "nonce mismatch" in reason
 
+    def test_null_nonce_in_payload_rejected_not_crashed(self):
+        """Regression: att.nonce present but JSON null (Python None) used to
+        crash hmac.compare_digest(None, <str>) with an unhandled TypeError
+        instead of failing cleanly — unlike the missing-key case above,
+        `.get("nonce", "")`'s default only applies when the key is ABSENT,
+        not when it's present with a None value. AttestIn.att is an
+        unvalidated dict[str, Any] (exam.py), so a client can send this."""
+        from app.services.kiosk_attest import verify_attestation
+        issued_at = datetime.now(timezone.utc).isoformat()
+        att = _make_v2_att(None)  # type: ignore[arg-type]
+        sig = _sign("test-secret", att)
+        ok, reason = verify_attestation(
+            att, sig,
+            expected_session_key="R001_abc123",
+            expected_roll="R001",
+            expected_nonce="server-issued-nonce",
+            nonce_issued_at=issued_at,
+        )
+        assert not ok
+        assert "nonce mismatch" in reason
+
+    def test_non_string_nonce_in_payload_rejected_not_crashed(self):
+        """Same regression class as above, for a non-null non-string value
+        (e.g. a client sending a bare number instead of a string)."""
+        from app.services.kiosk_attest import verify_attestation
+        issued_at = datetime.now(timezone.utc).isoformat()
+        att = _make_v2_att(12345)  # type: ignore[arg-type]
+        sig = _sign("test-secret", att)
+        ok, reason = verify_attestation(
+            att, sig,
+            expected_session_key="R001_abc123",
+            expected_roll="R001",
+            expected_nonce="server-issued-nonce",
+            nonce_issued_at=issued_at,
+        )
+        assert not ok
+        assert "nonce mismatch" in reason
+
     def test_expired_nonce_rejected(self):
         from app.services.kiosk_attest import verify_attestation
         old = (datetime.now(timezone.utc).timestamp() - 600)

@@ -103,7 +103,21 @@ def verify_attestation(
         if att.get("v") not in (2, "2"):
             return False, "expected v2 attestation (nonce required)"
 
-        if not hmac.compare_digest(att.get("nonce", ""), expected_nonce):
+        # att is an unvalidated dict[str, Any] (AttestIn model, exam.py) — a
+        # client can send `"nonce": null` (present but None) or any other
+        # non-string JSON value. `.get("nonce", "")` only falls back to the
+        # default when the KEY IS MISSING, not when it's present with a
+        # non-string value, so hmac.compare_digest(None, <str>) below would
+        # raise TypeError instead of failing the attestation cleanly — which
+        # would skip the caller's "log a high-severity violation" step
+        # entirely (exam.py's attest_kiosk only reaches that code on a clean
+        # False return, never on an unhandled exception). Reproduced for
+        # real: a payload with an explicit null nonce crashes without this
+        # guard. Treat any non-string nonce as a plain mismatch.
+        supplied_nonce = att.get("nonce", "")
+        if not isinstance(supplied_nonce, str):
+            return False, "nonce mismatch"
+        if not hmac.compare_digest(supplied_nonce, expected_nonce):
             return False, "nonce mismatch"
 
         if nonce_issued_at:

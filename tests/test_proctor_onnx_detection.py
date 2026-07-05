@@ -327,3 +327,13 @@ class TestEarbudOnnx:
         left_conf, right_conf = ec.classify(frame, _five_landmarks(), 640, 480)
         assert left_conf == pytest.approx(0.7, abs=1e-5)
         assert right_conf == pytest.approx(0.7, abs=1e-5)
+
+
+def test_detect_faces_uses_scrfd_not_uniface():
+    """detect_faces() must not be backed by a live uniface RetinaFace
+    instance any more — it should be backed by insightface.model_zoo's
+    SCRFD-weighted detector."""
+    import proctor
+    assert 'uniface' not in sys.modules or not hasattr(proctor, '_retina') or proctor._retina is None, (
+        "proctor._retina should no longer be a live uniface RetinaFace instance")
+    assert hasattr(proctor, '_scrfd_detector'), "expected a _scrfd_detector module attribute"

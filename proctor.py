@@ -169,17 +169,68 @@ def _seed_retina_model():
         print(f"[Retina] model seed skipped: {_se}")
 
 
-# uniface: face detection + 5 landmarks (ONNX RetinaFace under the hood)
+def _find_scrfd_model() -> Optional[str]:
+    """Resolve the bundled SCRFD detector weights (det_500m.onnx). Same
+    override/search pattern as _find_yolo_model."""
+    candidates = [
+        os.environ.get("PROCTOR_SCRFD_MODEL", ""),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "det_500m.onnx"),
+        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""), "weights", "det_500m.onnx"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def _find_landmark106_model() -> Optional[str]:
+    """Resolve the bundled 106-point landmark model (2d106det.onnx)."""
+    candidates = [
+        os.environ.get("PROCTOR_LANDMARK106_MODEL", ""),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "2d106det.onnx"),
+        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""), "weights", "2d106det.onnx"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def _find_insight_rec_model() -> Optional[str]:
+    """Resolve the bundled InsightFace recognition model (w600k_mbf.onnx)."""
+    candidates = [
+        os.environ.get("PROCTOR_INSIGHT_REC_MODEL", ""),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "w600k_mbf.onnx"),
+        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""), "weights", "w600k_mbf.onnx"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+# Face detection: insightface's own SCRFD-weighted detector (det_500m.onnx),
+# loaded directly via model_zoo — NOT uniface's RetinaFace any more. SCRFD is
+# InsightFace's current-generation detector: published to beat a comparably
+# sized RetinaFace variant by ~21% hard-AP while using LESS compute. Loading
+# it this way (not through FaceAnalysis) keeps us in full control of exactly
+# which weights load, matching the pattern already used for recognition.
+# uniface/RetinaFace (_seed_retina_model, weights/retinaface_mnet_v2.onnx)
+# is kept dormant, not deleted — same "retire, don't remove" treatment as
+# EarClassifier.
+_retina = None  # dormant — uniface RetinaFace is no longer the active path
 try:
-    _seed_retina_model()
-    from uniface import RetinaFace
-    _retina = RetinaFace()
+    from insightface.model_zoo import get_model as _insight_get_model_face
+    _scrfd_model_path = _find_scrfd_model()
+    if not _scrfd_model_path:
+        raise FileNotFoundError("weights/det_500m.onnx not found")
+    _scrfd_detector = _insight_get_model_face(_scrfd_model_path, providers=['CPUExecutionProvider'])
+    _scrfd_detector.prepare(ctx_id=-1, input_size=(320, 320), det_thresh=0.5)
     RETINA_AVAILABLE = True
-    print("[Retina] ✅ Ready")
+    print("[Detector] ✅ SCRFD ready (det_500m.onnx)")
 except Exception as _re:
-    print(f"[Retina] ❌ Not available: {_re} — face detection disabled")
+    print(f"[Detector] ❌ Not available: {_re} — face detection disabled")
     RETINA_AVAILABLE = False
-    _retina = None
+    _scrfd_detector = None
     _MODEL_ERRORS["retina"] = type(_re).__name__
 
 # onnxruntime: gaze direction model. Loaded lazily by GazeEstimator below.
@@ -244,45 +295,6 @@ def _find_yolo_model() -> Optional[str]:
             return p
     return None
 
-
-def _find_scrfd_model() -> Optional[str]:
-    """Resolve the bundled SCRFD detector weights (det_500m.onnx). Same
-    override/search pattern as _find_yolo_model."""
-    candidates = [
-        os.environ.get("PROCTOR_SCRFD_MODEL", ""),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "det_500m.onnx"),
-        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""), "weights", "det_500m.onnx"),
-    ]
-    for p in candidates:
-        if p and os.path.exists(p):
-            return p
-    return None
-
-
-def _find_landmark106_model() -> Optional[str]:
-    """Resolve the bundled 106-point landmark model (2d106det.onnx)."""
-    candidates = [
-        os.environ.get("PROCTOR_LANDMARK106_MODEL", ""),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "2d106det.onnx"),
-        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""), "weights", "2d106det.onnx"),
-    ]
-    for p in candidates:
-        if p and os.path.exists(p):
-            return p
-    return None
-
-
-def _find_insight_rec_model() -> Optional[str]:
-    """Resolve the bundled InsightFace recognition model (w600k_mbf.onnx)."""
-    candidates = [
-        os.environ.get("PROCTOR_INSIGHT_REC_MODEL", ""),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "w600k_mbf.onnx"),
-        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""), "weights", "w600k_mbf.onnx"),
-    ]
-    for p in candidates:
-        if p and os.path.exists(p):
-            return p
-    return None
 
 
 def _yolo_providers():
@@ -2548,60 +2560,28 @@ def get_face_embedding_from_crop(frame, lm_2d):
 def detect_faces(frame: np.ndarray):
     """Return list of (bbox, landmarks_2d) tuples — empty list if no faces.
 
-    RetinaFace.detect()'s per-face shape drifted across uniface majors:
-      • 1.1.x → list of dicts  {'bbox':[x1,y1,x2,y2], 'confidence':f, 'landmarks':[[x,y]*5]}
-      • 3.x   → list of Face dataclass objects (attribute access; .to_dict() given)
-    Calling .get() on a 3.x Face raised "'Face' object has no attribute 'get'"
-    on EVERY frame — swallowed below → "No face detected" forever even with the
-    model loaded. We normalise each item to a dict so the parser is
-    version-agnostic, and still handle the legacy (boxes, landmarks) tuple.
+    Backed by insightface's SCRFD-weighted detector (det_500m.onnx). Its
+    .detect() returns (bboxes[N,5], kpss[N,5,2]) — bbox is [x1,y1,x2,y2,score],
+    kps is the same 5-point convention (left_eye, right_eye, nose, left_mouth,
+    right_mouth) uniface's RetinaFace used, so every downstream consumer
+    (InsightFace recognition, head-pose solvePnP) needs zero changes.
     """
     if not RETINA_AVAILABLE:
         return []
     try:
-        result = _retina.detect(frame)
-        if result is None:
+        bboxes, kpss = _scrfd_detector.detect(frame, max_num=0, metric='default')
+        if bboxes is None or len(bboxes) == 0:
             return []
-
-        # List of per-face items — dicts (1.1.x) or Face objects (3.x).
-        if isinstance(result, list):
-            out = []
-            for face in result:
-                if isinstance(face, dict):
-                    fd = face
-                elif hasattr(face, "to_dict"):
-                    fd = face.to_dict()              # uniface ≥3.x Face dataclass
-                else:
-                    fd = {"bbox":      getattr(face, "bbox", None),
-                          "landmarks": getattr(face, "landmarks", None)}
-                bbox = fd.get("bbox")
-                lms  = fd.get("landmarks")
-                if bbox is None or lms is None:
-                    continue
-                bbox_int = [int(round(c)) for c in bbox[:4]]
-                lm_arr   = np.asarray(lms, dtype=np.float64).reshape(-1, 2)[:5]
-                if lm_arr.shape != (5, 2):
-                    continue
-                out.append((bbox_int, lm_arr))
-            return out
-
-        # Legacy API: (boxes, landmarks) ndarray tuple.
-        if isinstance(result, tuple) and len(result) == 2:
-            boxes, landmarks = result
-            if boxes is None or len(boxes) == 0:
-                return []
-            out = []
-            for i, box in enumerate(boxes):
-                bbox_int = box[:4].astype(int).tolist()
-                lm_arr   = np.asarray(landmarks[i], dtype=np.float64).reshape(-1, 2)[:5]
-                out.append((bbox_int, lm_arr))
-            return out
-
-        # Anything else → unsupported, fail loudly once.
-        print(f"[Retina] ⚠ Unexpected detect() return type: {type(result)}")
-        return []
+        out = []
+        for i, box in enumerate(bboxes):
+            bbox_int = [int(round(c)) for c in box[:4]]
+            lm_arr = np.asarray(kpss[i], dtype=np.float64).reshape(-1, 2)[:5]
+            if lm_arr.shape != (5, 2):
+                continue
+            out.append((bbox_int, lm_arr))
+        return out
     except Exception as e:
-        print(f"[Retina Error] {e}")
+        print(f"[Detector Error] {e}")
         return []
 
 # ─── ENROLLMENT ───────────────────────────────────────────────────────────────

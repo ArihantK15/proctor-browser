@@ -31,6 +31,7 @@ import hashlib
 import json
 import logging
 
+from datetime import datetime, timezone
 from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 
@@ -414,3 +415,55 @@ async def coding_judge(body: dict[str, Any], request: Request):
         await release_idempotency(idem_key)
         logger.error("[coding_judge] error for %s/%s: %s", session_id, question_id, e)
         raise HTTPException(status_code=500, detail="Failed to judge submission")
+
+
+# ─── PLAGIARISM DETECTION (teacher-facing review) ─────────────────────────────
+# See docs/superpowers/specs/2026-07-05-coding-plagiarism-detection-design.md.
+# check_plagiarism_job compares same-exam, same-question, same-language
+# submissions via the isolated dolos-svc microservice; these routes let a
+# teacher trigger/re-trigger a check and review the results. Flag-for-review
+# only — nothing here ever touches a submission's score or risk_score.
+
+@router.post("/api/v1/admin/exams/{exam_id}/plagiarism-check")
+async def trigger_plagiarism_check(exam_id: str, request: Request):
+    """Manual re-run — bypasses the coding_plagiarism_checks gate the
+    scheduler uses, so a teacher can re-check after reviewing/dismissing."""
+    teacher = await require_admin(request)
+    from ..jobs import enqueue_job, check_plagiarism_job
+    enqueue_job(check_plagiarism_job, exam_id=exam_id,
+                teacher_id=str(teacher["id"]), queue_name="default")
+    return {"status": "enqueued"}
+
+
+@router.get("/api/v1/admin/exams/{exam_id}/plagiarism-matches")
+async def list_plagiarism_matches(exam_id: str, request: Request):
+    await require_admin(request)
+    matches = (await _atable("coding_plagiarism_matches")
+               .select("*").eq("exam_id", exam_id)
+               .order("similarity_score", desc=True).execute())
+    rows = matches.data or []
+    # Join in source code for the side-by-side view — two extra selects
+    # rather than a SQL join, matching this file's existing style of
+    # composing separate _atable() calls rather than hand-written joins.
+    sub_ids = {r["submission_a_id"] for r in rows} | {r["submission_b_id"] for r in rows}
+    if sub_ids:
+        subs = (await _atable("coding_submissions").select("id,source_code")
+                .in_("id", list(sub_ids)).execute()).data or []
+        code_by_id = {s["id"]: s.get("source_code") for s in subs}
+        for r in rows:
+            r["source_code_a"] = code_by_id.get(r["submission_a_id"])
+            r["source_code_b"] = code_by_id.get(r["submission_b_id"])
+    return {"matches": rows}
+
+
+@router.post("/api/v1/admin/plagiarism-matches/{match_id}/review")
+async def review_plagiarism_match(match_id: str, body: dict[str, Any], request: Request):
+    teacher = await require_admin(request)
+    status = body.get("status")
+    if status not in ("confirmed", "dismissed"):
+        raise HTTPException(status_code=400, detail="status must be 'confirmed' or 'dismissed'")
+    result = (await _atable("coding_plagiarism_matches")
+              .update({"status": status, "reviewed_by": str(teacher["id"]),
+                       "reviewed_at": datetime.now(timezone.utc).isoformat()})
+              .eq("id", match_id).execute())
+    return {"updated": bool(result.data)}

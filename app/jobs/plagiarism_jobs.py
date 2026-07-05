@@ -119,11 +119,13 @@ async def _check_plagiarism_async(exam_id: str, teacher_id: str | None = None) -
 
 
 async def _mark_check(exam_id: str, teacher_id: str | None, status: str) -> None:
+    from datetime import datetime, timezone
     from ..database import async_table as _atable
     try:
         await _atable("coding_plagiarism_checks").upsert({
             "exam_id": exam_id, "teacher_id": teacher_id, "status": status,
-        }).execute()
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }, on_conflict="exam_id").execute()
     except Exception as e:
         logger.warning("[plagiarism_job] failed to record check status for exam=%s: %s", exam_id, e)
 

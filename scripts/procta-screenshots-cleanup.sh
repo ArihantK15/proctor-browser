@@ -1,4 +1,15 @@
 #!/bin/bash
+# DEPRECATED — superseded by entrypoint.sh's in-container cleanup loop
+# (runs automatically inside every `api` container at startup + every 6h,
+# no manual install step, and can't be lost across a server rebuild the
+# way a host crontab entry can). This host-cron mechanism and
+# entrypoint.sh's mechanism were built two days apart without awareness
+# of each other and did the exact same job redundantly — see DEPLOY.md
+# §2.4 for the removal steps if this is already installed on a server.
+# Kept here only as a manual fallback (e.g. if you ever want a one-off
+# retention pass with a non-default window without restarting the API
+# container).
+#
 # Procta — screenshots retention cron.
 #
 # Deletes forensic screenshot frames older than RETENTION_DAYS from

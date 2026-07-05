@@ -170,35 +170,36 @@ keeps working. The platform was designed to make LLM optional.
 pre-fetches them, so it produces noise). The Clicked column on
 the dashboard is the reliable signal.
 
-### 2.4 Screenshots cleanup cron — prevents disk fill
+### 2.4 Screenshots cleanup — prevents disk fill
 
-Without this, the `./screenshots/` bind mount grows ~50 MB / 100 active
+Without cleanup, the `./screenshots/` bind mount grows ~50 MB / 100 active
 students / day. A few weeks of usage will fill the VPS.
 
-**Install** (one-time, on the VPS):
+**Handled automatically — no install step.** `entrypoint.sh` (baked into
+every `api` container) deletes files older than `SCREENSHOT_RETENTION_DAYS`
+(env var, default 90) once at container startup and again every 6 hours
+for the container's lifetime. Nothing to set up on a fresh server; it's
+part of the image itself.
+
+**Retired 2026-07-05:** a separate host-crontab mechanism
+(`scripts/procta-screenshots-cleanup.sh`) did the exact same job,
+independently, added 2 days before `entrypoint.sh`'s version without
+awareness of each other. Both were harmless running together (idempotent
+`find -delete`), but redundant — the host cron additionally required a
+manual one-time install that could be forgotten or lost across a server
+rebuild, unlike the in-container version. Retired in favor of the
+zero-install mechanism. **If this host cron is already installed on your
+server, remove it:**
 
 ```bash
-# Crontab — runs Sunday 03:00 IST, deletes screenshots older than 90 days.
-# Adjust 90 to your retention requirement.
-sudo bash -c 'cat > /etc/cron.d/procta-screenshots-cleanup <<EOF
-# Procta screenshots retention — remove forensic frames older than 90 days.
-# Runs as root because the bind mount is owned by container UID/GID.
-SHELL=/bin/bash
-PATH=/usr/sbin:/usr/bin:/sbin:/bin
-0 3 * * 0 root /usr/local/bin/procta-screenshots-cleanup.sh >>/var/log/procta-screenshots-cleanup.log 2>&1
-EOF'
-
-sudo cp scripts/procta-screenshots-cleanup.sh /usr/local/bin/
-sudo chmod +x /usr/local/bin/procta-screenshots-cleanup.sh
-sudo chmod 644 /etc/cron.d/procta-screenshots-cleanup
-
-# Manually verify
-sudo /usr/local/bin/procta-screenshots-cleanup.sh
-tail /var/log/procta-screenshots-cleanup.log
+sudo rm -f /etc/cron.d/procta-screenshots-cleanup
+sudo rm -f /usr/local/bin/procta-screenshots-cleanup.sh
 ```
 
-The script lives at `scripts/procta-screenshots-cleanup.sh` in the
-repo — see comments inside for retention tuning.
+The script still lives at `scripts/procta-screenshots-cleanup.sh` in the
+repo, marked deprecated in-file — kept only as a manual fallback (e.g. a
+one-off retention pass with a non-default window without restarting the
+API container).
 
 ### 2.5 Docker self-heal cron — recovers from a dockerd crash without a human
 

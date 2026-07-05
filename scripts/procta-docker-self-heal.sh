@@ -36,11 +36,11 @@ fi
 
 cd "$PROJECT_DIR" || { echo "[$(ts)] ERROR: cannot cd to $PROJECT_DIR"; exit 1; }
 
-before="$(docker compose --compatibility ps --services --filter 'status=running' 2>/dev/null | sort)"
+before="$(docker compose --compatibility --profile postgres ps --services --filter 'status=running' 2>/dev/null | sort)"
 
-up_output="$(docker compose --compatibility up -d 2>&1)"
+up_output="$(docker compose --compatibility --profile postgres up -d 2>&1)"
 
-after="$(docker compose --compatibility ps --services --filter 'status=running' 2>/dev/null | sort)"
+after="$(docker compose --compatibility --profile postgres ps --services --filter 'status=running' 2>/dev/null | sort)"
 
 if [ "$before" = "$after" ]; then
   echo "[$(ts)] self-heal: no-op, all services already running"

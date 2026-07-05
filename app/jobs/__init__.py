@@ -23,6 +23,7 @@ from .autosave_jobs import flush_autosave_job
 from .scoring_jobs import score_submission_job
 from .lti_jobs import ags_grade_passback_job
 from .storage_jobs import upload_screenshot_job
+from .plagiarism_jobs import check_plagiarism_job
 
 __all__ = [
     "enqueue_job",
@@ -42,4 +43,5 @@ __all__ = [
     "score_submission_job",
     "upload_screenshot_job",
     "ags_grade_passback_job",
+    "check_plagiarism_job",
 ]

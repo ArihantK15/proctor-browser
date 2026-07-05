@@ -200,7 +200,51 @@ tail /var/log/procta-screenshots-cleanup.log
 The script lives at `scripts/procta-screenshots-cleanup.sh` in the
 repo — see comments inside for retention tuning.
 
-### 2.5 Off-site backup of `screenshots/` (optional, supplementary)
+### 2.5 Docker self-heal cron — recovers from a dockerd crash without a human
+
+Real incident (2026-07-04 12:22 UTC): `dockerd` crashed (a buildkit
+concurrent-map-write fatal panic from overlapping build sessions —
+confirmed via `journalctl -u docker` around that timestamp). systemd's
+`Restart=always` brought the daemon itself back in ~3 seconds, but the
+crash orphaned every running container's underlying `containerd` task
+(`"Removing stale sandbox"` / `"sandbox ... not found"` on daemon
+restart) — so `restart: unless-stopped` had nothing left to act on.
+Nothing was running again until a human noticed and manually ran
+`docker compose up -d`, roughly 10 minutes later.
+
+This cron runs that same recovery command every 2 minutes, so recovery
+happens automatically instead of waiting on a human to notice (whether
+via Better Uptime alerting or otherwise). It's deliberately narrow: it
+only ever runs `docker compose up -d` (idempotent — a no-op when
+everything's already up) and logs a loud `ERROR` line if postgres still
+isn't healthy afterward. It never rebuilds images or restarts anything
+already healthy — that stays the deploy workflow's job.
+
+**Install** (one-time, on the VPS):
+
+```bash
+sudo cp scripts/procta-docker-self-heal.sh /usr/local/bin/
+sudo chmod +x /usr/local/bin/procta-docker-self-heal.sh
+
+sudo bash -c 'cat > /etc/cron.d/procta-docker-self-heal <<EOF
+# Procta docker self-heal — see DEPLOY.md §2.5 for the incident this fixes.
+SHELL=/bin/bash
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+*/2 * * * * root PROCTA_PROJECT_DIR=/root/proctor-browser /usr/local/bin/procta-docker-self-heal.sh >>/var/log/procta-docker-self-heal.log 2>&1
+EOF'
+
+sudo chmod 644 /etc/cron.d/procta-docker-self-heal
+
+# Manually verify
+sudo PROCTA_PROJECT_DIR=/root/proctor-browser /usr/local/bin/procta-docker-self-heal.sh
+tail /var/log/procta-docker-self-heal.log
+```
+
+The script lives at `scripts/procta-docker-self-heal.sh` in the repo.
+Add log rotation for `/var/log/procta-docker-self-heal.log` if it grows
+large (every 2-minute no-op run adds one short line).
+
+### 2.6 Off-site backup of `screenshots/` (optional, supplementary)
 
 **Superseded as the primary mechanism** by `scripts/backup_to_s3.sh`
 (installed via `scripts/install_s3_backup.sh`, cron at `/etc/cron.d/

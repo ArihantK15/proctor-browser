@@ -293,6 +293,17 @@ async def health() -> Response:
     return Response(
         content=json.dumps({
             "status": "ok" if ok else "degraded",
+            # Same fallback chain as main.py's Sentry release tag (GIT_SHA
+            # injected by the deploy workflow, then SOURCE_COMMIT, then the
+            # semver APP_VERSION) — lets an external monitor confirm a
+            # deploy actually took effect by diffing this against the
+            # commit it just pushed, not just that /health returns 200.
+            "release": (
+                os.environ.get("GIT_SHA")
+                or os.environ.get("SOURCE_COMMIT")
+                or os.environ.get("APP_VERSION")
+                or None
+            ),
             "uptime_sec": round(uptime_sec, 1),
             "health_checks": _req_total,
             "health_errors": _req_errors,

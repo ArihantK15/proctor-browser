@@ -245,6 +245,46 @@ def _find_yolo_model() -> Optional[str]:
     return None
 
 
+def _find_scrfd_model() -> Optional[str]:
+    """Resolve the bundled SCRFD detector weights (det_500m.onnx). Same
+    override/search pattern as _find_yolo_model."""
+    candidates = [
+        os.environ.get("PROCTOR_SCRFD_MODEL", ""),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "det_500m.onnx"),
+        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""), "weights", "det_500m.onnx"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def _find_landmark106_model() -> Optional[str]:
+    """Resolve the bundled 106-point landmark model (2d106det.onnx)."""
+    candidates = [
+        os.environ.get("PROCTOR_LANDMARK106_MODEL", ""),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "2d106det.onnx"),
+        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""), "weights", "2d106det.onnx"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def _find_insight_rec_model() -> Optional[str]:
+    """Resolve the bundled InsightFace recognition model (w600k_mbf.onnx)."""
+    candidates = [
+        os.environ.get("PROCTOR_INSIGHT_REC_MODEL", ""),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "weights", "w600k_mbf.onnx"),
+        os.path.join(os.environ.get("ELECTRON_RESOURCES_PATH", ""), "weights", "w600k_mbf.onnx"),
+    ]
+    for p in candidates:
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
 def _yolo_providers():
     """Best-effort accelerated providers, intersected with what this ORT
     build actually ships, so a missing CoreML/DirectML/CUDA provider can
@@ -704,23 +744,15 @@ else:
 # the 5-point order matches (left_eye/right_eye/nose/left_mouth/right_mouth,
 # the standard RetinaFace convention uniface and insightface both follow).
 try:
-    import insightface
     from insightface.model_zoo import get_model as _insight_get_model
-    _INSIGHT_MODEL_DIR = os.path.join(os.path.expanduser("~"), ".insightface",
-                                       "models", "buffalo_sc")
-    _insight_rec_path = os.path.join(_INSIGHT_MODEL_DIR, "w600k_mbf.onnx")
-    if not os.path.exists(_insight_rec_path):
-        # First run only: let FaceAnalysis download+unpack the buffalo_sc
-        # pack once. We never use this FaceAnalysis instance for inference —
-        # every .get() call below loads the recognition model directly.
-        insightface.app.FaceAnalysis(
-            name='buffalo_sc', providers=['CPUExecutionProvider'],
-        ).prepare(ctx_id=-1, det_size=(320, 320))
+    _insight_rec_path = _find_insight_rec_model()
+    if not _insight_rec_path:
+        raise FileNotFoundError("weights/w600k_mbf.onnx not found")
     _insight_rec = _insight_get_model(_insight_rec_path,
                                        providers=['CPUExecutionProvider'])
     _insight_rec.prepare(ctx_id=-1)
     INSIGHT_AVAILABLE = True
-    print("[InsightFace] ✅ Ready (recognition-only — RetinaFace supplies detection)")
+    print("[InsightFace] ✅ Ready (recognition-only — bundled offline-first, RetinaFace supplies detection)")
 except Exception as _ie:
     print(f"[InsightFace] ❌ Not available: {_ie} — wrong-person detection disabled")
     INSIGHT_AVAILABLE = False

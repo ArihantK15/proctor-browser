@@ -650,6 +650,7 @@
         <button class="btn btn-secondary btn-sm" id="btn-export-csv" data-action="exportCSV">CSV</button>
         <button class="btn btn-secondary btn-sm" id="btn-export-excel" data-action="exportExcel">Excel</button>
         <button class="btn btn-secondary btn-sm" id="grade-pending-btn" data-action="openGradeReview" title="Review AI-suggested grades for short-answer responses">Review answers <span id="pending-grade-count" style="display:none;background:var(--amber);color:#000;border-radius:8px;padding:1px 6px;font-size:10px;margin-left:4px"></span></button>
+        <button class="btn btn-secondary btn-sm" id="plagiarism-btn" data-action="openPlagiarismReview" title="Review flagged code-similarity pairs for this exam">Plagiarism</button>
         <button class="btn btn-secondary btn-sm" id="btn-scorecard-zip" data-action="dlAllScorecards" title="Download a ZIP containing one PDF scorecard per student">Scorecards ZIP</button>
         <button class="btn btn-secondary btn-sm" data-action="emailAllScorecards" title="Email each student their scorecard PDF">Email</button>
         <button class="btn btn-primary btn-sm" data-action="refreshResults">Refresh</button>
@@ -1872,6 +1873,29 @@
     <div id="grade-audit" style="display:none;overflow:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-0,#0d1117)">
       <div id="grade-audit-stats" style="display:flex;gap:16px;margin-bottom:12px;flex-wrap:wrap"></div>
       <div id="grade-audit-events" style="font-size:12px"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── PLAGIARISM MODAL (code-similarity review for a coding exam) ──── -->
+<div class="modal-bg hidden" id="plagiarism-modal" data-action="closePlagiarismReview" data-guard-self>
+  <div class="modal" style="width:920px;max-width:95vw;max-height:90vh;display:flex;flex-direction:column">
+    <button class="close" data-action="closePlagiarismReview">&times;</button>
+    <h3 style="margin-bottom:4px;display:flex;align-items:center;gap:8px">
+      <span style="color:var(--accent)">🔍</span> Code Similarity Matches
+    </h3>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      Flagged same-exam, same-question code pairs. Review and mark each as confirmed or dismissed — nothing here changes a student's score automatically.
+    </div>
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button class="btn btn-secondary btn-sm" data-action="rerunPlagiarismCheck">Re-run check</button>
+    </div>
+    <div id="plagiarism-list" style="overflow:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-0,#0d1117)">
+      <div style="text-align:center;padding:30px;color:var(--muted)">Loading…</div>
+    </div>
+    <div id="plagiarism-detail" style="display:none;overflow:auto;flex:1;border:1px solid var(--border);border-radius:8px;padding:8px;background:var(--surface-0,#0d1117)">
+      <button class="btn btn-ghost btn-sm" data-action="closePlagiarismDetail">&larr; Back to list</button>
+      <div id="plagiarism-code-view"></div>
     </div>
   </div>
 </div>

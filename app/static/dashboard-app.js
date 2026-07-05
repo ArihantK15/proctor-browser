@@ -2258,6 +2258,94 @@ function closeGradeReview(){
   document.getElementById('grade-modal').classList.add('hidden');
 }
 
+async function openPlagiarismReview(){
+  const eid = currentExamId;
+  if(!eid){ showModal('Select an exam first.'); return; }
+  document.getElementById('plagiarism-modal').classList.remove('hidden');
+  document.getElementById('plagiarism-detail').style.display = 'none';
+  document.getElementById('plagiarism-list').style.display = '';
+  await loadPlagiarismMatches();
+}
+
+function closePlagiarismReview(){
+  document.getElementById('plagiarism-modal').classList.add('hidden');
+}
+
+async function loadPlagiarismMatches(){
+  const eid = currentExamId;
+  const listEl = document.getElementById('plagiarism-list');
+  listEl.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)">Loading…</div>';
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/plagiarism-matches`);
+    const data = await r.json();
+    const matches = data.matches || [];
+    if(!matches.length){
+      listEl.innerHTML = '<div style="text-align:center;padding:30px;color:var(--muted)">No flagged pairs for this exam.</div>';
+      return;
+    }
+    listEl.innerHTML = '';
+    const table = document.createElement('table');
+    table.innerHTML = '<thead><tr><th>Question</th><th>Student A</th><th>Student B</th><th>Similarity</th><th>Corroborated</th><th>Status</th><th></th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    for(const m of matches){
+      const tr = document.createElement('tr');
+      const pct = Math.round(m.similarity_score * 100);
+      tr.innerHTML = `<td>${_escapeHtml(m.question_id)}</td><td>${_escapeHtml(m.student_a_id||'')}</td><td>${_escapeHtml(m.student_b_id||'')}</td>`
+        + `<td>${pct}%</td><td>${m.corroborated ? '⚠️ yes' : 'no'}</td><td>${_escapeHtml(m.status)}</td>`
+        + `<td><button class="btn btn-secondary btn-sm">View</button></td>`;
+      tr.querySelector('button').addEventListener('click', () => showPlagiarismDetail(m));
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    listEl.appendChild(table);
+  }catch(e){
+    listEl.innerHTML = '<div style="text-align:center;padding:30px;color:var(--red)">Failed to load matches.</div>';
+  }
+}
+
+function showPlagiarismDetail(match){
+  document.getElementById('plagiarism-list').style.display = 'none';
+  const detail = document.getElementById('plagiarism-detail');
+  detail.style.display = '';
+  const view = document.getElementById('plagiarism-code-view');
+  view.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px">
+      <div><h4>Student A (${_escapeHtml(match.student_a_id||'')})</h4><pre style="overflow:auto;max-height:400px;background:var(--surface-1,#161b22);padding:8px;border-radius:6px;font-size:11px">${_escapeHtml(match.source_code_a || '')}</pre></div>
+      <div><h4>Student B (${_escapeHtml(match.student_b_id||'')})</h4><pre style="overflow:auto;max-height:400px;background:var(--surface-1,#161b22);padding:8px;border-radius:6px;font-size:11px">${_escapeHtml(match.source_code_b || '')}</pre></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn btn-primary btn-sm" id="plagiarism-confirm-btn">Confirm plagiarism</button>
+      <button class="btn btn-secondary btn-sm" id="plagiarism-dismiss-btn">Dismiss (false positive)</button>
+    </div>`;
+  document.getElementById('plagiarism-confirm-btn').addEventListener('click', () => reviewPlagiarismMatch(match.id, 'confirmed'));
+  document.getElementById('plagiarism-dismiss-btn').addEventListener('click', () => reviewPlagiarismMatch(match.id, 'dismissed'));
+}
+
+function closePlagiarismDetail(){
+  document.getElementById('plagiarism-detail').style.display = 'none';
+  document.getElementById('plagiarism-list').style.display = '';
+}
+
+async function reviewPlagiarismMatch(matchId, status){
+  await authFetch(`${BASE}/api/v1/admin/plagiarism-matches/${encodeURIComponent(matchId)}/review`, {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({status}),
+  });
+  closePlagiarismDetail();
+  await loadPlagiarismMatches();
+}
+
+async function rerunPlagiarismCheck(){
+  const eid = currentExamId;
+  if(!eid){ showModal('Select an exam first.'); return; }
+  await authFetch(`${BASE}/api/v1/admin/exams/${encodeURIComponent(eid)}/plagiarism-check`, {method:'POST'});
+  showModal('Plagiarism re-check enqueued — refresh in a minute.');
+}
+
+function _escapeHtml(s){
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
 async function openRoomCamView(sid){
   _roomCamSid = sid;
   _roomCamOpened = true;

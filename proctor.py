@@ -233,6 +233,65 @@ except Exception as _re:
     _scrfd_detector = None
     _MODEL_ERRORS["retina"] = type(_re).__name__
 
+# 106-point landmark model (2d106det.onnx) — used ONLY for eye-openness
+# geometry below. Head-pose deliberately keeps using the detector's own
+# 5-point kps (unchanged solvePnP code) — no landmark-index remapping risk
+# for that calculation. Index ranges below were empirically verified against
+# InsightFace's own bundled t1 test image (a public demo asset shipped with
+# the library, not any real user's photo) — NOT taken from documentation,
+# which does not reliably publish exact index-to-region mappings.
+_landmark106 = None
+LANDMARK106_AVAILABLE = False
+try:
+    from insightface.model_zoo import get_model as _insight_get_model_lmk
+    _lmk_model_path = _find_landmark106_model()
+    if not _lmk_model_path:
+        raise FileNotFoundError("weights/2d106det.onnx not found")
+    _landmark106 = _insight_get_model_lmk(_lmk_model_path, providers=['CPUExecutionProvider'])
+    _landmark106.prepare(ctx_id=-1)
+    LANDMARK106_AVAILABLE = True
+    print("[Landmark106] ✅ Ready (2d106det.onnx)")
+except Exception as _le:
+    print(f"[Landmark106] ❌ Not available: {_le} — eye-openness geometry disabled, falling back to Haar cascade")
+    LANDMARK106_AVAILABLE = False
+    _landmark106 = None
+
+# Empirically verified index sets — see docs/superpowers/specs/
+# 2026-07-05-vision-pipeline-consolidation-design.md for how these were
+# confirmed on a real photo.
+_RIGHT_EYE_IDX = [33, 35, 36, 37, 38, 39, 40, 41, 42, 46]
+_LEFT_EYE_IDX  = [81, 87, 89, 90, 91, 93, 94, 95, 96, 98]
+EYE_OPEN_RATIO_THRESHOLD = 0.25  # height/width below this = closed
+
+def _eye_openness_ratio(pts: np.ndarray) -> float:
+    """height/width of a landmark point cluster's bounding box. Works on
+    ANY subset of points forming a ring around one eye — robust to not
+    knowing exactly which index is 'upper-mid' vs 'lower-mid', since we
+    just take min/max over the whole known ring."""
+    xs, ys = pts[:, 0], pts[:, 1]
+    width = float(xs.max() - xs.min())
+    height = float(ys.max() - ys.min())
+    if width <= 0:
+        return 0.0
+    return height / width
+
+def eyes_open_from_landmarks(frame: np.ndarray, bbox) -> Optional[bool]:
+    """Return True (open) / False (closed) / None (unavailable/error).
+    Fail-open at the call site mirrors eyes_detected()'s existing contract."""
+    if not LANDMARK106_AVAILABLE:
+        return None
+    try:
+        from insightface.app.common import Face
+        face = Face(bbox=np.asarray(bbox[:4], dtype=np.float32))
+        _landmark106.get(frame, face)
+        pts = face.landmark_2d_106
+        r_ratio = _eye_openness_ratio(pts[_RIGHT_EYE_IDX])
+        l_ratio = _eye_openness_ratio(pts[_LEFT_EYE_IDX])
+        avg_ratio = (r_ratio + l_ratio) / 2.0
+        return avg_ratio >= EYE_OPEN_RATIO_THRESHOLD
+    except Exception:
+        return None
+
 # onnxruntime: gaze direction model. Loaded lazily by GazeEstimator below.
 try:
     import onnxruntime as ort
@@ -3617,7 +3676,10 @@ def run_proctoring(cap, W, H, governor):
                         head_away_count = 0
 
                 # ── EYES OPEN/CLOSED ─────────────────────────────────────────────
-                eyes_open = eyes_detected(face_crop)
+                _eyes_landmark_result = eyes_open_from_landmarks(frame, (x1, y1, x2, y2))
+                eyes_open = (_eyes_landmark_result
+                             if _eyes_landmark_result is not None
+                             else eyes_detected(face_crop))
                 if not eyes_open:
                     eyes_closed_count += 1
                 else:

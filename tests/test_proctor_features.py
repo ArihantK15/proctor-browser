@@ -512,3 +512,29 @@ class TestHardwareGovernorFpsFloor:
         from proctor import TARGET_FPS
         assert gov.effective_fps == float(TARGET_FPS)
         assert gov._min_fps_floor == 0.0
+
+
+def test_eye_openness_ratio_open_vs_closed():
+    """Verified index sets from InsightFace's own t1 test image (see the
+    vision-pipeline-consolidation plan/spec docs for how these were
+    empirically confirmed on a real photo — not guessed from docs)."""
+    import proctor
+    import numpy as np
+
+    # Open eye: points spread in both x and y -> roughly circular/almond ring.
+    open_pts = np.array([
+        [10, 5], [8, 3], [12, 3], [15, 4], [18, 5],
+        [10, 9], [8, 8], [12, 8], [15, 9], [18, 8],
+    ], dtype=np.float64)
+    ratio_open = proctor._eye_openness_ratio(open_pts)
+
+    # Closed eye: same horizontal spread, near-zero vertical spread (a line).
+    closed_pts = np.array([
+        [10, 6], [8, 6.1], [12, 6], [15, 6.1], [18, 6],
+        [10, 6.2], [8, 6.1], [12, 6.2], [15, 6.1], [18, 6.2],
+    ], dtype=np.float64)
+    ratio_closed = proctor._eye_openness_ratio(closed_pts)
+
+    assert ratio_open > ratio_closed
+    assert ratio_closed < proctor.EYE_OPEN_RATIO_THRESHOLD
+    assert ratio_open > proctor.EYE_OPEN_RATIO_THRESHOLD

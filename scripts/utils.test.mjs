@@ -114,6 +114,25 @@ describe('scanProcessOutput — cheat / remote-desktop / screen-share detection'
       ALL_PROCESSES, SCAN_TYPE_MAP);
     assert.equal(flags.filter(f => f.type === 'remote_desktop_detected').length, 1);
   });
+
+  test('Apple\'s own CoreParsec system framework (SIP-protected path) is NOT flagged', () => {
+    // Real-world false positive on stock macOS: /System/Library/PrivateFrameworks/
+    // CoreParsec.framework/parsecd is Apple's own on-device visual-intelligence
+    // process, unrelated to the third-party Parsec remote-desktop app. SIP
+    // guarantees nothing third-party can live under /System/Library, so any
+    // match rooted there must be excluded rather than flagged as a threat.
+    const flags = scanProcessOutput(
+      'arihantkaul 71982 /System/Library/PrivateFrameworks/CoreParsec.framework/parsecd',
+      ALL_PROCESSES, SCAN_TYPE_MAP);
+    assert.deepEqual(flags, []);
+  });
+
+  test('a real third-party Parsec install (outside /System/Library) is still flagged', () => {
+    const flags = scanProcessOutput(
+      'user 5555 /Applications/Parsec.app/Contents/MacOS/parsecd',
+      ALL_PROCESSES, SCAN_TYPE_MAP);
+    assert.ok(flags.some(f => f.type === 'remote_desktop_detected'));
+  });
 });
 
 describe('fetchWithTimeout', () => {

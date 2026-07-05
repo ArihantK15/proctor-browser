@@ -90,13 +90,26 @@ const { startProcessMonitor, stopProcessMonitor } = (() => {
   };
 })();
 
+// /System/Library is SIP-protected on modern macOS — no real third-party
+// software (remote-desktop tools included) can be installed there — so any
+// THREATS match on a line rooted under it is a stock Apple binary (e.g.
+// CoreParsec.framework's parsecd, unrelated to the third-party Parsec app),
+// never the actual threat being screened for. Mirrors the same exclusion
+// in lib/utils.js's scanProcessOutput; this function duplicates that
+// matching logic instead of reusing it (per-threat immediate event/IPC
+// side effects rather than an aggregated flags array), so the guard has
+// to be applied here separately too.
+const _SIP_PROTECTED_PREFIX = '/system/library/';
+
 async function _scanProcesses() {
   const isWin = process.platform === 'win32';
   const output = await _exec(isWin ? 'tasklist /fo csv /nh' : 'ps -eo comm', 8000);
   if (!output) return;
   const lower = output.toLowerCase();
+  const lines = lower.split('\n').filter(ln => !ln.includes(_SIP_PROTECTED_PREFIX));
+  const filtered = lines.join('\n');
   for (const { rx, label, type } of THREATS) {
-    if (!rx.test(lower)) continue;
+    if (!rx.test(filtered)) continue;
     const key = `${type}:${label}`;
     if (_reportedThreats.has(key)) continue;
     _reportedThreats.add(key);

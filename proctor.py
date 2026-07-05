@@ -38,6 +38,7 @@ import signal
 import ssl
 import tempfile
 import threading
+import types
 from concurrent.futures import ThreadPoolExecutor
 import requests
 
@@ -690,20 +691,40 @@ if ORT_AVAILABLE:
 else:
     print("[EarClassifier] ❌ onnxruntime not available — earbud detection disabled")
 
-# InsightFace: face-embedding wrong-person detection
+# InsightFace: face-embedding wrong-person detection.
+# Loads ONLY the recognition model (w600k_mbf.onnx from the buffalo_sc pack)
+# directly via model_zoo, instead of FaceAnalysis' full pipeline. FaceAnalysis
+# runs its own internal SCRFD detector on every .get() call — a second,
+# redundant face-detection pass on top of the RetinaFace one we already do
+# for landmarks/head-pose above. By the time we need an embedding we already
+# have RetinaFace's 5-point landmarks, so feeding those straight into the
+# recognition model (via the same face_align.norm_crop alignment ArcFaceONNX
+# uses internally) skips that whole second detector at zero accuracy cost —
+# recognition doesn't care which detector produced the landmarks, only that
+# the 5-point order matches (left_eye/right_eye/nose/left_mouth/right_mouth,
+# the standard RetinaFace convention uniface and insightface both follow).
 try:
-    from insightface.app import FaceAnalysis as _FaceAnalysis
-    _insight_app = _FaceAnalysis(
-        name='buffalo_sc',
-        providers=['CPUExecutionProvider'],
-    )
-    _insight_app.prepare(ctx_id=-1, det_size=(320, 320))
+    import insightface
+    from insightface.model_zoo import get_model as _insight_get_model
+    _INSIGHT_MODEL_DIR = os.path.join(os.path.expanduser("~"), ".insightface",
+                                       "models", "buffalo_sc")
+    _insight_rec_path = os.path.join(_INSIGHT_MODEL_DIR, "w600k_mbf.onnx")
+    if not os.path.exists(_insight_rec_path):
+        # First run only: let FaceAnalysis download+unpack the buffalo_sc
+        # pack once. We never use this FaceAnalysis instance for inference —
+        # every .get() call below loads the recognition model directly.
+        insightface.app.FaceAnalysis(
+            name='buffalo_sc', providers=['CPUExecutionProvider'],
+        ).prepare(ctx_id=-1, det_size=(320, 320))
+    _insight_rec = _insight_get_model(_insight_rec_path,
+                                       providers=['CPUExecutionProvider'])
+    _insight_rec.prepare(ctx_id=-1)
     INSIGHT_AVAILABLE = True
-    print("[InsightFace] ✅ Ready")
+    print("[InsightFace] ✅ Ready (recognition-only — RetinaFace supplies detection)")
 except Exception as _ie:
     print(f"[InsightFace] ❌ Not available: {_ie} — wrong-person detection disabled")
     INSIGHT_AVAILABLE = False
-    _insight_app = None
+    _insight_rec = None
     _MODEL_ERRORS["insightface"] = type(_ie).__name__
 
 # ─── CONFIG ───────────────────────────────────────────────────────────────────
@@ -2457,28 +2478,37 @@ def run_system_check(cap: Optional[cv2.VideoCapture] = None) -> dict:
 # ─── FACE EMBEDDING (wrong-person detection) ──────────────────────────────────
 enrolled_embedding = None  # populated during enrollment, used in main loop
 
+def _insight_embed(frame, lm_2d):
+    """Run the recognition-only model against RetinaFace's own landmarks and
+    return an L2-normed embedding — replicates FaceAnalysis' normed_embedding
+    without re-running detection (see the InsightFace init comment above)."""
+    if not INSIGHT_AVAILABLE:
+        return None
+    try:
+        face = types.SimpleNamespace(kps=np.asarray(lm_2d, dtype=np.float32))
+        emb = _insight_rec.get(frame, face)
+        norm = np.linalg.norm(emb)
+        return emb / norm if norm > 0 else None
+    except Exception:
+        return None
+
 def get_face_embedding(frame):
     """Return normed InsightFace embedding for the largest face, or None."""
     if not INSIGHT_AVAILABLE:
         return None
-    try:
-        faces = _insight_app.get(frame)
-        if faces:
-            return faces[0].normed_embedding
-    except Exception:
-        pass
-    return None
-
-def get_face_embedding_from_crop(face_crop):
-    if not INSIGHT_AVAILABLE or face_crop.size == 0:
+    faces = detect_faces(frame)
+    if not faces:
         return None
-    try:
-        faces = _insight_app.get(face_crop)
-        if faces:
-            return faces[0].normed_embedding
-    except Exception:
-        pass
-    return None
+    bbox, lm_2d = faces[0]
+    return _insight_embed(frame, lm_2d)
+
+def get_face_embedding_from_crop(frame, lm_2d):
+    """Same as get_face_embedding, but for callers that already have this
+    frame's RetinaFace landmarks on hand (skips a redundant detect_faces
+    call — norm_crop needs the full frame + landmarks, not a pre-made crop)."""
+    if not INSIGHT_AVAILABLE or lm_2d is None:
+        return None
+    return _insight_embed(frame, lm_2d)
 
 # ─── DETECTION HELPERS ────────────────────────────────────────────────────────
 # uniface returns a list of face dicts with bbox + landmarks. Wrap that
@@ -3424,7 +3454,7 @@ def run_proctoring(cap, W, H, governor):
                 # ── CONTINUOUS IDENTITY VERIFICATION (calibration phase) ─────────
                 if enrolled_embedding is not None and INSIGHT_AVAILABLE and \
                    not calibrated:
-                    current_emb = get_face_embedding_from_crop(face_crop)
+                    current_emb = get_face_embedding_from_crop(frame, lm_2d)
                     if current_emb is not None:
                         similarity = float(np.dot(enrolled_embedding, current_emb))
                         if similarity < WRONG_PERSON_THRESHOLD:
@@ -3620,7 +3650,7 @@ def run_proctoring(cap, W, H, governor):
             if enrolled_embedding is not None and INSIGHT_AVAILABLE and \
                frame_count % WRONG_PERSON_CHECK_FREQ == 0 and calibrated:
                 if face_crop is not None:
-                    current_emb = get_face_embedding_from_crop(face_crop)
+                    current_emb = get_face_embedding_from_crop(frame, lm_2d)
                 else:
                     current_emb = get_face_embedding(frame)
                 if current_emb is not None:
@@ -3833,8 +3863,8 @@ def run_profile(iters: int = 30) -> int:
     costs["head_pose"] = _time("head_pose", lambda: get_head_pose(lm_2d, W, H))
     if YOLO_AVAILABLE and _yolo_session is not None:
         costs["yolo"] = _time("yolo", lambda: _yolo_infer(_yolo_session, frame))
-    if _insight_app is not None:
-        costs["identity"] = _time("identity", lambda: _insight_app.get(frame))
+    if INSIGHT_AVAILABLE:
+        costs["identity"] = _time("identity", lambda: _insight_embed(frame, lm_2d))
 
     def g(k):
         return costs.get(k) or 0.0

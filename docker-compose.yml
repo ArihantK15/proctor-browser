@@ -148,6 +148,28 @@ services:
         max-size: "20m"
         max-file: "3"
 
+  dolos-svc:
+    # Isolated code-similarity comparison service, wrapping @dodona/dolos-lib
+    # behind one HTTP endpoint. Kept as its own service (not installed into
+    # the api/worker Python images) — same sandboxing philosophy as execsvc.
+    build: ./dolos-svc
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:8801/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "20m"
+        max-file: "3"
+
 
   redis:
     image: redis:7-alpine

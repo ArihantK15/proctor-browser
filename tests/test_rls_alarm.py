@@ -51,8 +51,13 @@ def test_policyless_rls_table_detected():
 
 
 def test_stale_auth_uid_policy_detected():
-    gaps = _gaps(stale_rows=[{"tablename": "teachers", "policyname": "teachers_select_own"}])
-    assert gaps["stale_auth_uid_policies"] == ["teachers.teachers_select_own"]
+    """As of 2026-07-05 the SQL groups by (table, command) and only reports
+    a gap when EVERY policy for that combination is stale — this row shape
+    is what conn.fetch returns post-grouping, not one row per policy."""
+    gaps = _gaps(stale_rows=[
+        {"tablename": "teachers", "cmd": "SELECT", "stale_policies": ["teachers_select_own"]},
+    ])
+    assert gaps["stale_auth_uid_policies"] == ["teachers.SELECT (teachers_select_own)"]
     assert rls_alarm._has_gaps(gaps) is True
     assert "auth.uid()" in rls_alarm._alert_message(gaps)
 
@@ -67,8 +72,9 @@ def test_tenant_table_without_rls_detected():
 def test_multiple_gaps_all_reported():
     gaps = _gaps(
         policyless_rows=[{"tablename": "issues"}],
-        stale_rows=[{"tablename": "teachers", "policyname": "teachers_select_own"}],
+        stale_rows=[{"tablename": "teachers", "cmd": "SELECT", "stale_policies": ["teachers_select_own"]}],
     )
     msg = rls_alarm._alert_message(gaps)
     assert "issues" in msg
-    assert "teachers.teachers_select_own" in msg
+    assert "teachers.SELECT" in msg
+    assert "teachers_select_own" in msg

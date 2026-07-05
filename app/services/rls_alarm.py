@@ -14,7 +14,7 @@ auth.uid() model — pages before a customer does.
 Three checks, matching exactly what the cutover runbook describes as the
 pre-flight sweep:
   1. RLS-enabled table with zero policies       → deny-all landmine.
-  2. A policy still referencing auth.uid()      → dead under procta_app
+  2. A (table, command) with NO working coverage → dead under procta_app
      (auth.uid() is NULL off the Supabase/PostgREST connection).
   3. A table with a tenant column (teacher_id/org_id/account_id) that has
      RLS disabled entirely — not a deny-all risk, but zero DB-level
@@ -23,6 +23,29 @@ pre-flight sweep:
 Runs unconditionally (not gated on RLS_SESSION_CONTEXT) — a gap is worth
 knowing about whether or not enforcement happens to be live right now; the
 whole point is catching it BEFORE the flag flips, not after.
+
+Check 2's precision, 2026-07-05: the original version flagged any policy
+whose text contained the literal substring "auth.uid". That missed the far
+more common case — a policy calling a retired HELPER function
+(get_my_teacher_id, get_my_student_account_id, get_my_roll_numbers, ...)
+whose body resolves via auth.uid() but whose own name doesn't contain that
+substring — exactly the gap that let 3 real stragglers (admin_audit_log,
+consent_records, demo_requests — fixed in phase152) go undetected by this
+alarm in the first place. Fixed to resolve the actual set of auth.uid()-
+resolving functions dynamically (so a future retired helper is still
+caught), but doing that naively also flagged ~82 OTHER policies: leftover
+DEAD policies sitting alongside an already-working app.* replacement for
+the SAME (table, command) — harmless, since Postgres OR-combines multiple
+permissive policies for one command, but indistinguishable from a real
+gap by a plain per-policy check. The fix groups by (table, command) and
+only reports a gap when EVERY policy covering that exact combination is
+stale — i.e. no working replacement exists at all — which is the only
+case that's actually a deny-all risk. Verified against a real from-scratch
+schema: reintroducing the 3 known stragglers via their down migration is
+caught exactly (4 landmine groups, matching the original manual sweep);
+the harmless dead-policy-coexistence cases (e.g. `answers`, which has
+both an old dead policy and a working app.* one for the same command)
+are correctly NOT flagged.
 """
 from __future__ import annotations
 
@@ -70,12 +93,39 @@ async def rls_coverage_gaps() -> dict[str, Any]:
             )
             stale_auth_uid = await conn.fetch(
                 """
-                SELECT tablename, policyname
-                FROM pg_policies
-                WHERE schemaname = 'public'
-                  AND (coalesce(qual, '') ILIKE '%auth.uid%'
-                       OR coalesce(with_check, '') ILIKE '%auth.uid%')
-                ORDER BY tablename, policyname
+                WITH auth_uid_fns AS (
+                  SELECT proname FROM pg_proc WHERE prosrc ILIKE '%auth.uid()%'
+                ),
+                classified AS (
+                  SELECT
+                    p.tablename,
+                    -- Expand ALL into each concrete command so coverage is
+                    -- checked per real command, not lumped under the
+                    -- literal word "ALL" (every policy in this schema is
+                    -- PERMISSIVE — confirmed via a real schema build before
+                    -- writing this query — so OR-combination across
+                    -- policies for the same (table, command) is safe to
+                    -- assume).
+                    unnest(CASE WHEN p.cmd = 'ALL'
+                                THEN ARRAY['SELECT','INSERT','UPDATE','DELETE']
+                                ELSE ARRAY[p.cmd] END) AS cmd,
+                    p.policyname,
+                    (coalesce(p.qual, '') ILIKE '%auth.uid%'
+                     OR coalesce(p.with_check, '') ILIKE '%auth.uid%'
+                     OR EXISTS (
+                       SELECT 1 FROM auth_uid_fns f
+                       WHERE coalesce(p.qual, '') ~ ('\\m' || f.proname || '\\M')
+                          OR coalesce(p.with_check, '') ~ ('\\m' || f.proname || '\\M')
+                     )
+                    ) AS is_stale
+                  FROM pg_policies p
+                  WHERE p.schemaname = 'public'
+                )
+                SELECT tablename, cmd, array_agg(policyname ORDER BY policyname) AS stale_policies
+                FROM classified
+                GROUP BY tablename, cmd
+                HAVING bool_and(is_stale)
+                ORDER BY tablename, cmd
                 """
             )
             rls_disabled = await conn.fetch(
@@ -92,7 +142,10 @@ async def rls_coverage_gaps() -> dict[str, Any]:
             )
     return {
         "policyless_rls_tables": [r["tablename"] for r in policyless],
-        "stale_auth_uid_policies": [f"{r['tablename']}.{r['policyname']}" for r in stale_auth_uid],
+        "stale_auth_uid_policies": [
+            f"{r['tablename']}.{r['cmd']} ({', '.join(r['stale_policies'])})"
+            for r in stale_auth_uid
+        ],
         "tenant_tables_without_rls": [r["table_name"] for r in rls_disabled],
     }
 

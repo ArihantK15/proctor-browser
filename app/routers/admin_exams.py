@@ -60,8 +60,17 @@ async def list_exams(request: Request):
     qcounts: dict[str, int] = {}
     scounts: dict[str, int] = {}
     if exam_ids:
+        # NOTE: use apply_teacher_scope (teacher_id only), NOT _scoped() — questions
+        # and exam_sessions have no archived_at column, so _scoped()'s
+        # `.is_("archived_at", "null")` filter (applied whenever include_archived
+        # is false, i.e. the default view) referenced a nonexistent column,
+        # threw, and got silently swallowed by the except below, leaving every
+        # non-archived exam showing "0Q, 0 sessions" until "Show archived" was
+        # checked and that filter stopped being applied. exam_ids is already
+        # narrowed to the correctly-filtered exam_config rows, so no archived_at
+        # filter is needed here at all — just the teacher scope.
         try:
-            qrows = (await _scoped(_atable("questions").select("exam_id"))
+            qrows = (await apply_teacher_scope(_atable("questions").select("exam_id"), teacher_ids)
                      .in_("exam_id", exam_ids).limit(50000).execute()).data or []
             for r in qrows:
                 eid = r.get("exam_id")
@@ -70,7 +79,7 @@ async def list_exams(request: Request):
         except Exception as e:
             logger.debug("Failed to batch-count questions for exams: %s", e)
         try:
-            srows = (await _scoped(_atable("exam_sessions").select("exam_id"))
+            srows = (await apply_teacher_scope(_atable("exam_sessions").select("exam_id"), teacher_ids)
                      .in_("exam_id", exam_ids).limit(50000).execute()).data or []
             for r in srows:
                 eid = r.get("exam_id")

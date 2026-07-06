@@ -1939,6 +1939,12 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
   body.sidebar-collapsed .tabs{ transform:translateX(-100%); }
   body.sidebar-collapsed .exam-bar,
   body.sidebar-collapsed .panel{ margin-left:0; }
+  /* The floating .sidebar-expand hamburger (fixed, left:8px, width:34px)
+     sits directly over the exam-bar's own 24px left padding once the
+     sidebar's margin-left collapses to 0 — the "Exam" label rendered right
+     underneath it, reading as "AM" with the icon eating into the text.
+     Reserve enough left padding to clear the button (8px + 34px + a gap). */
+  body.sidebar-collapsed .exam-bar{ padding-left:56px; }
   body.sidebar-collapsed .sidebar-expand{ display:flex; }
 }
 /* ── Tablet: pin tabs + exam-bar below the sticky topbar ───────────

@@ -3381,18 +3381,25 @@ async function doBulkSave(){
   _persistAnswersNow(); // flush debounce so latest selection is on disk before network attempt
   const statusEl = document.getElementById('save-status');
   if(!statusEl) return;
-  if(isOffline){
-    statusEl.textContent = 'Offline — saved locally';
-    statusEl.style.color = '#d29922';
-    statusEl.style.opacity = '1';
-    _scheduleSaveRetry();
-    return;
-  }
+  // isOffline is a UI hint, never a hard gate on retrying: this used to
+  // skip the fetch entirely whenever isOffline was true, on the assumption
+  // the browser's 'online' event would eventually flip it back and trigger
+  // a real retry. That assumption breaks for a backend-only outage (e.g. a
+  // dockerd crash) — the student's own network interface never actually
+  // drops, so 'online' never fires, and every later call (this retry
+  // schedule, the periodic 60s timer, any debounced save) kept taking this
+  // same shortcut forever, even after the backend recovered. The server-
+  // side answer snapshot the heartbeat-reaper leans on for abandoned-
+  // session recovery would then go stale from the FIRST hiccup onward, for
+  // the rest of the exam. Always attempt the real request instead — same
+  // pattern doHeartbeat() already used correctly — and let success/failure
+  // below decide isOffline, not a cached flag from the last attempt.
   bulkSaveInFlight = true;
   const ctrl = new AbortController();
   const timeoutId = setTimeout(()=>ctrl.abort(), 8000);
   try{
-    statusEl.textContent = 'Saving...';
+    statusEl.textContent = isOffline ? 'Reconnecting…' : 'Saving...';
+    statusEl.style.color = '#58a6ff';
     statusEl.style.opacity = '1';
     statusEl.classList.add('save-flash');
     const payload = {session_id: sessionId, answers: {}};

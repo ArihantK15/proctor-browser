@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { authHeaders, extractInviteToken, scanProcessOutput, fetchWithTimeout } = require('../lib/utils');
+const { authHeaders, extractInviteToken, scanProcessOutput, fetchWithTimeout, browserUserAgent } = require('../lib/utils');
 const { ALL_PROCESSES, SCAN_TYPE_MAP, INVITE_REGEX } = require('../config');
 
 const _realFetch = global.fetch;
@@ -132,6 +132,31 @@ describe('scanProcessOutput — cheat / remote-desktop / screen-share detection'
       'user 5555 /Applications/Parsec.app/Contents/MacOS/parsecd',
       ALL_PROCESSES, SCAN_TYPE_MAP);
     assert.ok(flags.some(f => f.type === 'remote_desktop_detected'));
+  });
+});
+
+describe('browserUserAgent', () => {
+  test('never contains the "Electron" token that triggers Cloudflare bot-management', () => {
+    // The real bug this fixes: Electron's default UA includes "Electron/x.y.z"
+    // (and the app name), which got the lobby/exam windows' Cloudflare-fronted
+    // requests flagged as automated — a real browser on the same machine/
+    // network reached the same domains fine. Must never regress back to the
+    // default.
+    assert.equal(/electron/i.test(browserUserAgent()), false);
+  });
+
+  test('presents as a real Chrome UA string', () => {
+    assert.match(browserUserAgent(), /^Mozilla\/5\.0 \(.+\) AppleWebKit\/537\.36 \(KHTML, like Gecko\) Chrome\/[\d.]+ Safari\/537\.36$/);
+  });
+
+  test('uses the actual running Chromium version when available (process.versions.chrome)', () => {
+    const original = process.versions.chrome;
+    Object.defineProperty(process.versions, 'chrome', { value: '999.0.1234.5', configurable: true });
+    try {
+      assert.match(browserUserAgent(), /Chrome\/999\.0\.1234\.5 /);
+    } finally {
+      Object.defineProperty(process.versions, 'chrome', { value: original, configurable: true });
+    }
   });
 });
 

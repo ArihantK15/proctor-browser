@@ -121,8 +121,22 @@
   .sd-bottomnav a.active{ color:var(--accent); background:rgba(91,138,240,.10); }
 
   /* ── Main content ────────────────────────────────────────────── */
-  .sd-main{ padding:80px 16px 88px; max-width:1100px; margin:0 auto; }
+  .sd-main{ padding:80px 16px 88px; max-width:1100px; margin:0 auto; min-height:100vh; box-sizing:border-box; display:flex; flex-direction:column; }
   @media (min-width:900px){ .sd-main{ margin-left:260px; padding:40px 40px; max-width:1000px; } }
+
+  /* ── View switching ──────────────────────────────────────────── */
+  /* Home and Results are separate full-screen views toggled by the
+     sidebar/bottom-nav, not one long page you scroll through — Home used
+     to visually run straight into the results table below it, which read
+     as a layout bug rather than two distinct sections. */
+  .sd-view{ display:none; }
+  .sd-view.active{ display:flex; flex-direction:column; flex:1; }
+  /* The upcoming/active list is the only section with variable-height
+     content, so it's the one that stretches to fill the screen — the
+     header and stats strip stay their natural size. */
+  .sd-section-grow{ flex:1; display:flex; flex-direction:column; }
+  .sd-section-grow .sd-exams{ flex:1; }
+  .sd-section-grow .sd-empty{ flex:1; display:flex; align-items:center; justify-content:center; }
 
   .sd-header{ margin-bottom:28px; }
   @media (min-width:900px){
@@ -220,13 +234,7 @@
   <span class="sd-topbar-brand">
     <span class="sd-brand-icon">
       <svg width="14" height="14" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-        <path d="M19 11 L45 11 Q51 11 51 17 L51 32 Q51 49 32 56 Q13 49 13 32 L13 17 Q13 11 19 11 Z"
-              fill="#fff" fill-opacity="0.18" stroke="#fff" stroke-width="2.4"/>
-        <circle cx="32" cy="32" r="4.8" fill="#fff"/>
-        <line x1="32" y1="22" x2="32" y2="26" stroke="#fff" stroke-width="1.8" stroke-opacity="0.85"/>
-        <line x1="32" y1="38" x2="32" y2="42" stroke="#fff" stroke-width="1.8" stroke-opacity="0.85"/>
-        <line x1="22" y1="32" x2="26" y2="32" stroke="#fff" stroke-width="1.8" stroke-opacity="0.85"/>
-        <line x1="38" y1="32" x2="42" y2="32" stroke="#fff" stroke-width="1.8" stroke-opacity="0.85"/>
+        <path d="M20 15H40C45.523 15 50 19.477 50 25V25C50 30.523 45.523 35 40 35H27.5V50H20V15ZM27.5 22.5V27.5H40C41.38 27.5 42.5 26.38 42.5 25V25C42.5 23.62 41.38 22.5 40 22.5H27.5Z" fill="#fff"/>
       </svg>
     </span>
     Procta
@@ -240,20 +248,14 @@
   <div class="sd-brand">
     <span class="sd-brand-icon">
       <svg width="16" height="16" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-        <path d="M19 11 L45 11 Q51 11 51 17 L51 32 Q51 49 32 56 Q13 49 13 32 L13 17 Q13 11 19 11 Z"
-              fill="#fff" fill-opacity="0.18" stroke="#fff" stroke-width="2.4"/>
-        <circle cx="32" cy="32" r="4.8" fill="#fff"/>
-        <line x1="32" y1="22" x2="32" y2="26" stroke="#fff" stroke-width="1.8" stroke-opacity="0.85"/>
-        <line x1="32" y1="38" x2="32" y2="42" stroke="#fff" stroke-width="1.8" stroke-opacity="0.85"/>
-        <line x1="22" y1="32" x2="26" y2="32" stroke="#fff" stroke-width="1.8" stroke-opacity="0.85"/>
-        <line x1="38" y1="32" x2="42" y2="32" stroke="#fff" stroke-width="1.8" stroke-opacity="0.85"/>
+        <path d="M20 15H40C45.523 15 50 19.477 50 25V25C50 30.523 45.523 35 40 35H27.5V50H20V15ZM27.5 22.5V27.5H40C41.38 27.5 42.5 26.38 42.5 25V25C42.5 23.62 41.38 22.5 40 22.5H27.5Z" fill="#fff"/>
       </svg>
     </span>
     Procta
   </div>
   <nav class="sd-nav">
-    <a href="#" class="active"><svg class="icon" viewBox="0 0 24 24"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>Home</a>
-    <a href="#results-section"><svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>Results</a>
+    <a href="#home" data-view="home" class="active"><svg class="icon" viewBox="0 0 24 24"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>Home</a>
+    <a href="#results" data-view="results"><svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>Results</a>
   </nav>
   <div class="sd-profile">
     <div class="sd-avatar" id="sd-avatar-initials">&middot;&middot;</div>
@@ -266,50 +268,60 @@
 </aside>
 
 <nav class="sd-bottomnav">
-  <a href="#" class="active"><svg class="icon" viewBox="0 0 24 24"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>Home</a>
-  <a href="#results-section"><svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>Results</a>
+  <a href="#home" data-view="home" class="active"><svg class="icon" viewBox="0 0 24 24"><path d="M3 9.5 12 3l9 6.5"/><path d="M5 10v10a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V10"/></svg>Home</a>
+  <a href="#results" data-view="results"><svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><path d="M18 17V9M13 17V5M8 17v-4"/></svg>Results</a>
 </nav>
 
 <main class="sd-main">
-  <div class="sd-header">
-    <div>
-      <h1 class="sd-greeting" id="sd-greeting">Good morning</h1>
-      <p class="sd-subtext" id="sd-subtext">&nbsp;</p>
+  <div class="sd-view active" data-view="home" id="view-home">
+    <div class="sd-header">
+      <div>
+        <h1 class="sd-greeting" id="sd-greeting">Good morning</h1>
+        <p class="sd-subtext" id="sd-subtext">&nbsp;</p>
+      </div>
     </div>
+
+    <div class="sd-stats">
+      <div class="sd-stat warn">
+        <div class="sd-stat-label"><svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Next Exam In</div>
+        <div class="sd-stat-value" id="sd-stat-countdown">&mdash;</div>
+      </div>
+      <div class="sd-stat">
+        <div class="sd-stat-label"><svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M9 2h6l1 4H8l1-4Z"/><rect x="5" y="6" width="14" height="16" rx="2"/></svg>Exams Taken</div>
+        <div class="sd-stat-value" id="sd-stat-taken">0</div>
+      </div>
+      <div class="sd-stat accent">
+        <div class="sd-stat-label"><svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m12 2 2.6 6.3L21 9l-5 4.5L17.4 21 12 17.6 6.6 21 8 13.5 3 9l6.4-.7L12 2Z"/></svg>Average Score</div>
+        <div class="sd-stat-value" id="sd-stat-avg">&mdash;</div>
+      </div>
+    </div>
+
+    <section class="sd-section sd-section-grow">
+      <h2 class="sd-section-title">Upcoming &amp; Active</h2>
+      <div class="sd-exams" id="sd-exams-list"></div>
+      <div class="sd-empty hidden" id="sd-exams-empty">No upcoming or active exams right now.</div>
+    </section>
   </div>
 
-  <div class="sd-stats">
-    <div class="sd-stat warn">
-      <div class="sd-stat-label"><svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>Next Exam In</div>
-      <div class="sd-stat-value" id="sd-stat-countdown">&mdash;</div>
+  <div class="sd-view" data-view="results" id="view-results">
+    <div class="sd-header">
+      <div>
+        <h1 class="sd-greeting">Past Results</h1>
+        <p class="sd-subtext">Every exam you've submitted, with your score and a downloadable report.</p>
+      </div>
     </div>
-    <div class="sd-stat">
-      <div class="sd-stat-label"><svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="M9 2h6l1 4H8l1-4Z"/><rect x="5" y="6" width="14" height="16" rx="2"/></svg>Exams Taken</div>
-      <div class="sd-stat-value" id="sd-stat-taken">0</div>
-    </div>
-    <div class="sd-stat accent">
-      <div class="sd-stat-label"><svg class="icon" viewBox="0 0 24 24" style="width:14px;height:14px"><path d="m12 2 2.6 6.3L21 9l-5 4.5L17.4 21 12 17.6 6.6 21 8 13.5 3 9l6.4-.7L12 2Z"/></svg>Average Score</div>
-      <div class="sd-stat-value" id="sd-stat-avg">&mdash;</div>
-    </div>
+
+    <section class="sd-section" id="results-section">
+      <table class="sd-results-table" id="sd-results-table">
+        <thead>
+          <tr><th>Exam</th><th>Date</th><th>Score</th><th>Status</th><th style="text-align:right">Action</th></tr>
+        </thead>
+        <tbody id="sd-results-tbody"></tbody>
+      </table>
+      <div class="sd-results-cards" id="sd-results-cards"></div>
+      <div class="sd-empty hidden" id="sd-results-empty">No exam results yet.</div>
+    </section>
   </div>
-
-  <section class="sd-section">
-    <h2 class="sd-section-title">Upcoming &amp; Active</h2>
-    <div class="sd-exams" id="sd-exams-list"></div>
-    <div class="sd-empty hidden" id="sd-exams-empty">No upcoming or active exams right now.</div>
-  </section>
-
-  <section class="sd-section" id="results-section">
-    <h2 class="sd-section-title">Past Results</h2>
-    <table class="sd-results-table" id="sd-results-table">
-      <thead>
-        <tr><th>Exam</th><th>Date</th><th>Score</th><th>Status</th><th style="text-align:right">Action</th></tr>
-      </thead>
-      <tbody id="sd-results-tbody"></tbody>
-    </table>
-    <div class="sd-results-cards" id="sd-results-cards"></div>
-    <div class="sd-empty hidden" id="sd-results-empty">No exam results yet.</div>
-  </section>
 </main>
 </div><!-- /#sd-app -->
 

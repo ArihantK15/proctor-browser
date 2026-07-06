@@ -227,5 +227,34 @@
     });
   }
 
+  // ── View switching (Home / Results) ───────────────────────────────
+  // Home and Results are separate views the user switches between via the
+  // sidebar/bottom-nav, not one page stacked top-to-bottom — previously the
+  // "Results" link was just an anchor jump down the same page, which read
+  // as a layout bug (Home appeared to trail off into an unrelated table).
+  function initViewSwitching(){
+    var navLinks = document.querySelectorAll('.sd-nav a[data-view], .sd-bottomnav a[data-view]');
+    var views = document.querySelectorAll('.sd-view');
+
+    function showView(name){
+      views.forEach(function(v){ v.classList.toggle('active', v.dataset.view === name); });
+      navLinks.forEach(function(a){ a.classList.toggle('active', a.dataset.view === name); });
+    }
+
+    navLinks.forEach(function(a){
+      a.addEventListener('click', function(e){
+        e.preventDefault();
+        var view = a.getAttribute('data-view');
+        showView(view);
+        history.replaceState(null, '', '#' + view);
+      });
+    });
+
+    var initial = (location.hash || '#home').slice(1);
+    if (initial !== 'home' && initial !== 'results') initial = 'home';
+    showView(initial);
+  }
+
+  initViewSwitching();
   checkAuthAndLoad();
 })();

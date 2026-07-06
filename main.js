@@ -64,6 +64,7 @@ const {
   getCurrentSessionId, setCurrentSessionId, getExamContext, setExamContext,
   getStudentToken, setStudentToken, getCalBiases, setCalBiases,
   getIsKiosk, setMonitorFns, setPollingFns, setPythonFns,
+  retryLobbyLoad,
 } = require('./lib/kiosk-manager');
 
 // ── Wire up kiosk-manager with backend module references ──────────
@@ -1084,6 +1085,16 @@ ipcMain.handle('panic-unlock', async (event, payload) => {
   if (!_assertMainFrame(event, 'panic-unlock')) throw new Error('Frame not allowed');
   await handlePanicUnlock((payload && payload.reason) || 'renderer-triggered');
   return { ok: true };
+});
+
+// "Retry now" button on the lobby's own static "failed to load" error
+// page (kiosk-manager.js's did-fail-load handler) — see retryLobbyLoad()
+// there for what this re-attempts. No _assertMainFrame gate: this fires
+// from the error page itself, which is a same-window data: URL, not a
+// third-party frame that could spoof the sender.
+ipcMain.on('lobby-retry-load', () => {
+  console.log('[Lobby] manual retry requested');
+  retryLobbyLoad();
 });
 
 ipcMain.handle('exit-exam-to-lobby', (event) => {

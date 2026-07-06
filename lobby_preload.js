@@ -79,4 +79,10 @@ contextBridge.exposeInMainWorld('procta_native', {
   // postMessage → console.log → console-message chain that silently
   // broke in earlier versions when Electron changed the event signature.
   quitAndInstall: () => ipcRenderer.send('procta-quit-and-install'),
+  // "Retry now" button + auto-retry timer on the lobby's own static
+  // "failed to load" error page (kiosk-manager.js's did-fail-load
+  // handler) — lets a transient origin outage recover without the
+  // student having to relaunch the whole app. See kiosk-manager.js's
+  // retryLobbyLoad() for what this actually re-attempts.
+  retryLoad: () => ipcRenderer.send('lobby-retry-load'),
 });

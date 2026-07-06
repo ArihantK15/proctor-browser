@@ -2627,8 +2627,7 @@ button.submit:hover:not(:disabled){background:#8083ff;box-shadow:0 10px 26px rgb
 <body><div class="wrap">
 <div class="brand">
   <span class="mark"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path d="M4 2 H12 Q13.5 2 13.5 3.5 V8 Q13.5 12 8 14 Q2.5 12 2.5 8 V3.5 Q2.5 2 4 2 Z" fill="none" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/>
-    <circle cx="8" cy="8" r="1.5" fill="#fff"/></svg></span>
+    <path d="M160 120H320C364.183 120 400 155.817 400 200V200C400 244.183 364.183 280 320 280H220V400H160V120ZM220 180V220H320C331.046 220 340 211.046 340 200V200C340 188.954 331.046 180 320 180H220Z" fill="#fff" transform="scale(0.03125)"/></svg></span>
   <span class="name">Procta</span>
 </div>
 <div class="card">
@@ -2696,8 +2695,7 @@ button.submit:hover:not(:disabled){background:#8083ff;box-shadow:0 10px 26px rgb
 <body><div class="wrap">
 <div class="brand">
   <span class="mark"><svg width="20" height="20" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-    <path d="M4 2 H12 Q13.5 2 13.5 3.5 V8 Q13.5 12 8 14 Q2.5 12 2.5 8 V3.5 Q2.5 2 4 2 Z" fill="none" stroke="#fff" stroke-width="1.2" stroke-linejoin="round"/>
-    <circle cx="8" cy="8" r="1.5" fill="#fff"/></svg></span>
+    <path d="M160 120H320C364.183 120 400 155.817 400 200V200C400 244.183 364.183 280 320 280H220V400H160V120ZM220 180V220H320C331.046 220 340 211.046 340 200V200C340 188.954 331.046 180 320 180H220Z" fill="#fff" transform="scale(0.03125)"/></svg></span>
   <span class="name">Procta</span>
 </div>
 <div class="card">

@@ -46,19 +46,13 @@ export default function Navbar() {
     >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6">
         <Link to="/" onClick={() => { const l = getLenis(); if (l) l.scrollTo(0); else window.scrollTo({ top: 0, behavior: 'smooth' }) }} className="flex items-center gap-2.5 no-underline">
-          {/* Brand chip — shield+eye+crosshair mark, white on accent.
+          {/* Brand chip — negative-space "P" mark, white on accent.
               Matches the favicon family (same mark, blue on navy) so the
               browser tab + nav + footer + Google SERP all read as the
               same logo. */}
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent accent-glow">
             <svg width="18" height="18" viewBox="0 0 64 64" fill="none" aria-hidden="true">
-              <path d="M19 11 L45 11 Q51 11 51 17 L51 32 Q51 49 32 56 Q13 49 13 32 L13 17 Q13 11 19 11 Z"
-                    fill="white" fillOpacity="0.18" stroke="white" strokeWidth="2.4"/>
-              <circle cx="32" cy="32" r="4.8" fill="white"/>
-              <line x1="32" y1="22" x2="32" y2="26" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
-              <line x1="32" y1="38" x2="32" y2="42" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
-              <line x1="22" y1="32" x2="26" y2="32" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
-              <line x1="38" y1="32" x2="42" y2="32" stroke="white" strokeWidth="1.8" strokeOpacity="0.85"/>
+              <path d="M20 15H40C45.523 15 50 19.477 50 25V25C50 30.523 45.523 35 40 35H27.5V50H20V15ZM27.5 22.5V27.5H40C41.38 27.5 42.5 26.38 42.5 25V25C42.5 23.62 41.38 22.5 40 22.5H27.5Z" fill="white"/>
             </svg>
           </div>
           <span className="font-display text-lg font-bold text-white tracking-tight">Procta</span>

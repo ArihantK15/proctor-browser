@@ -2,22 +2,24 @@
   <!--
     Canonical Procta logo. Stays visually identical to the inline SVG marks
     used across the codebase (Navbar, Footer, Signup, dashboard.html,
-    student.html, register.html, download.html, App.jsx, OnboardingWizard).
+    student.html, register.html, download.html, App.jsx, OnboardingWizard)
+    and to app/static/logo.svg / favicon.svg — all kept in lockstep.
 
-    The mark is a 16x16 "shield with eye dot" on a rounded accent-blue
-    chip; the wordmark "Procta" sits to its right. When a designer
-    provides a replacement, update THIS file AND the inline SVG paths
-    so they stay in lockstep.
+    The mark is a negative-space "P" on a rounded accent-blue chip; the
+    wordmark "Procta" sits to its right. When a designer provides a
+    replacement, update THIS file AND the inline SVG paths so they stay
+    in lockstep.
   -->
 
   <!-- Accent chip — matches `bg-accent accent-glow` Tailwind utility -->
-  <rect x="4" y="12" width="32" height="32" rx="8" fill="#2563eb"/>
+  <rect x="4" y="12" width="32" height="32" rx="6.4" fill="#2563eb"/>
 
-  <!-- 16x16 shield mark scaled into the chip -->
-  <g transform="translate(8 16) scale(1.5)">
-    <path d="M4 2 H12 Q13.5 2 13.5 3.5 V8 Q13.5 12 8 14 Q2.5 12 2.5 8 V3.5 Q2.5 2 4 2 Z"
-          fill="none" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round"/>
-    <circle cx="8" cy="8" r="1.5" fill="#ffffff"/>
+  <!-- Negative-space "P" mark, scaled into the chip. Native canvas is
+       favicon.svg's 512x512 coordinate space; scale(0.0625) + translate(4 12)
+       maps that box exactly onto the chip's 32x32 box at (4,12)-(36,44). -->
+  <g transform="translate(4 12) scale(0.0625)">
+    <path d="M160 120H320C364.183 120 400 155.817 400 200V200C400 244.183 364.183 280 320 280H220V400H160V120ZM220 180V220H320C331.046 220 340 211.046 340 200V200C340 188.954 331.046 180 320 180H220Z"
+          fill="#ffffff"/>
   </g>
 
   <!-- Wordmark — IBM Plex Sans, matches the in-app brand typography -->

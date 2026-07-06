@@ -26,12 +26,11 @@
 
   <!-- Brand chip + wordmark, centered horizontally. -->
   <g transform="translate(488, 150)">
-    <!-- Accent chip with shield+eye mark, white-on-blue (same as nav/footer). -->
+    <!-- Accent chip with negative-space "P" mark, white-on-blue (same as nav/footer). -->
     <rect width="80" height="80" rx="16" fill="#5B8AF0"/>
-    <g transform="translate(8, 8) scale(4)">
-      <path d="M4 2 H12 Q13.5 2 13.5 3.5 V8 Q13.5 12 8 14 Q2.5 12 2.5 8 V3.5 Q2.5 2 4 2 Z"
-            fill="none" stroke="white" stroke-width="1.2" stroke-linejoin="round"/>
-      <circle cx="8" cy="8" r="1.5" fill="white"/>
+    <g transform="translate(8, 8) scale(0.125)">
+      <path d="M160 120H320C364.183 120 400 155.817 400 200V200C400 244.183 364.183 280 320 280H220V400H160V120ZM220 180V220H320C331.046 220 340 211.046 340 200V200C340 188.954 331.046 180 320 180H220Z"
+            fill="white"/>
     </g>
     <!-- Wordmark -->
     <text x="100" y="58"
@@ -39,23 +38,31 @@
           font-size="56" font-weight="700" letter-spacing="-1.5" fill="#F0F4FF">Procta</text>
   </g>
 
-  <!-- Slogan — primary headline of the share card. -->
-  <text x="600" y="350" text-anchor="middle"
+  <!-- Slogan — primary headline of the share card. Two lines, not one:
+       at font-size 72 the combined "Remote exams. Real results." single
+       line was wider than the 1200px canvas and clipped off the right
+       edge (confirmed by actually rendering it). Splitting onto two
+       centered lines keeps the same type size and comfortably fits
+       either line with margin to spare. -->
+  <text x="600" y="300" text-anchor="middle"
         font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif"
-        font-size="72" font-weight="700" letter-spacing="-2" fill="#F0F4FF">Remote exams. <tspan fill="#5B8AF0">Real results.</tspan></text>
+        font-size="72" font-weight="700" letter-spacing="-2" fill="#F0F4FF">Remote exams.</text>
+  <text x="600" y="380" text-anchor="middle"
+        font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif"
+        font-size="72" font-weight="700" letter-spacing="-2" fill="#5B8AF0">Real results.</text>
 
   <!-- Sub-line — concrete value prop. -->
-  <text x="600" y="410" text-anchor="middle"
+  <text x="600" y="440" text-anchor="middle"
         font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif"
         font-size="24" font-weight="400" fill="#93A4C7">AI-proctored exam platform for Indian higher education</text>
 
   <!-- Feature row (smaller, label-mono feel). -->
-  <text x="600" y="500" text-anchor="middle"
+  <text x="600" y="520" text-anchor="middle"
         font-family="'IBM Plex Mono', ui-monospace, monospace"
         font-size="15" letter-spacing="2" fill="#5B7193">GAZE TRACKING  ·  FACE DETECTION  ·  OBJECT RECOGNITION  ·  ON-DEVICE</text>
 
   <!-- URL -->
-  <text x="600" y="575" text-anchor="middle"
+  <text x="600" y="580" text-anchor="middle"
         font-family="'IBM Plex Sans', system-ui, -apple-system, sans-serif"
         font-size="18" font-weight="500" fill="#7B8DAB">procta.net</text>
 </svg>

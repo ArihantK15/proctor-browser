@@ -8,26 +8,21 @@
     is the hardest to change — this file and every inline copy match IT,
     not the other way around.
 
-    The mark is a shield outline with a center "eye" dot and 4 crosshair
-    ticks, on a rounded accent-blue chip; the wordmark "Procta" sits to
-    its right. When a designer provides a replacement, update THIS file,
-    favicon.svg, and every inline SVG copy so they stay in lockstep.
+    The mark is a negative-space "P" on a rounded accent-blue chip; the
+    wordmark "Procta" sits to its right. When a designer provides a
+    replacement, update THIS file, favicon.svg, and every inline SVG copy
+    so they stay in lockstep.
   -->
 
   <!-- Accent chip — matches `bg-accent accent-glow` Tailwind utility -->
-  <rect x="4" y="12" width="32" height="32" rx="8" fill="#2563eb"/>
+  <rect x="4" y="12" width="32" height="32" rx="6.4" fill="#2563eb"/>
 
-  <!-- Shield + eye + crosshair mark, scaled into the chip. Native canvas is
-       favicon.svg's 64x64 coordinate space; scale(0.5) + translate(4 12)
+  <!-- Negative-space "P" mark, scaled into the chip. Native canvas is
+       favicon.svg's 512x512 coordinate space; scale(0.0625) + translate(4 12)
        maps that box exactly onto the chip's 32x32 box at (4,12)-(36,44). -->
-  <g transform="translate(4 12) scale(0.5)">
-    <path d="M19 11 L45 11 Q51 11 51 17 L51 32 Q51 49 32 56 Q13 49 13 32 L13 17 Q13 11 19 11 Z"
-          fill="#ffffff" fill-opacity="0.18" stroke="#ffffff" stroke-width="2.4"/>
-    <circle cx="32" cy="32" r="4.8" fill="#ffffff"/>
-    <line x1="32" y1="22" x2="32" y2="26" stroke="#ffffff" stroke-width="1.8" stroke-opacity="0.85"/>
-    <line x1="32" y1="38" x2="32" y2="42" stroke="#ffffff" stroke-width="1.8" stroke-opacity="0.85"/>
-    <line x1="22" y1="32" x2="26" y2="32" stroke="#ffffff" stroke-width="1.8" stroke-opacity="0.85"/>
-    <line x1="38" y1="32" x2="42" y2="32" stroke="#ffffff" stroke-width="1.8" stroke-opacity="0.85"/>
+  <g transform="translate(4 12) scale(0.0625)">
+    <path d="M160 120H320C364.183 120 400 155.817 400 200V200C400 244.183 364.183 280 320 280H220V400H160V120ZM220 180V220H320C331.046 220 340 211.046 340 200V200C340 188.954 331.046 180 320 180H220Z"
+          fill="#ffffff"/>
   </g>
 
   <!-- Wordmark — IBM Plex Sans, matches the in-app brand typography -->

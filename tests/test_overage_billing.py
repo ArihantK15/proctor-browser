@@ -11,7 +11,7 @@ import contextlib
 import os
 import sys
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -193,6 +193,63 @@ class TestBillCycleOverage:
         assert res["overage_count"] == 5
         assert res["amount_inr"] > 0
         mock_client.subscription.createAddon.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_addon_failure_refunds_debited_credit(self):
+        """If the Razorpay add-on creation fails after credit was debited, the
+        credit must be restored — otherwise the org is silently drained with no
+        charge and the 'failed' row can't be retried cleanly."""
+        captured_updates = []  # (table, payload)
+        # billing_credit_inr already reflects the post-debit state (0) — the
+        # real _atomic_debit_credit runs against a raw postgres connection,
+        # not _atable, so by the time the add-on creation fails the org row
+        # has already been decremented to 0 by the (mocked) debit below.
+        data_map = {
+            "subscriptions": [{"plan": "growth", "org_id": "org-1"}],
+            "organizations": [{"id": "org-1", "max_students": 10, "billing_credit_inr": 0}],
+            "teachers": [{"id": "t-1", "org_id": "org-1"}],
+            "overage_charges": [],
+        }
+
+        def _recording_se(table):
+            ch = _chain(data_map.get(table, []))
+            orig_update = ch.update
+            def _rec_update(payload):
+                captured_updates.append((table, dict(payload)))
+                return orig_update(payload)
+            ch.update = _rec_update
+            return ch
+
+        # Add-on creation blows up (Razorpay 5xx / network).
+        mock_client = MagicMock()
+        mock_client.subscription.createAddon = MagicMock(side_effect=Exception("razorpay down"))
+
+        res_overage = {"students_used": 15, "plan_limit": 10,
+                       "overage_count": 5, "amount_inr": 2500}
+        with contextlib.ExitStack() as stack:
+            for p in _overage_patches(enabled=True):
+                stack.enter_context(p)
+            stack.enter_context(patch("app.services.billing._atable", side_effect=_recording_se))
+            stack.enter_context(patch("app.services.billing._is_live", return_value=True))
+            stack.enter_context(patch("app.services.billing._get_client", return_value=mock_client))
+            stack.enter_context(patch("app.services.billing.compute_overage", return_value=res_overage))
+            # Simulate a real debit already having happened: 1000 of the
+            # 2500 charge is comped by credit, net 1500 still to be charged.
+            stack.enter_context(patch(
+                "app.services.billing._atomic_debit_credit",
+                new=AsyncMock(return_value=(1000, 1500))))
+            from app.services.billing import bill_cycle_overage
+            res = await bill_cycle_overage("org-1", self.SUB_ROW)
+
+        assert res["status"] == "failed"
+        org_credit_writes = [p["billing_credit_inr"] for (t, p) in captured_updates
+                             if t == "organizations" and "billing_credit_inr" in p]
+        # Debited to 0, then refunded back to the original 1000.
+        assert org_credit_writes, "expected credit to be touched"
+        assert org_credit_writes[-1] == 1000, org_credit_writes
+        # The settled overage_charges row must report no credit applied.
+        oc_writes = [p for (t, p) in captured_updates if t == "overage_charges"]
+        assert oc_writes and oc_writes[-1].get("credit_applied_inr") == 0, oc_writes
 
     @pytest.mark.asyncio
     async def test_duplicate_period_idempotent(self):

@@ -1098,6 +1098,7 @@ function _dispatchTabLoad(tab){
      try{ if(typeof loadShuffleConfig==='function') loadShuffleConfig(); }catch(_){}
      try{ if(typeof loadSensitivity==='function') loadSensitivity(); }catch(_){}
      try{ if(typeof loadAudioKeywords==='function') loadAudioKeywords(); }catch(_){}
+     try{ if(typeof loadPassMark==='function') loadPassMark(); }catch(_){}
      try{ if(typeof loadTemplates==='function') loadTemplates(); }catch(_){}
      try{ if(typeof loadGoogleClassroom==='function') loadGoogleClassroom(); }catch(_){}
    }
@@ -3781,6 +3782,7 @@ async function refreshAll(){
   const gen = ++_refreshGen;
   document.getElementById('refresh-spin').style.display='inline-block';
   await Promise.all([refreshLive(), refreshIdReviews(), refreshResults(), loadFailedCount(), loadAccessCode(), loadRegisteredCount(), loadSchedule(), loadShuffleConfig(), loadInvites()]);
+  loadPassMark();  // sync: reflects the freshly-selected exam's mark from examsList
   if(gen !== _refreshGen) return; // stale — user switched exam during load
   document.getElementById('refresh-spin').style.display='none';
   document.getElementById('last-refresh').textContent='Updated '+new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',hour12:true});
@@ -5479,6 +5481,53 @@ async function savePhoneCamConfig(){
     if(!r.ok) throw new Error(`HTTP ${r.status}`);
     st.style.color = 'var(--emerald)';
     st.textContent = el.checked ? 'Room camera required for this exam.' : 'Room camera disabled.';
+  }catch(e){
+    st.style.color = 'var(--red)';
+    st.textContent = 'Failed to save: '+e.message;
+  }
+}
+
+// ── PASS MARK ───────────────────────────────────────────────────
+// Per-exam pass threshold. The value is already on each exam object from
+// loadExams() (exam_config.pass_mark, default 40), so we read it from the
+// cached list rather than firing another request on every tab/exam switch.
+function loadPassMark(){
+  const el = document.getElementById('pass-mark-input');
+  if(!el) return;
+  const ex = examsList.find(e => e.exam_id === currentExamId);
+  el.value = (ex && ex.pass_mark != null) ? ex.pass_mark : 40;
+  const st = document.getElementById('pass-mark-status');
+  if(st){ st.textContent = ''; st.style.color = 'var(--muted)'; }
+}
+
+async function savePassMark(){
+  const el = document.getElementById('pass-mark-input');
+  const st = document.getElementById('pass-mark-status');
+  if(!el) return;
+  if(!currentExamId){
+    if(st){ st.style.color = 'var(--red)'; st.textContent = 'Select an exam first.'; }
+    return;
+  }
+  const pm = parseInt(el.value, 10);
+  if(isNaN(pm) || pm < 0 || pm > 100){
+    if(st){ st.style.color = 'var(--red)'; st.textContent = 'Pass mark must be a whole number from 0 to 100.'; }
+    return;
+  }
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/exams/pass-mark`,{
+      method:'POST',
+      body: JSON.stringify({exam_id: currentExamId, pass_mark: pm}),
+    });
+    if(!r.ok){
+      const d = await r.json().catch(()=>({}));
+      throw new Error(_detailText(d, `HTTP ${r.status}`));
+    }
+    // Keep the cached exam object in sync so switching tabs/exams doesn't show
+    // a stale value until the next full reload.
+    const ex = examsList.find(e => e.exam_id === currentExamId);
+    if(ex) ex.pass_mark = pm;
+    st.style.color = 'var(--emerald)';
+    st.textContent = `Students now need ${pm}% to pass this exam.`;
   }catch(e){
     st.style.color = 'var(--red)';
     st.textContent = 'Failed to save: '+e.message;

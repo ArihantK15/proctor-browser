@@ -38,6 +38,7 @@ async def _score_submission_async(
     """
     time_taken_secs = kwargs.get("time_taken_secs", 0)
     roll_number = kwargs.get("roll_number", "")
+    recovered = bool(kwargs.get("recovered", False))
     from ..database import async_table as _atable
     from ..services.scoring import recalculate_score
     from ..services.risk import compute_risk_score
@@ -73,6 +74,15 @@ async def _score_submission_async(
     #    correct). The payload overlay only exists for callers that hold raw,
     #    not-yet-persisted answers (the inline submit path); the async job is
     #    not one of them.
+    #
+    #    KNOWN OPEN ISSUE (2026-07-06): when the async-scoring path enqueues
+    #    the final-answer flush on the separate "autosave" queue (see
+    #    exam.py's `queued` branch), this job can run on the "scoring" queue
+    #    before that flush lands, scoring stale/incomplete DB rows. A fix
+    #    was proposed (merge the Redis final-answer snapshot into the
+    #    payload) but reintroduces the double-canonicalization risk above
+    #    for any question not covered by the snapshot merge — needs a
+    #    dedicated, carefully-verified fix, not bolted on here.
     score_fut = recalculate_score(session_key, {}, teacher_id=teacher_id, exam_id=exam_id)
     config_fut = load_exam_config(teacher_id=teacher_id, exam_id=exam_id)
     try:
@@ -144,6 +154,34 @@ async def _score_submission_async(
             await _atable("violations").insert(viol).execute()
     except Exception as e:
         logger.warning("[score_job] audit insert failed for %s: %s", safe(session_key), safe(e))
+
+    # 5b. Recovery audit — if this submission reopened a reaper-closed
+    # (ABANDONED) session, record it so the teacher sees the session was
+    # finalized by a valid late submit. The inline submit path writes this
+    # row directly; the async path lost the signal (the handler had already
+    # flipped ABANDONED→SUBMITTED before this job ran), so the handler now
+    # threads a `recovered` flag through. Idempotent like steps 5/6 — RQ
+    # retries this job, so guard against a duplicate row.
+    if recovered:
+        try:
+            existing_recover = await _atable("violations")\
+                .select("id")\
+                .eq("session_key", session_key)\
+                .eq("violation_type", "session_recovered")\
+                .limit(1).execute()
+            if not existing_recover.data:
+                rec_viol = {
+                    "session_key":    session_key,
+                    "violation_type": "session_recovered",
+                    "severity":       "low",
+                    "details":        "Recovered from ABANDONED by a valid late submission.",
+                }
+                if teacher_id:
+                    rec_viol["teacher_id"] = teacher_id
+                await _atable("violations").insert(rec_viol).execute()
+                logger.info("[score_job] %s recovered from ABANDONED (audit written)", safe(session_key))
+        except Exception as e:
+            logger.warning("[score_job] recovery audit failed for %s: %s", safe(session_key), safe(e))
 
     # 6. Time-exceeded violation (if applicable, idempotent like step 5).
     # Use server-computed elapsed time (started_at → submitted_at) — the
@@ -241,6 +279,7 @@ def score_submission_job(
     student_id: str | None = None,
     roll_number: str = "",
     time_taken_secs: int = 0,
+    recovered: bool = False,
 ) -> dict[str, Any]:
     """Sync wrapper called by the RQ worker process."""
     return _run_coro_in_sync(_score_submission_async(
@@ -250,4 +289,5 @@ def score_submission_job(
         student_id=student_id,
         roll_number=roll_number,
         time_taken_secs=time_taken_secs,
+        recovered=recovered,
     ))

@@ -144,7 +144,8 @@ class TestStudentAppeals:
 
     def test_appeal_owned_session_succeeds(self, student_headers, mock_student_account):
         """Appeal succeeds when student owns the session (matches by email)."""
-        mock_exec_result = MagicMock(data=[{"student_id": "student-1", "email": "alice@test.com"}])
+        session_row = MagicMock(data=[{"student_id": "student-1", "email": "alice@test.com"}])
+        no_appeals = MagicMock(data=[])  # no prior pending appeal for this session
 
         def mock_atable(table_name):
             m = MagicMock()
@@ -152,8 +153,10 @@ class TestStudentAppeals:
             m.eq.return_value = m
             m.limit.return_value = m
             m.insert.return_value = m
-            # Make execute always return the same awaitable data
-            m.execute = AsyncMock(return_value=mock_exec_result)
+            if table_name == "appeals":
+                m.execute = AsyncMock(return_value=no_appeals)
+            else:  # exam_sessions ownership lookup
+                m.execute = AsyncMock(return_value=session_row)
             return m
 
         with patch("app.routers.appeals._atable", side_effect=mock_atable):
@@ -165,6 +168,68 @@ class TestStudentAppeals:
             assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
             d = r.json()
             assert d.get("status") == "submitted"
+
+    def test_duplicate_pending_appeal_rejected(self, student_headers, mock_student_account):
+        """A second appeal for the same target while one is still pending → 409.
+
+        Guards against a double-click / double-submit spamming the teacher with
+        identical pending rows. The rate limiter (5/hour) is a coarse backstop;
+        this is the precise one."""
+        session_row = MagicMock(data=[{"student_id": "student-1", "email": "alice@test.com"}])
+        # A session-level pending appeal already exists (violation_id null).
+        existing = MagicMock(data=[{"id": "appeal-1", "violation_id": None}])
+
+        def mock_atable(table_name):
+            m = MagicMock()
+            m.select.return_value = m
+            m.eq.return_value = m
+            m.limit.return_value = m
+            m.insert.return_value = m
+            if table_name == "appeals":
+                m.execute = AsyncMock(return_value=existing)
+            else:
+                m.execute = AsyncMock(return_value=session_row)
+            return m
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable):
+            r = client.post("/api/v1/student/appeal", json={
+                "session_key": "owned_session",
+                "appeal_type": "grade",
+                "description": "I want to dispute my grade",
+            }, headers=student_headers)
+            assert r.status_code == 409, f"Expected 409 got {r.status_code}: {r.text[:200]}"
+
+    def test_appeal_for_different_flag_allowed(self, student_headers, mock_student_account):
+        """An existing pending appeal for ONE flag must not block appealing a
+        DIFFERENT flag on the same session — distinct disputes may coexist."""
+        session_row = MagicMock(data=[{"student_id": "student-1", "email": "alice@test.com",
+                                       "teacher_id": "teacher-1", "exam_id": "exam-1"}])
+        # Pending appeal exists for violation 101; the student now disputes 102.
+        other_flag_pending = MagicMock(data=[{"id": "appeal-1", "violation_id": "101"}])
+        flag_exists = MagicMock(data=[{"id": "102"}])
+
+        def mock_atable(table_name):
+            m = MagicMock()
+            m.select.return_value = m
+            m.eq.return_value = m
+            m.limit.return_value = m
+            m.insert.return_value = m
+            if table_name == "appeals":
+                m.execute = AsyncMock(return_value=other_flag_pending)
+            elif table_name == "violations":
+                m.execute = AsyncMock(return_value=flag_exists)
+            else:
+                m.execute = AsyncMock(return_value=session_row)
+            return m
+
+        with patch("app.routers.appeals._atable", side_effect=mock_atable):
+            r = client.post("/api/v1/student/appeal", json={
+                "session_key": "owned_session",
+                "appeal_type": "violation",
+                "description": "disputing a different flag",
+                "violation_id": "102",
+            }, headers=student_headers)
+            assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
 
     def test_appeal_wrong_student_rejected(self, student_headers, mock_student_account):
         """Appeal 403s when session belongs to a different student."""

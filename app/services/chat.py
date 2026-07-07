@@ -118,10 +118,21 @@ class ChatHub:
                 logger.debug("[chat] ws exception")
         await self._notify_teachers_presence(teacher_id, session_id, online=True)
 
-    async def unregister_student(self, session_id: str) -> None:
+    async def unregister_student(self, session_id: str, ws: WebSocket | None = None) -> None:
         async with self._lock:
+            current = self.student_conns.get(session_id)
+            # Reconnect guard: if a NEW socket already took over this session_id
+            # (student refreshed / network blip → register_student replaced the
+            # entry and is closing the old one), the OLD socket's disconnect must
+            # NOT evict the live registration. Only tear down when the
+            # disconnecting ws is still the active one (or no ws was passed —
+            # legacy/unconditional callers).
+            if ws is not None and current is not None and current is not ws:
+                self._last_pong.pop(ws, None)
+                return
             meta = self.student_meta.pop(session_id, None)
-            ws = self.student_conns.pop(session_id, None)
+            popped = self.student_conns.pop(session_id, None)
+            self._last_pong.pop(popped, None)
             if ws is not None:
                 self._last_pong.pop(ws, None)
         if meta:

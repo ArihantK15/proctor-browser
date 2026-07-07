@@ -110,6 +110,23 @@ async def submit_appeal(body: AppealIn, request: Request):
                 raise HTTPException(status_code=404, detail="Flag not found for this session")
             violation_id = body.violation_id
 
+        # Reject a duplicate: one pending appeal per target is enough. A double-
+        # click or double-submit shouldn't spam the teacher with identical
+        # pending rows (the 5/hour limiter is a coarse backstop; this is the
+        # precise one). A flag-linked appeal (violation_id set) and the session-
+        # level appeal (violation_id null) are DISTINCT disputes and may coexist,
+        # so the duplicate test is per-target. session_key already proves the
+        # session is this student's, so scope by it rather than student_id (which
+        # may be blank when ownership matched by email only).
+        pending = (await _atable("appeals").select("id,violation_id")
+                   .eq("session_key", body.session_key)
+                   .eq("status", "pending")
+                   .execute()).data or []
+        if any((p.get("violation_id") or None) == (violation_id or None) for p in pending):
+            raise HTTPException(
+                status_code=409,
+                detail="You already have a pending appeal for this — a teacher will review it soon.")
+
         # NOTE: the appeals table has no `email` column (see phase51 schema)
         # — student identity is session_key + student_id + roll_number, and
         # the teacher resolves email separately. Inserting email here raised

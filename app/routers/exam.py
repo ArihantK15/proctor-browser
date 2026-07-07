@@ -1627,6 +1627,10 @@ async def submit_exam(result: ResultIn, request: Request):
                 student_id=sid,
                 roll_number=trusted_roll,
                 time_taken_secs=result.time_taken_secs,
+                # Thread recovery state through — the job writes the
+                # session_recovered audit row (the handler already flipped
+                # ABANDONED→SUBMITTED, so the job can't infer it otherwise).
+                recovered=recovered_from_abandoned,
                 queue_name="scoring",
             )
 

@@ -155,6 +155,34 @@ class TestChatHubService:
         asyncio.run(chat_hub.teacher_broadcast("t1", "Hi everyone"))
         assert True
 
+    def test_reconnect_does_not_evict_new_socket(self):
+        """Reconnect race: a new socket takes over a session_id, then the OLD
+        socket's disconnect fires unregister_student(sid, old_ws). It must NOT
+        tear down the live new socket. Before the fix, unregister was keyed only
+        by session_id, so a refresh/blip silently killed the reconnected chat."""
+        from app.routers.chat import chat_hub
+        import asyncio
+        ws1, ws2 = AsyncMock(), AsyncMock()
+        asyncio.run(chat_hub.register_student(
+            session_id="sess-1", teacher_id="t1", roll="A", name="Alice", ws=ws1))
+        asyncio.run(chat_hub.register_student(
+            session_id="sess-1", teacher_id="t1", roll="A", name="Alice", ws=ws2))
+        # The OLD socket's handler now fires its disconnect cleanup.
+        asyncio.run(chat_hub.unregister_student("sess-1", ws1))
+        assert chat_hub.student_conns.get("sess-1") is ws2  # live socket survives
+        assert "sess-1" in chat_hub.student_meta
+
+    def test_unregister_with_matching_ws_removes(self):
+        """The live socket disconnecting DOES tear down its registration."""
+        from app.routers.chat import chat_hub
+        import asyncio
+        ws = AsyncMock()
+        asyncio.run(chat_hub.register_student(
+            session_id="sess-1", teacher_id="t1", roll="A", name="Alice", ws=ws))
+        asyncio.run(chat_hub.unregister_student("sess-1", ws))
+        assert "sess-1" not in chat_hub.student_conns
+        assert "sess-1" not in chat_hub.student_meta
+
     def test_student_send_fanout_to_teacher(self):
         from app.routers.chat import chat_hub
         import asyncio

@@ -380,7 +380,9 @@ class TestSubmitExam:
             assert "already submitted" in resp.json()["detail"].lower()
 
     def test_submit_zero_score_warning(self, client):
-        """When score is 0/0, a warning should be logged (not crash)."""
+        """When score is 0/0 (no auto-gradable questions) the submit must signal
+        grading:pending with percentage=null — NOT report the student got 0%
+        (forensic audit #29)."""
         token = make_student_token(roll="ALICE001")
         with patch("app.routers.exam._recalculate_score", return_value=(0, 0)), \
              patch("app.routers.exam._load_exam_config", return_value={"duration_minutes": 60}), \
@@ -400,8 +402,9 @@ class TestSubmitExam:
                                headers={"Authorization": f"Bearer {token}"})
             if resp.status_code == 200:
                 data = resp.json()
-                # percentage should be 0 (division by max(0,1) = 1)
-                assert data["percentage"] == 0.0
+                # 0/0 → awaiting manual grading, not 0%.
+                assert data["percentage"] is None
+                assert data["grading"] == "pending"
 
     def test_time_exceeded_violation(self, client):
         """Submitting past duration + 2min grace should log a violation."""

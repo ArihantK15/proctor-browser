@@ -114,17 +114,89 @@ _terminal_statuses = (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
                       SessionStatus.REJECTED, SessionStatus.ABANDONED)
 
 
-async def _reject_if_terminal(session_id: str) -> None:
-    """Raise 409 if the session is in a terminal state."""
+# Truly-terminal statuses for the save paths: a real double-submit / teacher
+# termination. ABANDONED is deliberately EXCLUDED — it is RECOVERABLE (see
+# _recover_or_reject_terminal), symmetric with recover-on-submit.
+_HARD_TERMINAL_STATUSES = (SessionStatus.COMPLETED, SessionStatus.FORCE_SUBMITTED,
+                           SessionStatus.REJECTED)
+
+
+async def _recover_or_reject_terminal(session_id: str, teacher_id: str | None = None) -> None:
+    """For the save paths: 409 a truly-terminal session, but RECOVER an
+    ABANDONED one (reaper/disconnect closed it) back to IN_PROGRESS so a
+    returning student can keep saving instead of being dead-ended at a 409.
+    Mirrors recover-on-submit; writes a 'session_recovered' audit row."""
     try:
         row = (await _atable("exam_sessions").select("status")
                .eq("session_key", session_id).limit(1).execute()).data
-        if row and row[0].get("status") in _terminal_statuses:
-            raise HTTPException(status_code=409, detail="Exam already submitted")
-    except HTTPException:
-        raise
     except Exception:
-        logger.warning("_reject_if_terminal: session check failed", exc_info=True)
+        logger.warning("_recover_or_reject_terminal: session check failed", exc_info=True)
+        return
+    if not row:
+        return
+    status = row[0].get("status")
+    if status in _HARD_TERMINAL_STATUSES:
+        raise HTTPException(status_code=409, detail="Exam already submitted")
+    if status != SessionStatus.ABANDONED:
+        return
+    # CAS recover ABANDONED→IN_PROGRESS (teacher-scoped, same TOCTOU defence
+    # the reaper uses). Only the winner of the CAS writes the audit row.
+    try:
+        upd = _atable("exam_sessions").update({"status": SessionStatus.IN_PROGRESS})\
+            .eq("session_key", session_id).eq("status", SessionStatus.ABANDONED)
+        if teacher_id:
+            upd = upd.eq("teacher_id", teacher_id)
+        res = await upd.execute()
+        if res.data or []:
+            rec_viol = {
+                "session_key":    session_id,
+                "violation_type": "session_recovered",
+                "severity":       "low",
+                "details":        "Recovered from ABANDONED by a valid answer save.",
+            }
+            if teacher_id:
+                rec_viol["teacher_id"] = teacher_id
+            await _atable("violations").insert(rec_viol).execute()
+            _exam_log.info("[SAVE-RECOVER] %s recovered from ABANDONED", safe(session_id))
+    except Exception:
+        logger.warning("_recover_or_reject_terminal: recover failed", exc_info=True)
+
+
+async def _server_start_reference(session_id: str, teacher_id: str | None) -> str | None:
+    """Immutable server-side exam-start timestamp: the earliest `exam_started`
+    event's created_at. exam_sessions has no created_at column and started_at
+    can be NULL on an ID-verification ensure-session row, so this is the
+    anti-cheat fallback — time_exceeded must NEVER be decided by the
+    client-supplied time_taken_secs (a cheater could under-report)."""
+    try:
+        q = _atable("violations").select("created_at")\
+            .eq("session_key", session_id).eq("violation_type", "exam_started")
+        if teacher_id:
+            q = q.eq("teacher_id", str(teacher_id))
+        rows = (await q.order("created_at").limit(1).execute()).data or []
+        if rows:
+            return rows[0].get("created_at")
+    except Exception:
+        logger.warning("_server_start_reference: lookup failed", exc_info=True)
+    return None
+
+
+def _resolve_server_elapsed(now, start_ref_str, client_time_taken, paused_secs_total) -> float:
+    """Elapsed exam seconds from a SERVER-side start reference when available;
+    only fall back to the client value when no server timestamp exists at all
+    (and even then it can only ADD a time_exceeded flag, never remove one)."""
+    elapsed = None
+    if start_ref_str:
+        try:
+            ref = datetime.fromisoformat(str(start_ref_str).replace("Z", "+00:00"))
+            elapsed = (now - ref).total_seconds()
+        except (ValueError, TypeError):
+            elapsed = None
+    if elapsed is None:
+        elapsed = client_time_taken
+    if paused_secs_total:
+        elapsed = max(0, elapsed - paused_secs_total)
+    return elapsed
 
 
 async def _require_attested(session_id: str, tid: str | None) -> None:
@@ -1164,8 +1236,8 @@ async def save_answer(body: AnswerIn, request: Request):
 
     claims = require_auth(request)
     await _assert_student_session_access(claims, body.session_id)
-    await _reject_if_terminal(body.session_id)
     tid = claims.get("tid")
+    await _recover_or_reject_terminal(body.session_id, tid)
     eid = claims.get("eid")
     canonical = await _canonicalise_student_answer(
         body.session_id, str(tid or ""), str(body.question_id), str(body.answer),
@@ -1221,10 +1293,10 @@ async def save_answers_bulk(body: BulkAnswerIn, request: Request):
 
     claims = require_auth(request)
     await _assert_student_session_access(claims, body.session_id)
-    await _reject_if_terminal(body.session_id)
+    tid = claims.get("tid")
+    await _recover_or_reject_terminal(body.session_id, tid)
     if not body.answers:
         return {"status": "empty", "saved": 0}
-    tid = claims.get("tid")
     eid = claims.get("eid")
     sid = claims.get("sid")
 
@@ -1752,18 +1824,15 @@ async def submit_exam(result: ResultIn, request: Request):
     # Phase 113: add per-student time extension (accommodations).
     extra = await get_time_extension(tid, eid, trusted_roll) if tid and eid else 0
     allowed_secs = (config.get("duration_minutes", 60) + extra) * 60
-    started_at_str = existing_session.get("started_at")
-    if started_at_str:
-        try:
-            started = datetime.fromisoformat(str(started_at_str).replace("Z", "+00:00"))
-            server_elapsed = (now - started).total_seconds()
-        except (ValueError, TypeError):
-            server_elapsed = result.time_taken_secs
-    else:
-        server_elapsed = result.time_taken_secs
     paused_secs_total = int(existing_session.get("paused_secs_total") or 0)
-    if paused_secs_total:
-        server_elapsed = max(0, server_elapsed - paused_secs_total)
+    start_ref = existing_session.get("started_at")
+    if not start_ref:
+        # started_at missing (e.g. an ID-verification ensure-session row): fall
+        # back to the immutable exam_started event timestamp, NOT the client's
+        # time_taken_secs, so the student can't under-report to dodge the flag.
+        start_ref = await _server_start_reference(result.session_id, tid)
+    server_elapsed = _resolve_server_elapsed(
+        now, start_ref, result.time_taken_secs, paused_secs_total)
     if server_elapsed > allowed_secs + 120:
         time_viol = {
             "session_key":    result.session_id,
@@ -1868,6 +1937,12 @@ async def submit_exam(result: ResultIn, request: Request):
     resp = {"status": SessionStatus.SUBMITTED, "score": server_score,
             "total": server_total, "percentage": pct,
             "risk_score": risk_score_val, "risk_label": risk_label}
+    if server_total == 0:
+        # No auto-gradable questions (e.g. an all-short-answer / manual exam):
+        # 0/0 is NOT 0%. Signal awaiting-manual-grading so the client doesn't
+        # tell the student they scored 0% before the teacher has graded.
+        resp["percentage"] = None
+        resp["grading"] = "pending"
     if audit_warnings:
         resp["warnings"] = audit_warnings
     return resp
@@ -1909,14 +1984,20 @@ async def session_status(request: Request, session_id: str):
         return {"status": SessionStatus.SUBMITTED, "scoring": "pending"}
 
     # Done — return the final numbers
-    return {
+    total = rec.get("total") or 0
+    out = {
         "status":      status or SessionStatus.SUBMITTED,
         "scoring":     "done",
         "score":       rec.get("score") or 0,
-        "total":       rec.get("total") or 0,
+        "total":       total,
         "percentage":  rec.get("percentage") or 0,
         "risk_score":  rec.get("risk_score") or 0,
     }
+    if total == 0:
+        # All-short-answer / manual exam: awaiting manual grading, not 0%.
+        out["percentage"] = None
+        out["grading"] = "pending"
+    return out
 
 
 def _enqueue_s3_upload(safe_teacher_id: str, roll: str, filename: str,

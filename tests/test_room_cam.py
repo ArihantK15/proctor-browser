@@ -10,6 +10,7 @@ Covers:
 """
 import os
 import sys
+import time
 from unittest.mock import MagicMock, patch, AsyncMock
 from datetime import datetime, timedelta, timezone
 
@@ -260,3 +261,62 @@ class TestLiveFrameAuth:
                            json={"session_id": "BOB002_xyz", "jpeg_b64": "Zm9v"},
                            headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code in (401, 403)
+
+
+class TestRoomCamOfflineRLSContext:
+    """The background offline-detector writes the `room_cam_offline` violation
+    and flips `room_cam_status` from OUTSIDE the HTTP RLS-context middleware
+    (it runs in a bare asyncio task). Under the live RLS cutover those writes
+    are denied unless elevated — the same failure the WS connection handler
+    documents. This pins that the offline write runs under system_context()."""
+
+    def test_offline_violation_insert_runs_under_system_context(self, monkeypatch):
+        import asyncio
+        import contextlib
+        import app.routers.sse as sse
+
+        depth = {"cur": 0, "max": 0}
+
+        @contextlib.contextmanager
+        def _tracking_ctx():
+            depth["cur"] += 1
+            depth["max"] = max(depth["max"], depth["cur"])
+            try:
+                yield
+            finally:
+                depth["cur"] -= 1
+
+        monkeypatch.setattr(sse, "system_context", _tracking_ctx)
+
+        captured = {}
+
+        class _Chain:
+            def select(self, *a, **k): return self
+            def eq(self, *a, **k): return self
+            def limit(self, *a, **k): return self
+            def update(self, *a, **k): return self
+            def insert(self, row):
+                captured["row"] = row
+                captured["insert_depth"] = depth["cur"]
+                return self
+
+            async def execute(self):
+                r = MagicMock()
+                r.data = [{"teacher_id": "teacher-1"}]
+                return r
+
+        import app.database as _db
+        monkeypatch.setattr(_db, "async_table", lambda name: _Chain())
+
+        sid = "ALICE001_offline1"
+        sse._last_room_frame.clear()
+        sse._ROOM_CAM_OFFLINE_FIRED.clear()
+        # Last frame older than the offline timeout but newer than the 300s
+        # stale-cleanup window, so the function fires an offline violation.
+        sse._last_room_frame[sid] = time.time() - (sse._ROOM_CAM_OFFLINE_TIMEOUT + 5)
+
+        asyncio.run(sse._room_cam_offline_check())
+
+        assert captured.get("row", {}).get("violation_type") == "room_cam_offline"
+        assert captured.get("insert_depth", 0) >= 1, \
+            "room_cam_offline violation insert must run inside system_context()"

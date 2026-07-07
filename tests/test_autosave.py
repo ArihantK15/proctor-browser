@@ -168,3 +168,24 @@ def test_submit_runs_final_answer_sync_fallback_when_queue_disabled(client):
 
     assert resp.status_code == 200
     sync_save.assert_awaited_once()
+
+
+def test_session_status_total_zero_returns_grading_pending(client):
+    """All-short-answer / manual exam scores 0/0 — session-status must signal
+    grading:pending with percentage=null, NOT report the student scored 0%
+    (forensic audit #29)."""
+    token = make_student_token(roll="ALICE001")
+    row = {"status": "completed", "score": 0, "total": 0, "percentage": 0, "risk_score": 0}
+    with patch("app.routers.exam._assert_student_session_access", new=AsyncMock()), \
+         patch("app.routers.exam._atable") as atable_mock:
+        atable_mock.return_value.select.return_value.eq.return_value.limit.return_value.execute = \
+            AsyncMock(return_value=MagicMock(data=[row]))
+        resp = client.get(
+            "/api/v1/session-status?session_id=ALICE001_123",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body.get("grading") == "pending"
+    assert body.get("percentage") is None
+    assert body.get("score") == 0

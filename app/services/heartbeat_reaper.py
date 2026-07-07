@@ -180,22 +180,62 @@ async def _mark_abandoned(row: dict[str, Any], _atable) -> None:
             sid, answers, teacher_id=teacher_id or None, exam_id=exam_id
         )
         pct = round((score / max(total, 1)) * 100, 1)
-        # Atomic update with teacher_id filter — defense-in-depth as
-        # above on the ABANDONED transition.
-        final_upd_q = _atable("exam_sessions").update({
-            "score":      score,
-            "total":      total,
-            "percentage": pct,
-            "status":     SessionStatus.FORCE_SUBMITTED,
+        # Only FINALIZE (FORCE_SUBMITTED — terminal, non-recoverable) once the
+        # exam window has actually closed. While ends_at is still open the
+        # student may return, so keep the session ABANDONED (recoverable by
+        # recover-on-submit / recover-on-save) but persist a PROVISIONAL score
+        # so saved answers are never lost and the live monitor stays honest.
+        # (ABANDONED sessions are never re-selected by the reaper, so scoring
+        # here — not skipping — is what prevents a never-returning student on
+        # an open-window exam from going un-scored forever.)
+        window_closed = await _exam_window_closed(exam_id, _atable)
+        upd_fields: dict = {"score": score, "total": total, "percentage": pct}
+        if window_closed:
+            upd_fields["status"] = SessionStatus.FORCE_SUBMITTED
             # ISO string is fine for UPDATE values — asyncpg's column-level
             # input coercion handles it. Only WHERE-filter parameters
             # (see cutoff above) need a real datetime to satisfy the
             # prepared-statement parameter type check.
-            "submitted_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("session_key", sid).eq("status", SessionStatus.ABANDONED)
+            upd_fields["submitted_at"] = datetime.now(timezone.utc).isoformat()
+        # Atomic update with teacher_id filter + CAS on status=ABANDONED —
+        # defense-in-depth, and so a concurrent recover-on-submit that just
+        # finalized the session isn't clobbered by a stale provisional score.
+        final_upd_q = _atable("exam_sessions").update(upd_fields)\
+            .eq("session_key", sid).eq("status", SessionStatus.ABANDONED)
         if teacher_id:
             final_upd_q = final_upd_q.eq("teacher_id", teacher_id)
         await final_upd_q.execute()
-        logger.info("[reaper] auto-scored session %s: %d/%d (%.1f%%)", sid, score, total, pct)
+        logger.info("[reaper] %s session %s: %d/%d (%.1f%%)",
+                    "finalized" if window_closed else "provisionally scored",
+                    sid, score, total, pct)
     except Exception as e:
         logger.warning("[reaper] auto-score failed for %s: %s", sid, e)
+
+
+async def _exam_window_closed(exam_id, _atable) -> bool:
+    """True only if the exam has a scheduled end (ends_at) that is now in the
+    past. No exam_id / no ends_at → treated as STILL OPEN, so the reaper leaves
+    the session recoverable and relies on recover-on-submit/-save."""
+    if not exam_id:
+        return False
+    try:
+        rows = (await _atable("exam_config").select("ends_at")
+                .eq("exam_id", exam_id).limit(1).execute()).data or []
+    except Exception as e:
+        logger.warning("[reaper] ends_at lookup failed for exam %s: %s", exam_id, e)
+        return False
+    if not rows:
+        return False
+    ends_at = rows[0].get("ends_at")
+    if not ends_at:
+        return False
+    try:
+        if isinstance(ends_at, str):
+            dt = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
+        else:
+            dt = ends_at
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt < datetime.now(timezone.utc)
+    except Exception:
+        return False

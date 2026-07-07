@@ -437,25 +437,31 @@ async def _room_cam_offline_check():
         # existed (FK-violating data; defense-in-depth).
         try:
             from ..database import async_table as _atable
-            row = (await _atable("exam_sessions")
-                   .select("teacher_id")
-                   .eq("session_key", sid)
-                   .limit(1).execute()).data or []
-            sess_tid = str(row[0].get("teacher_id") or "") if row else ""
-            viol_row = {
-                "session_key": sid,
-                "violation_type": "room_cam_offline",
-                "severity": "medium",
-                "details": "Room camera disconnected for >20s — phone may have gone offline",
-            }
-            if sess_tid:
-                viol_row["teacher_id"] = sess_tid
-            await _atable("violations").insert(viol_row).execute()
-            upd = _atable("exam_sessions").update({"room_cam_status": "offline"})\
-                .eq("session_key", sid)
-            if sess_tid:
-                upd = upd.eq("teacher_id", sess_tid)
-            await upd.execute()
+            # system_context: this loop runs as a bare asyncio task OUTSIDE the
+            # HTTP RLS-context middleware (same as this file's WS connection
+            # handler). Without it the teacher_id read returns 0 rows and the
+            # violations.insert / room_cam_status='offline' UPDATE match 0 rows
+            # under RLS — the phone-offline signal is silently lost.
+            with system_context():
+                row = (await _atable("exam_sessions")
+                       .select("teacher_id")
+                       .eq("session_key", sid)
+                       .limit(1).execute()).data or []
+                sess_tid = str(row[0].get("teacher_id") or "") if row else ""
+                viol_row = {
+                    "session_key": sid,
+                    "violation_type": "room_cam_offline",
+                    "severity": "medium",
+                    "details": "Room camera disconnected for >20s — phone may have gone offline",
+                }
+                if sess_tid:
+                    viol_row["teacher_id"] = sess_tid
+                await _atable("violations").insert(viol_row).execute()
+                upd = _atable("exam_sessions").update({"room_cam_status": "offline"})\
+                    .eq("session_key", sid)
+                if sess_tid:
+                    upd = upd.eq("teacher_id", sess_tid)
+                await upd.execute()
             logger.warning("[room_cam_offline] session=%s marked offline", sid)
         except Exception as e:
             logger.error("[room_cam_offline] failed to record violation for %s: %s", sid, e)

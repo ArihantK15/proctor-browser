@@ -1,6 +1,6 @@
 {
   "name": "proctor-browser",
-  "version": "2.5.5",
+  "version": "2.5.6",
   "description": "AI Proctored Exam Browser",
   "author": "Procta",
   "main": "main.js",

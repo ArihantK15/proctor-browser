@@ -71,8 +71,16 @@ async function _loadPublicConfig() {
 // login + signup + reset forms each have their own widget slot.
 const _turnstileWidgetIds = [];
 
+// Genuine Procta app traffic already bypasses Turnstile server-side via
+// the HMAC attestation headers above — rendering the widget here anyway
+// would needlessly depend on challenges.cloudflare.com loading inside the
+// kiosk lobby for a check the server never looks at.
+function _isGenuineApp() {
+  return !!(window.procta_native && typeof window.procta_native.getAppAttestation === 'function');
+}
+
 function _renderTurnstileSlot(elementId) {
-  if (!_turnstileSiteKey || !window.turnstile) return;
+  if (_isGenuineApp() || !_turnstileSiteKey || !window.turnstile) return;
   const el = document.getElementById(elementId);
   if (!el || el.dataset.rendered) return;
   el.dataset.rendered = '1';

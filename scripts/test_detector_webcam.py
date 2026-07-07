@@ -38,7 +38,8 @@ def main():
     if not cap.isOpened():
         print(f"[test] cannot open camera {cam} (try CAM=1)")
         return
-    print("[test] running — hold up a phone / earbuds / a watch. Press q to quit.")
+    print("[test] running — hold up a phone / earbuds / a laptop / calculator / "
+          "tablet. Press q to quit.")
 
     while True:
         ok, frame = cap.read()

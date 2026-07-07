@@ -119,7 +119,7 @@ class TestYoloInferDecode:
         from proctor import (_cheat_detection_kept, YOLO_PHONE_CONFIDENCE,
                              YOLO_CONFIDENCE)
 
-        # Custom 4-class model: Phone (2) is gated at YOLO_PHONE_CONFIDENCE; the
+        # Custom 7-class model: Phone (2) is gated at YOLO_PHONE_CONFIDENCE; the
         # others at YOLO_CONFIDENCE. Note the phone bar is now the STRICTER of the
         # two (0.40 vs 0.35) — the trained phone class reads cleanly, so the old
         # low COCO floor would false-positive. Assert against each class's own
@@ -127,14 +127,15 @@ class TestYoloInferDecode:
         assert _cheat_detection_kept(2, YOLO_PHONE_CONFIDENCE)
         assert _cheat_detection_kept(2, YOLO_PHONE_CONFIDENCE + 0.01)
         assert not _cheat_detection_kept(2, YOLO_PHONE_CONFIDENCE - 0.01)
-        # Non-handheld cheat objects (Earphone 0, Headphone 1, Smartwatch 3).
-        for cid in (0, 1, 3):
+        # Non-handheld cheat objects (Earphone 0, Headphone 1, Calculator 3,
+        # Laptop 4, Monitor 5, Tablet 6).
+        for cid in (0, 1, 3, 4, 5, 6):
             assert _cheat_detection_kept(cid, YOLO_CONFIDENCE)
             assert _cheat_detection_kept(cid, YOLO_CONFIDENCE + 0.01)
             assert not _cheat_detection_kept(cid, YOLO_CONFIDENCE - 0.01)
-        # Classes outside CHEAT_IDS (e.g. the not-yet-trained Calculator 4, or
-        # any stray id) are never kept, even at max confidence.
-        assert not _cheat_detection_kept(4, 0.99)
+        # Classes outside CHEAT_IDS (any stray id) are never kept, even at max
+        # confidence.
+        assert not _cheat_detection_kept(7, 0.99)
         assert not _cheat_detection_kept(9, 0.99)
 
     def test_per_class_nms_dedups_overlapping_same_class(self):

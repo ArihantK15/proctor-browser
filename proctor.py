@@ -1033,10 +1033,12 @@ WARMUP_GRACE_FRAMES   = 30     # ~1s — faster perceived camera startup
 YOLO_CONFIDENCE     = 0.35
 # The old 0.20 floor existed only because the COCO model read phones weakly
 # (0.10–0.59, often as "remote"). The CUSTOM detector has a real, clean phone
-# class (P≈0.87), so 0.20 would now invite false positives — raised to 0.40 as a
+# class (P≈0.76), so 0.20 would now invite false positives — raised to 0.40 as a
 # sane default. This is a STARTING point: retune against live webcam footage
-# (the 5-class precisions are earphone 0.82 / headphone 0.86 / phone 0.87 /
-# watch 0.90). Override via PROCTOR_YOLO_PHONE_CONFIDENCE for field tuning.
+# (the 7-class precisions are earphone 0.89 / headphone 0.57 / phone 0.76 /
+# calculator 0.73 / laptop 0.79 / monitor 0.78 / tablet 0.54 — headphone and
+# tablet run soft and may need their own floor rather than sharing this one).
+# Override via PROCTOR_YOLO_PHONE_CONFIDENCE for field tuning.
 YOLO_PHONE_CONFIDENCE = float(os.getenv("PROCTOR_YOLO_PHONE_CONFIDENCE", "0.40"))
 # Decode must keep anything either gate might want; _yolo_infer thresholds at
 # the lower of the two and _cheat_detection_kept() makes the final per-class call.
@@ -1463,20 +1465,25 @@ def _dominant_direction(yaw: float, pitch: float,
 
 # ─── CHEAT OBJECTS ────────────────────────────────────────────────────────────
 # Class IDs from the CUSTOM-trained proctoring detector (weights/yolo26n.onnx,
-# 4-class). This replaces the old COCO model, which had no earbud/watch/calculator
-# class at all and mislabelled phones as "remote" (65) — so phone detection
-# "caught nothing" and earbuds rode a separate, absent ear-crop classifier. These
-# are now first-class trained objects. The phone is labelled plain "Phone" so the
-# phone-position consumers (which test `name == "Phone"`) actually fire.
+# 7-class, trained 2026-07-07). This replaces the old COCO model, which had no
+# earbud/calculator/monitor class at all and mislabelled phones as "remote" (65)
+# — so phone detection "caught nothing" and earbuds rode a separate, absent
+# ear-crop classifier. These are now first-class trained objects. The phone is
+# labelled plain "Phone" so the phone-position consumers (which test
+# `name == "Phone"`) actually fire.
 #
-# Adding the 5th class is a ONE-LINE change here once the 5-class model trains —
-# the decode ([1,N,6], class-count-agnostic) and the confidence gate need no edit.
+# Smartwatch was dropped from this training run in favor of laptop/monitor/
+# tablet, which recovers the second-screen coverage the COCO drop had lost.
+# calculator (recall 0.35) and tablet (recall 0.54) are weak at default
+# thresholds — expect misses until retuned against live data.
 CHEAT_IDS = {
     0: "Earphone",
     1: "Headphone",
     2: "Phone",
-    3: "Smartwatch",
-    # 4: "Calculator",   # ← uncomment when the 5-class model ships
+    3: "Calculator",
+    4: "Laptop",
+    5: "Monitor",
+    6: "Tablet",
 }
 
 # Phone (2) is the handheld class gated at the lower YOLO_PHONE_CONFIDENCE; the

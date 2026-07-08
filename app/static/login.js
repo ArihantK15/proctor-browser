@@ -21,6 +21,30 @@
   "use strict";
   var $ = function (id) { return document.getElementById(id); };
 
+  // Best-effort diagnostic report for pre-auth failures (see
+  // /api/v1/client-diagnostic's docstring). Fire-and-forget: if the network
+  // is ALSO too broken to send this, that's fine — it's not on the critical
+  // path and must never throw or block the user-facing error message.
+  async function reportClientDiagnostic(context, err, target) {
+    try {
+      var appVersion = "";
+      if (window.procta_native && typeof window.procta_native.getAppVersion === "function") {
+        try { appVersion = await window.procta_native.getAppVersion(); } catch (_) {}
+      }
+      var body = JSON.stringify({
+        context: context,
+        error_name: (err && err.name) || "",
+        error_message: (err && err.message) || String(err || ""),
+        target: (target || "").split("?")[0],
+        app_version: appVersion || "",
+        platform: navigator.platform || "",
+      });
+      fetch("/api/v1/client-diagnostic", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: body,
+      }).catch(function () {});
+    } catch (_) {}
+  }
+
   var ROLE_KEY = "procta_login_role";
   var ROLES = {
     student: {
@@ -157,7 +181,13 @@
         credentials: "include",
         body: JSON.stringify(body),
       });
-    } catch (_) {
+    } catch (err) {
+      // Previously this discarded `err` entirely — every prior attempt to
+      // diagnose a recurring "Failed to fetch" report here had zero real
+      // data to work from (confirmed 2026-07-08: nothing reached Sentry,
+      // nothing was logged anywhere). Best-effort report so the NEXT
+      // occurrence is actually queryable.
+      reportClientDiagnostic("login_submit", err, cfg.endpoint);
       setBusy(false); resetTurnstile();
       showErr("Network error. Check your connection and try again.");
       return;

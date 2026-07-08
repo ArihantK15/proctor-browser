@@ -23,6 +23,14 @@ from .. import cache as _cache
 from ..models import RegisterIn, SessionStatus, InviteStatus, VerificationStatus
 from ..utils import fmt_ist, now_ist
 from ..constants import DOWNLOAD_MAC_ARM, DOWNLOAD_MAC_X64, DOWNLOAD_WIN
+
+# Imported eagerly at module load (not lazily inside the request handler):
+# a first-time `import sentry_sdk` triggered from inside a running asyncio
+# event loop (as happens when it's imported lazily mid-request) reproducibly
+# stalls the request for ~0.5s and can hang the ASGI response cycle in some
+# test-client/anyio configurations. Importing at module scope, before any
+# event loop is running, sidesteps that entirely.
+import sentry_sdk
 from ..repositories.questions import load_exam_config as _load_exam_config
 from ..invites import _get_invite_base_url, _new_invite_token
 from ..services.invite_landing import _render_invite_error, _render_invite_landing
@@ -43,6 +51,21 @@ class DemoRequest(BaseModel):
     role: str = Field(max_length=100)
     message: str = Field(default="", max_length=2000)
     captcha_token: str = Field(default="", max_length=4096)
+
+
+class ClientDiagnosticIn(BaseModel):
+    # Unauthenticated by design — this exists specifically to capture failures
+    # from BEFORE the user has a session (login/lobby-load errors), which the
+    # normal /api/v1/event pipeline can't see (require_auth). No free-text
+    # PII fields: just short, bounded, enum-ish strings. Never log/forward
+    # anything beyond what's declared here.
+    model_config = ConfigDict(strict=True, extra="forbid")
+    context: str = Field(max_length=64)          # e.g. "login_submit", "lobby_load"
+    error_name: str = Field(default="", max_length=100)   # e.g. "TypeError"
+    error_message: str = Field(default="", max_length=300)
+    target: str = Field(default="", max_length=200)       # endpoint/URL attempted, no query string
+    app_version: str = Field(default="", max_length=32)
+    platform: str = Field(default="", max_length=32)
 
 
 class ResolveAccessCodeIn(BaseModel):
@@ -1291,3 +1314,40 @@ async def phone_cam_page(request: Request):
     isn't in the deployed Docker image, so prod 404'd ('Phone camera page not
     found') and the phone could never pair."""
     return _static_html_response("phone-cam.html", "Phone camera page not found")
+
+
+@router.post("/api/v1/client-diagnostic")
+@limiter.limit("10/hour")
+async def client_diagnostic(req: ClientDiagnosticIn, request: Request):
+    """Best-effort capture for client-side failures that happen BEFORE the
+    user has a session (login form 'Failed to fetch', Electron lobby
+    did-fail-load) — /api/v1/event can't see these (require_auth), and
+    without this there is NO server-visible record of them at all. Confirmed
+    2026-07-08: the Electron renderer has no Sentry SDK wired in (only
+    main.js does), and login.js's fetch() catch block discarded the actual
+    error object — so every prior attempt to diagnose a recurring "Failed to
+    fetch" report had zero real telemetry to work from. This forwards to
+    Sentry server-side (which IS reliably wired) so the NEXT occurrence is
+    actually queryable instead of guessed at again.
+
+    Deliberately unauthenticated, tightly rate-limited, and accepts only
+    short bounded fields — no free-text PII.
+    """
+    logger.warning(
+        "[client-diagnostic] context=%s error=%s:%s target=%s app=%s platform=%s",
+        safe(req.context), safe(req.error_name), safe(req.error_message),
+        safe(req.target), safe(req.app_version), safe(req.platform),
+    )
+    try:
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("client_diagnostic_context", req.context)
+            scope.set_tag("app_version", req.app_version or "unknown")
+            scope.set_tag("platform", req.platform or "unknown")
+            scope.set_extra("target", req.target)
+            sentry_sdk.capture_message(
+                f"[client] {req.context}: {req.error_name} {req.error_message}".strip(),
+                level="warning",
+            )
+    except Exception:
+        pass  # Sentry not configured (dev) or transiently unreachable — logged above regardless.
+    return {"ok": True}

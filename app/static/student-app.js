@@ -15,6 +15,30 @@ function fetchWithTimeout(url, opts={}, timeoutMs=30000) {
   return fetch(url, {...opts, signal: opts.signal || ctrl.signal}).finally(()=>clearTimeout(timer));
 }
 
+// Best-effort diagnostic report for pre-auth failures (see the server-side
+// /api/v1/client-diagnostic docstring). Confirmed 2026-07-08: doAuth()'s
+// catch block below was putting the raw fetch() error message straight into
+// the UI (e.message literally IS the string "Failed to fetch" on a network
+// failure) with zero capture anywhere — every prior attempt to diagnose a
+// recurring report of exactly that text had no real data to work from.
+async function _reportClientDiagnostic(context, err, target) {
+  try {
+    let appVersion = '';
+    if (window.procta_native && typeof window.procta_native.getAppVersion === 'function') {
+      try { appVersion = await window.procta_native.getAppVersion(); } catch (_) {}
+    }
+    const body = JSON.stringify({
+      context, error_name: (err && err.name) || '',
+      error_message: (err && err.message) || String(err || ''),
+      target: (target || '').split('?')[0],
+      app_version: appVersion || '', platform: navigator.platform || '',
+    });
+    fetchWithTimeout(apiUrl('/api/v1/client-diagnostic'), {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body,
+    }, 5000).catch(()=>{});
+  } catch (_) {}
+}
+
 // Inside the Procta app, the lobby renders this page via the procta-lobby://
 // custom scheme, whose "domain" (the literal host `lobby`) Cloudflare can't
 // allowlist for the Turnstile sitekey — there's no real DNS name to
@@ -216,7 +240,12 @@ async function doReset() {
     document.getElementById('reset-email').disabled = true;
     document.getElementById('reset-confirm-wrap').style.display = 'block';
   } catch(e) {
-    errEl.textContent = e.message || 'Something went wrong, try again.';
+    if (e instanceof TypeError) {
+      _reportClientDiagnostic('reset_request', e, '/api/v1/student/auth/reset-request');
+      errEl.textContent = 'Network error. Check your connection and try again.';
+    } else {
+      errEl.textContent = e.message || 'Something went wrong, try again.';
+    }
     _resetTurnstile();
   } finally {
     btn.disabled = false; btn.textContent = 'Send reset code';
@@ -254,7 +283,12 @@ async function confirmResetOtp() {
     okEl.style.display = 'block';
     document.getElementById('reset-email').disabled = false;
   } catch(e) {
-    errEl.textContent = e.message || 'Something went wrong, try again.';
+    if (e instanceof TypeError) {
+      _reportClientDiagnostic('reset_confirm', e, '/api/v1/student/auth/reset-confirm');
+      errEl.textContent = 'Network error. Check your connection and try again.';
+    } else {
+      errEl.textContent = e.message || 'Something went wrong, try again.';
+    }
   } finally {
     btn.disabled = false; btn.textContent = 'Update password';
   }
@@ -369,7 +403,19 @@ async function doAuth() {
     // safe to also call this if the student was already signed in.
     if (_pendingInvite) await _acceptPendingInvite();
   } catch (e) {
-    errEl.textContent = e.message || 'Something went wrong';
+    // A raw fetch() network failure is a TypeError whose .message literally
+    // IS "Failed to fetch" — that string was previously shown to the user
+    // verbatim (confirmed 2026-07-08, matching a recurring field report)
+    // with zero diagnostic capture anywhere. Report it and show something
+    // actionable instead; a real thrown Error (server-derived _detailText)
+    // still shows its actual message.
+    if (e instanceof TypeError) {
+      _reportClientDiagnostic('student_' + authMode, e,
+        apiUrl(authMode === 'signup' ? '/api/v1/student/auth/signup' : '/api/v1/student/auth/login'));
+      errEl.textContent = 'Network error. Check your connection and try again.';
+    } else {
+      errEl.textContent = e.message || 'Something went wrong';
+    }
   } finally {
     btn.disabled = false;
     btn.textContent = authMode === 'signup' ? 'Sign up' : 'Log in';

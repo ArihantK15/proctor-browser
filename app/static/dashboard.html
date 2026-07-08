@@ -1758,7 +1758,7 @@
       <span id="roomcam-ts"></span>
     </div>
     <div style="margin-top:14px;display:flex;gap:10px">
-      <button class="btn btn-success btn-sm" id="roomcam-approve-btn" data-action="roomCamApprove" style="flex:1;background:var(--sev-success-fg,var(--emerald));border-color:var(--sev-success-fg,var(--emerald));color:#fff">Approve</button>
+      <button class="btn btn-success btn-sm" id="roomcam-approve-btn" data-action="roomCamApprove" style="flex:1">Approve</button>
       <button class="btn btn-danger btn-sm" data-action="roomCamReject" style="flex:1">Reject</button>
       <button class="btn btn-secondary btn-sm" data-action="closeRoomCamView" style="flex:1">Close</button>
     </div>
@@ -1853,7 +1853,7 @@
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" data-action="loadPendingGrades">Refresh</button>
       <button class="btn btn-primary btn-sm" id="grade-suggest-btn" data-action="runGradeSuggest" title="Send all un-suggested answers to the AI grader">Suggest grades</button>
-      <button class="btn btn-success btn-sm" data-action="gradeBulkAccept" data-args='["all"]' id="grade-accept-all-btn" title="Accept all suggested AI grades" style="background:var(--sev-success-fg,var(--emerald));border-color:var(--sev-success-fg,var(--emerald));color:#fff">Accept all</button>
+      <button class="btn btn-success btn-sm" data-action="gradeBulkAccept" data-args='["all"]' id="grade-accept-all-btn" title="Accept all suggested AI grades">Accept all</button>
       <button class="btn btn-danger btn-sm" data-action="gradeBulkAccept" data-args='["high"]' id="grade-accept-high-btn" title="Only accept high-confidence suggestions" style="color:var(--amber);border-color:var(--amber)">Accept high conf</button>
       <button class="btn btn-danger btn-sm" data-action="gradeBulkReject" id="grade-reject-all-btn" title="Reject all pending and set to 0" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Reject all</button>
       <button class="btn btn-ghost btn-sm" data-action="toggleGradeAudit" id="grade-audit-btn" title="View past AI grading decisions">Audit trail</button>

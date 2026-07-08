@@ -412,7 +412,21 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOWED_ORIGINS,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "X-CSRF-Token", "X-Request-ID"],
+    # X-Procta-App-Attestation/-Signature: added to student-app.js's login/
+    # signup fetch (bcfb1b32, app attestation replacing Turnstile in the
+    # desktop app) without updating this list. Attestation only succeeds in
+    # signed production builds (dev builds have no valid signing key, so
+    # getAppAttestation() fails silently there and the extra headers are
+    # never sent) — which is why this shipped invisibly: the CORS preflight
+    # for the cross-origin procta-lobby:// window only fails once a REAL
+    # signed build generates a real attestation, at which point the browser
+    # rejects the whole request with a plain, indistinguishable-from-network
+    # "TypeError: Failed to fetch" (confirmed via the client-diagnostic
+    # capture added 2026-07-08 — student_login, Electron/Windows, v2.6.1).
+    allow_headers=[
+        "Authorization", "Content-Type", "X-CSRF-Token", "X-Request-ID",
+        "X-Procta-App-Attestation", "X-Procta-App-Signature",
+    ],
     allow_credentials=True,
 )
 app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)

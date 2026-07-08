@@ -559,8 +559,39 @@
 <!-- PANELS -->
 <div class="container">
 
+  <!-- OVERVIEW PANEL — new landing page (nav redesign, 2026-07). Reuses data
+       already fetched by refreshLive()/loadReview()/loadOrgOverview() rather
+       than adding a new endpoint — see docs/superpowers/specs/
+       2026-07-08-dashboard-nav-redesign-design.md §4. -->
+  <div class="panel active" id="panel-overview">
+    <div class="overview-wrap">
+      <div class="panel-header">
+        <div class="panel-glow" aria-hidden="true"></div>
+        <div class="panel-header-text">
+          <h1 class="panel-title" id="overview-greeting">Welcome back</h1>
+          <p class="panel-lede">Here's what's happening across your exams today.</p>
+        </div>
+      </div>
+
+      <div class="overview-stats">
+        <div class="stat-tile"><div class="stat-tile-label">Active Now</div><div class="stat-tile-value accent" id="overview-active-count">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Exams</div><div class="stat-tile-value" id="overview-exam-count">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Flagged Reviews</div><div class="stat-tile-value" id="overview-flagged-count" style="color:var(--red)">--</div></div>
+        <div class="stat-tile"><div class="stat-tile-label">Students Enrolled</div><div class="stat-tile-value" id="overview-student-count">--</div></div>
+      </div>
+
+      <div class="overview-grid">
+        <div class="overview-card">
+          <h3>Continue where you left off</h3>
+          <div id="overview-continue-list"></div>
+          <div id="overview-continue-empty" style="display:none;color:var(--text-muted);font-size:13px">Nothing needs your attention right now.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- LIVE SESSIONS -->
-  <div class="panel active live-layout" id="panel-live">
+  <div class="panel live-layout" id="panel-live">
     <!-- Panel header — mirrors the marketing-site Hero treatment
          (display title + lede + pulse indicator) so the in-app
          landing surface feels continuous with procta.net. The pulse

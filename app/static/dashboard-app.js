@@ -190,6 +190,12 @@ async function _onAuthed(teacher){
   }
   await loadExams();
   refreshAll();
+  // Overview is the new default landing panel (see panel-overview markup),
+  // but refreshAll() above only covers its fixed live/results/tools set —
+  // same reason onExamSwitch separately re-dispatches the active tab.
+  // Call it directly here so stat tiles are populated on first paint
+  // instead of staying at "--" until the user leaves and returns to the tab.
+  loadOverview();
   _startRosterAutoRefresh();
   // Try SSE for real-time updates; fall back to polling if unavailable
   _connectSSE();
@@ -1144,6 +1150,7 @@ function switchTab(tab){
 // data until the user manually toggles tabs). Loaders that guard on an empty
 // data array reload after onExamSwitch resets those arrays.
 function _dispatchTabLoad(tab){
+  if(tab==='overview') loadOverview();
   if(tab==='results' && resultsData.length===0) refreshResults();
   if(tab==='results' && typeof refreshPendingGradeBadge==='function') refreshPendingGradeBadge();
   if(tab==='questions' && qData.length===0) loadQuestions();
@@ -1350,6 +1357,84 @@ async function applyTeacherFilter(source){
   else if(source === 'history') refreshStudentList();
   else if(source === 'analytics') loadAnalytics();
   else refreshAll();
+}
+
+// Overview landing page — reuses data other tabs already fetch (see spec
+// §4) rather than adding a new endpoint. Called eagerly on first load AND
+// every time the Overview tab is opened, same pattern as every other
+// _dispatchTabLoad entry. Each section is independently try/caught so one
+// failing endpoint doesn't blank the rest of the page (matches loadReview/
+// loadOrgOverview below).
+//
+// NOTE on /api/v1/admin/violations/clusters: its `clusters` entries are
+// aggregated by (violation_type, severity) — see admin_verification.py's
+// violation_clusters() — NOT per-student rows. There is no student_name/
+// roll_number on a cluster, so "Continue where you left off" surfaces
+// cluster summaries (count + type + severity) rather than named students,
+// and links into the Review tab where the real per-session detail lives.
+async function loadOverview(){
+  const greetEl = document.getElementById('overview-greeting');
+  if(greetEl && currentTeacherProfile){
+    const hour = new Date().getHours();
+    const part = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+    const name = (currentTeacherProfile.full_name || '').split(' ')[0] || '';
+    greetEl.textContent = `Good ${part}${name ? ', ' + name : ''}`;
+  }
+
+  const examCountEl = document.getElementById('overview-exam-count');
+  if(examCountEl) examCountEl.textContent = String(examsList.length);
+
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/sessions${_examQuery('?')}`);
+    if(r.ok){
+      const d = await r.json();
+      const sessions = d.all_sessions || d.sessions || [];
+      const activeEl = document.getElementById('overview-active-count');
+      if(activeEl) activeEl.textContent = String(sessions.filter(s => s.status === 'in_progress' || s.status === 'active').length);
+    }
+  }catch(_){}
+
+  try{
+    const r = await authFetch(`${BASE}/api/v1/org/billing`);
+    if(r.ok){
+      const b = await r.json();
+      const studEl = document.getElementById('overview-student-count');
+      if(studEl) studEl.textContent = String(b.student_count || 0);
+    }
+  }catch(_){}
+
+  try{
+    const r = await authFetch(`${BASE}/api/v1/admin/violations/clusters${_examQuery('?')}`);
+    const flaggedEl = document.getElementById('overview-flagged-count');
+    const listEl = document.getElementById('overview-continue-list');
+    const emptyEl = document.getElementById('overview-continue-empty');
+    if(r.ok && listEl){
+      const d = await r.json();
+      // Shape: { clusters: [{violation_type, severity, count, sample_session_keys, first_seen, last_seen}], total_active, exam_id }
+      const clusters = d.clusters || [];
+      if(flaggedEl) flaggedEl.textContent = String(d.total_active || clusters.reduce((n,c)=>n+(c.count||0), 0));
+      listEl.innerHTML = '';
+      if(clusters.length === 0){
+        if(emptyEl) emptyEl.style.display = '';
+      }else{
+        if(emptyEl) emptyEl.style.display = 'none';
+        clusters.slice(0, 5).forEach(c => {
+          const row = document.createElement('div');
+          row.className = 'overview-continue-row';
+          const count = c.count || 0;
+          const label = String(c.violation_type || 'violation').replace(/_/g, ' ');
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'overview-continue-link';
+          btn.dataset.action = 'switchTab';
+          btn.dataset.args = '["review"]';
+          btn.textContent = `${count} ${label} flag${count === 1 ? '' : 's'} (${c.severity || 'low'} severity) awaiting review`;
+          row.appendChild(btn);
+          listEl.appendChild(row);
+        });
+      }
+    }
+  }catch(_){}
 }
 
 // ── ORG API ────────────────────────────────────────────────────

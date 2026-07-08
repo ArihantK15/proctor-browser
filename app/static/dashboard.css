@@ -2065,11 +2065,12 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
   color:var(--text-muted); margin:0 4px 6px; font-family:var(--font-mono);
 }
 .more-sheet-item{
-  display:flex; align-items:center; justify-content:space-between;
+  display:flex; align-items:center; gap:10px;
   width:100%; text-align:left; background:none; border:none; border-radius:8px;
   padding:12px 8px; min-height:44px; color:var(--text); font-size:14px;
   font-family:var(--font-body); font-weight:500;
 }
+.more-sheet-item svg{ width:18px; height:18px; flex-shrink:0; opacity:.85; }
 .more-sheet-item:hover, .more-sheet-item:active{ background:rgba(255,255,255,.05); }
 .more-sheet-item.active{ color:var(--accent); }
 body:has(.more-sheet.open) .flag-fab{ display:none; }

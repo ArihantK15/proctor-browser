@@ -143,13 +143,21 @@
                border-top:1px solid var(--border-subtle);max-height:60vh}
   }
     .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100000;padding:20px}
-    .modal-box{background:var(--surface-1,#1a1f2e);border:1px solid var(--border-subtle,rgba(255,255,255,.08));border-radius:14px;padding:28px 32px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5);max-height:calc(100dvh - 40px);overflow-y:auto;-webkit-overflow-scrolling:touch}
-    .modal-title{color:#fff;font-size:16px;font-weight:600;margin:0 0 8px}
-    .modal-body{color:var(--text-secondary,#94a3b8);font-size:13px;line-height:1.6;margin:0 0 20px;word-break:break-word}
+    .modal-box{background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:28px 32px;max-width:440px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,0.5);max-height:calc(100dvh - 40px);overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative}
+    .modal-box::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+      background:linear-gradient(90deg,transparent,var(--accent),transparent);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
+    .modal-title{color:var(--text-high);font-size:16px;font-weight:600;margin:0 0 8px;font-family:var(--font-display);letter-spacing:-0.01em}
+    .modal-body{color:var(--text-mid);font-size:13px;line-height:1.6;margin:0 0 20px;word-break:break-word}
     .modal-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
-    .modal-btn{background:var(--accent,#3b82f6);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:500;cursor:pointer;min-height:40px}
-    .modal-btn:hover{filter:brightness(1.1)}
-    .modal-btn-secondary{background:var(--surface-2,#262c3d);color:var(--text-high,#e2e8f0);border:1px solid var(--border,rgba(255,255,255,0.12))}
+    .modal-btn{background:var(--accent);color:var(--btn-primary-text);border:1px solid var(--accent);border-radius:var(--radius-md);padding:10px 18px;font-size:13px;font-weight:500;cursor:pointer;min-height:40px;
+      transition:background var(--duration-fast) var(--ease-standard),box-shadow var(--duration-fast) var(--ease-standard),transform var(--duration-fast) var(--ease-standard);
+      box-shadow:0 6px 18px -8px rgba(91,138,240,0.45)}
+    .modal-btn:hover{background:var(--accent-hover);border-color:var(--accent-hover);
+      box-shadow:0 0 0 3px rgba(91,138,240,0.18),0 10px 28px -6px rgba(91,138,240,0.55);transform:translateY(-1px)}
+    .modal-btn:active{background:var(--accent-active);border-color:var(--accent-active);transform:translateY(0)}
+    .modal-btn-secondary{background:rgba(255,255,255,0.03);color:var(--text-high);border:1px solid rgba(255,255,255,0.08);box-shadow:none}
+    .modal-btn-secondary:hover{background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.14)}
+    .modal-btn-secondary:active{background:rgba(255,255,255,0.08)}
     /* Phone-specific tightening for ALL dynamic modals (appConfirm,
        appPrompt, intervention chip picker, etc.). Reduces wasted padding
        on a 375px viewport so the actual content gets room, taps target
@@ -225,7 +233,7 @@
   .cwiz-review .r{display:flex;gap:10px} .cwiz-review .r b{min-width:120px;color:var(--text-muted);font-weight:500}
   .tc-row-remove{background:none;border:none;color:var(--sev-error-fg);cursor:pointer;
                  font-size:16px;padding:2px 6px;border-radius:4px}
-  .tc-row-remove:hover{background:var(--sev-error-subtle)}
+  .tc-row-remove:hover{background:var(--sev-error-bg)}
   .tc-add-btn{font-size:11px;color:var(--accent);cursor:pointer;background:none;
               border:1px dashed var(--accent-subtle);border-radius:var(--radius-md);
               padding:6px 12px;margin-top:6px;display:inline-flex;align-items:center;gap:6px}
@@ -253,8 +261,8 @@
 <!-- COOKIE NOTICE — essential-cookies disclosure, no accept/reject -->
 <div id="cookie-notice" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#0f172a;color:#e2e8f0;padding:12px 20px;font-size:13px;line-height:1.5;text-align:center;border-top:1px solid #1e293b;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)">
   <span>Procta uses essential cookies to keep you signed in and protect your account.</span>
-  <a href="/cookie-policy" style="color:#60a5fa;text-decoration:underline;margin:0 6px">Learn more</a>
-  <button id="cookie-notice-dismiss" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:12px;cursor:pointer;font-weight:500">Got it</button>
+  <a href="/cookie-policy" style="color:var(--accent);text-decoration:underline;margin:0 6px">Learn more</a>
+  <button id="cookie-notice-dismiss" class="btn btn-primary btn-sm">Got it</button>
 </div>
 
 <!-- AUTH GATE — the embedded login form that used to live here was retired
@@ -668,7 +676,7 @@
       </table>
     </div>
     <div class="mcard-list" id="results-cards"></div>
-    <div id="post-exam-cta" style="display:none;margin-top:14px;padding:14px 18px;background:var(--accent-bg);border:1px solid var(--accent);border-radius:var(--radius-md);font-size:13px;color:var(--accent-fg);text-align:center">
+    <div id="post-exam-cta" style="display:none;margin-top:14px;padding:14px 18px;background:var(--accent-subtle);border:1px solid var(--accent);border-radius:var(--radius-md);font-size:13px;color:var(--text-high);text-align:center">
       🎉 First exam results ready! <a href="#" data-action="showUpgradeModal" data-args='["You’ve outgrown the Starter plan. Unlock more students and features."]' style="color:var(--accent-light);font-weight:600">Upgrade your plan</a> to register more students and unlock higher limits.
     </div>
    </div>
@@ -866,19 +874,16 @@
             <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px">
               <div>
                 <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Topic</div>
-                <input type="text" id="gen-topic" placeholder="e.g. Photosynthesis, light vs dark reactions"
-                  style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+                <input type="text" id="gen-topic" class="input" placeholder="e.g. Photosynthesis, light vs dark reactions">
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
                 <div>
                   <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Count</div>
-                  <input type="number" id="gen-count" value="10" min="1" max="25" title="Max 25 per call"
-                    style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+                  <input type="number" id="gen-count" class="input" value="10" min="1" max="25" title="Max 25 per call">
                 </div>
                 <div>
                   <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Difficulty</div>
-                  <select id="gen-difficulty"
-                    style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+                  <select id="gen-difficulty" class="select">
                     <option value="easy">Easy</option>
                     <option value="medium">Medium</option>
                     <option value="hard">Hard</option>
@@ -888,14 +893,13 @@
               </div>
               <div>
                 <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Grade (optional)</div>
-                <input type="text" id="gen-grade" placeholder="e.g. Grade 9 or undergrad"
-                  style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+                <input type="text" id="gen-grade" class="input" placeholder="e.g. Grade 9 or undergrad">
               </div>
             </div>
             <details style="margin-bottom:10px">
               <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Optional: paste source material</summary>
-              <textarea id="gen-source" rows="4" placeholder="Paste a chapter, lecture notes, or article — generated questions will be based on this text."
-                style="width:100%;margin-top:6px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font:12px monospace;resize:none;box-sizing:border-box"></textarea>
+              <textarea id="gen-source" class="textarea" rows="4" placeholder="Paste a chapter, lecture notes, or article — generated questions will be based on this text."
+                style="margin-top:6px;font:12px monospace;resize:none"></textarea>
             </details>
             <button class="btn btn-primary btn-sm" data-action="doGenerateQuestions" id="gen-btn" style="width:100%;justify-content:center">Generate</button>
 
@@ -919,8 +923,7 @@
                default; setAITab('bank') reveals it. -->
           <div data-aipane="bank" style="display:none">
             <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-              <input type="text" id="bank-search" placeholder="Search bank or filter by tag…" data-input-action="filterBank"
-                style="flex:1;min-width:120px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:6px 10px;color:var(--text-high);font-size:12px;font-family:inherit">
+              <input type="text" id="bank-search" class="input" placeholder="Search bank or filter by tag…" data-input-action="filterBank" style="flex:1;min-width:120px;padding:6px 10px;font-size:12px">
               <button class="btn btn-secondary btn-sm" data-action="exportBank" title="Download bank as JSON">Export</button>
             </div>
             <div id="bank-list" style="max-height:50vh;overflow-y:auto"></div>
@@ -935,8 +938,8 @@
               Wrap commas in <code style="color:var(--accent)">"double quotes"</code>; separate tags with <code style="color:var(--accent)">|</code>.
               <a href="#" data-action="downloadBankCSVTemplate" style="color:var(--accent);text-decoration:underline">Template</a>
             </p>
-            <textarea id="bank-import-text" rows="6" placeholder='[{"question":"...","option_A":"...","option_B":"...","correct":"A"}]'
-              style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:10px;color:var(--text-high);font:12px monospace;resize:vertical;box-sizing:border-box"></textarea>
+            <textarea id="bank-import-text" class="textarea" rows="6" placeholder='[{"question":"...","option_A":"...","option_B":"...","correct":"A"}]'
+              style="padding:10px;font:12px monospace;resize:vertical"></textarea>
             <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <input type="file" id="bank-import-file" accept=".csv,.json" data-change-action="_loadBankFileWrap" style="font-size:11px;color:var(--text-muted);flex:1;min-width:120px">
               <button class="btn btn-primary btn-sm" data-action="doBankImport">Import</button>
@@ -1214,8 +1217,7 @@
             <div>
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Registration Link</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <input type="text" id="share-register-link" readonly
-                  style="flex:1;min-width:160px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
+                <input type="text" id="share-register-link" class="input" readonly style="flex:1;min-width:160px;font-family:monospace">
                 <button class="btn btn-primary btn-sm" data-action="copyLink" data-args='["share-register-link"]' style="white-space:nowrap;padding:10px 16px">Copy</button>
                 <button class="btn btn-secondary btn-sm" data-action="toggleRegQR" style="white-space:nowrap;padding:10px 16px">QR</button>
               </div>
@@ -1230,8 +1232,7 @@
             <div>
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Download Link</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <input type="text" id="share-download-link" readonly
-                  style="flex:1;min-width:160px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
+                <input type="text" id="share-download-link" class="input" readonly style="flex:1;min-width:160px;font-family:monospace">
                 <button class="btn btn-primary btn-sm" data-action="copyLink" data-args='["share-download-link"]' style="white-space:nowrap;padding:10px 16px">Copy</button>
               </div>
             </div>
@@ -1247,15 +1248,14 @@
           <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px">
             <div style="flex:1;min-width:280px">
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Recipients — one per line: <code>name, email, roll</code></label>
-              <textarea id="invite-recipients" rows="6" placeholder="Alice Smith, alice@school.edu, R001&#10;Bob Jones, bob@school.edu, R002"
-                style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace;resize:vertical"></textarea>
+              <textarea id="invite-recipients" class="textarea" rows="6" placeholder="Alice Smith, alice@school.edu, R001&#10;Bob Jones, bob@school.edu, R002"
+                style="font-family:monospace;resize:vertical"></textarea>
               <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
                 <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
                   <input type="file" id="invite-csv" accept=".csv,.txt" style="display:none" data-change-action="_importInviteCsvWrap">
                   Import CSV
                 </label>
-                <select id="invite-from-group"
-                  style="background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px">
+                <select id="invite-from-group" class="select" style="min-width:0;width:auto">
                   <option value="">— or pull from a group —</option>
                 </select>
                 <button class="btn btn-secondary btn-sm" data-action="pullGroupIntoInvites" style="padding:6px 12px;font-size:12px">Load Group</button>
@@ -1266,15 +1266,14 @@
 
             <div style="flex:1;min-width:240px">
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Custom Message (optional)</label>
-              <textarea id="invite-message" rows="3" maxlength="500" placeholder="Hi! This exam opens at 10am sharp. Make sure your webcam works."
-                style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;resize:vertical"></textarea>
+              <textarea id="invite-message" class="textarea" rows="3" maxlength="500" placeholder="Hi! This exam opens at 10am sharp. Make sure your webcam works."
+                style="resize:vertical"></textarea>
               <label class="shuffle-toggle" style="margin-top:8px">
                 <input type="checkbox" id="invite-per-code" checked>
                 <span>Generate a one-time access code per student</span>
               </label>
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:10px;margin-bottom:6px">Expires At (optional)</label>
-              <input type="datetime-local" id="invite-expires"
-                style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <input type="datetime-local" id="invite-expires" class="input">
             </div>
           </div>
         </div>
@@ -1306,10 +1305,8 @@
           <h3>Time Extensions</h3>
           <p>Grant extra minutes to a specific student for the selected exam (accommodations, makeup-time, tech-issue). The student's on-screen timer and the server's time-exceeded enforcement both reflect the extension. Set to 0 to remove.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-            <input type="text" id="ext-roll" placeholder="Roll number"
-              style="width:140px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;text-transform:uppercase">
-            <input type="number" id="ext-minutes" placeholder="Extra minutes" min="0" max="600"
-              style="width:130px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+            <input type="text" id="ext-roll" class="input" placeholder="Roll number" style="width:140px;text-transform:uppercase">
+            <input type="number" id="ext-minutes" class="input" placeholder="Extra minutes" min="0" max="600" style="width:130px">
             <button class="btn btn-primary btn-sm" data-action="setTimeExtension">Set</button>
           </div>
           <div id="ext-status" style="font-size:12px;min-height:18px;margin-top:8px"></div>
@@ -1349,7 +1346,7 @@
           <h3>Bulk Student Import</h3>
           <p>Add many students at once for this exam. One per line as <code>roll, name, email</code> (phone and batch optional), or upload a CSV with roll_number, full_name, email columns. Preview first, then confirm.</p>
           <div class="tool-card-field">
-            <textarea id="bulk-import-text" rows="5" placeholder="R001, Alice Johnson, alice@example.com&#10;R002, Bob Smith, bob@example.com" style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical"></textarea>
+            <textarea id="bulk-import-text" class="textarea" rows="5" placeholder="R001, Alice Johnson, alice@example.com&#10;R002, Bob Smith, bob@example.com" style="resize:vertical"></textarea>
           </div>
           <div class="tool-card-field" style="margin-top:8px">
             <input type="file" id="bulk-import-file" accept=".csv">
@@ -1375,8 +1372,7 @@
              analytics pass rate. Applies to this exam only — each exam has its own
              mark (default 40%).</p>
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-            <input type="number" id="pass-mark-input" min="0" max="100" step="1" inputmode="numeric"
-              style="width:110px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
+            <input type="number" id="pass-mark-input" class="input" min="0" max="100" step="1" inputmode="numeric" style="width:110px">
             <span style="color:var(--muted);font-size:13px">%</span>
           </div>
         </div>
@@ -1396,10 +1392,8 @@
           <h3>Remove Student From Roster</h3>
           <p>Removes a student's enrollment under your account so they can re-register cleanly. Their login account is kept; only the roster row is deleted. A roster entry spans all your exams, so removal applies to all of them.</p>
           <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-            <input type="email" id="roster-remove-email" placeholder="student@school.edu"
-              style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
-            <input type="text" id="roster-remove-roll" placeholder="OR roll number (e.g. R001)"
-              style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;text-transform:uppercase">
+            <input type="email" id="roster-remove-email" class="input" placeholder="student@school.edu">
+            <input type="text" id="roster-remove-roll" class="input" placeholder="OR roll number (e.g. R001)" style="text-transform:uppercase">
           </div>
         </div>
         <div class="tool-card-actions">
@@ -1433,7 +1427,7 @@
           <div id="google-courses" style="display:none;margin-bottom:8px">
             <div style="margin-bottom:6px;max-height:200px;overflow-y:auto" id="google-course-list"></div>
             <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Link to exam:</label>
-            <select id="google-exam-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text);font-size:12px;margin-bottom:8px"></select>
+            <select id="google-exam-select" class="select" style="margin-bottom:8px"></select>
             <button class="btn btn-primary btn-sm" data-action="syncGoogleRoster" style="margin-right:6px">Sync roster</button>
             <button class="btn btn-secondary btn-sm" data-action="disconnectGoogle">Disconnect</button>
           </div>
@@ -1518,7 +1512,7 @@
           <h3>Proctoring Sensitivity</h3>
           <p>How strict AI flagging is for this exam. Stricter settings raise more violations.</p>
           <div class="tool-card-field">
-            <select id="sensitivity-select" style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
+            <select id="sensitivity-select" class="select">
               <option value="lenient">Lenient</option>
               <option value="balanced">Balanced</option>
               <option value="strict">Strict</option>
@@ -1536,7 +1530,7 @@
           <h3>Audio Keywords</h3>
           <p>Spoken words flagged during this exam (comma-separated). Detected on the student device.</p>
           <div class="tool-card-field">
-            <input type="text" id="audio-keywords-input" placeholder="e.g. answer, help, google" style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
+            <input type="text" id="audio-keywords-input" class="input" placeholder="e.g. answer, help, google">
           </div>
           <div style="font-size:11px;color:var(--text-muted);line-height:1.6;margin-top:8px;padding:8px 10px;background:rgba(255,255,255,.02);border-radius:6px">
             <strong>Voice signals</strong><br>
@@ -1583,8 +1577,7 @@
           <div id="groups-list" style="margin-top:12px"></div>
            <div id="groups-empty" style="color:var(--muted);font-size:13px;margin-top:8px">No groups yet — enter a name above and click Create Group.</div>
           <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="text" id="new-group-name" placeholder="New group name"
-              style="flex:1;min-width:140px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+            <input type="text" id="new-group-name" class="input" placeholder="New group name" style="flex:1;min-width:140px">
             <button class="btn btn-primary btn-sm" data-action="createGroup" style="white-space:nowrap">Create Group</button>
           </div>
           <div id="group-status" style="font-size:12px;min-height:18px;margin-top:8px;color:var(--emerald)"></div>
@@ -1598,8 +1591,7 @@
             <div id="group-members-list" style="margin-bottom:12px"></div>
             <div id="group-members-empty" style="color:var(--muted);font-size:12px;margin-bottom:10px">No members yet — enter roll numbers above and click Add.</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <input type="text" id="add-member-rolls" placeholder="Roll numbers (comma-separated)"
-                style="flex:1;min-width:140px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <input type="text" id="add-member-rolls" class="input" placeholder="Roll numbers (comma-separated)" style="flex:1;min-width:140px">
               <button class="btn btn-primary btn-sm" data-action="addGroupMembers" style="white-space:nowrap">Add</button>
             </div>
           </div>
@@ -1610,8 +1602,7 @@
             <div id="exam-groups-list" style="margin-bottom:8px"></div>
             <div id="exam-groups-none" style="color:var(--muted);font-size:12px;margin-bottom:8px">All students can access this exam (no group restriction).</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <select id="assign-group-select"
-                style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <select id="assign-group-select" class="select" style="flex:1;min-width:140px">
                 <option value="">Select a group to restrict access...</option>
               </select>
               <button class="btn btn-primary btn-sm" data-action="assignGroupToExam" style="white-space:nowrap">Assign</button>
@@ -1624,8 +1615,7 @@
             <div id="exam-batches-list" style="margin-bottom:8px"></div>
             <div id="exam-batches-none" style="color:var(--muted);font-size:12px;margin-bottom:8px">No batch restriction on this exam.</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <select id="assign-batch-select"
-                style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <select id="assign-batch-select" class="select" style="flex:1;min-width:140px">
                 <option value="">Select a batch to restrict access...</option>
               </select>
               <button class="btn btn-primary btn-sm" data-action="assignBatchToExam" style="white-space:nowrap">Assign</button>
@@ -1638,8 +1628,7 @@
             <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Cohort Enrollment Link</div>
             <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Share a link that enrolls students straight into a batch (no exam needed). They're then eligible for every exam you assign to that batch.</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <select id="cohort-link-batch-select"
-                style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <select id="cohort-link-batch-select" class="select" style="flex:1;min-width:140px">
                 <option value="">Select a batch…</option>
               </select>
               <button class="btn btn-secondary btn-sm" data-action="copyCohortLink" style="white-space:nowrap">Copy link</button>
@@ -1657,10 +1646,10 @@
           <p>Save exam configurations as reusable templates. Clone a template to instantly create a new exam with the same settings and questions — perfect for running the same exam across multiple batches.</p>
           <div style="margin-top:14px">
             <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-              <select id="template-source-exam" style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <select id="template-source-exam" class="select" style="flex:1;min-width:140px">
                 <option value="">Select exam to save as template…</option>
               </select>
-              <input type="text" id="template-name-input" placeholder="Template name (e.g. Math Midterm v2)" style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <input type="text" id="template-name-input" class="input" placeholder="Template name (e.g. Math Midterm v2)" style="flex:1;min-width:140px">
               <button class="btn btn-primary btn-sm" data-action="saveTemplate" style="white-space:nowrap">Save Template</button>
             </div>
             <div id="templates-list" style="border-top:1px solid var(--border);padding-top:12px"></div>
@@ -1769,7 +1758,7 @@
       <span id="roomcam-ts"></span>
     </div>
     <div style="margin-top:14px;display:flex;gap:10px">
-      <button class="btn btn-success btn-sm" id="roomcam-approve-btn" data-action="roomCamApprove" style="flex:1;background:var(--sev-success-fg,var(--emerald));border-color:var(--sev-success-fg,var(--emerald));color:#fff">Approve</button>
+      <button class="btn btn-success btn-sm" id="roomcam-approve-btn" data-action="roomCamApprove" style="flex:1">Approve</button>
       <button class="btn btn-danger btn-sm" data-action="roomCamReject" style="flex:1">Reject</button>
       <button class="btn btn-secondary btn-sm" data-action="closeRoomCamView" style="flex:1">Close</button>
     </div>
@@ -1864,7 +1853,7 @@
     <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap">
       <button class="btn btn-secondary btn-sm" data-action="loadPendingGrades">Refresh</button>
       <button class="btn btn-primary btn-sm" id="grade-suggest-btn" data-action="runGradeSuggest" title="Send all un-suggested answers to the AI grader">Suggest grades</button>
-      <button class="btn btn-success btn-sm" data-action="gradeBulkAccept" data-args='["all"]' id="grade-accept-all-btn" title="Accept all suggested AI grades" style="background:var(--sev-success-fg,var(--emerald));border-color:var(--sev-success-fg,var(--emerald));color:#fff">Accept all</button>
+      <button class="btn btn-success btn-sm" data-action="gradeBulkAccept" data-args='["all"]' id="grade-accept-all-btn" title="Accept all suggested AI grades">Accept all</button>
       <button class="btn btn-danger btn-sm" data-action="gradeBulkAccept" data-args='["high"]' id="grade-accept-high-btn" title="Only accept high-confidence suggestions" style="color:var(--amber);border-color:var(--amber)">Accept high conf</button>
       <button class="btn btn-danger btn-sm" data-action="gradeBulkReject" id="grade-reject-all-btn" title="Reject all pending and set to 0" style="color:var(--red);border-color:rgba(239,68,68,0.35)">Reject all</button>
       <button class="btn btn-ghost btn-sm" data-action="toggleGradeAudit" id="grade-audit-btn" title="View past AI grading decisions">Audit trail</button>
@@ -1936,8 +1925,7 @@
       </div>
     </div>
     <div class="coupon-row" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <input type="text" id="upgrade-coupon-input" placeholder="Have a coupon? Enter code"
-             style="flex:1;min-width:120px;padding:6px 10px;font-size:12px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--surface-1);color:var(--text-high)">
+      <input type="text" id="upgrade-coupon-input" class="input" placeholder="Have a coupon? Enter code" style="flex:1;min-width:120px;padding:6px 10px;font-size:12px">
       <button class="btn btn-secondary btn-sm" type="button" data-action="applyCoupon">Apply</button>
       <span id="upgrade-coupon-status" style="font-size:11px;color:var(--text-muted)"></span>
     </div>
@@ -1961,7 +1949,7 @@
         <span style="font-weight:600;font-size:14px">Activity Summary</span>
         <span class="badge" id="tl-summary-severity"></span>
       </div>
-      <div id="tl-summary-text" style="font-size:13px;line-height:1.7;color:var(--text-secondary);white-space:pre-line"></div>
+      <div id="tl-summary-text" style="font-size:13px;line-height:1.7;color:var(--text-mid);white-space:pre-line"></div>
       <div id="tl-summary-highlights" style="margin-top:10px"></div>
     </div>
     <!-- Severity filter -->
@@ -2000,7 +1988,7 @@
         <div style="font-size:12px;color:var(--text-muted)">Disputes raised by students. Open the flag to see the lead-up context before deciding.</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <select id="appeals-filter" data-change-action="loadAppeals" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2,transparent);color:inherit">
+        <select id="appeals-filter" class="select" data-change-action="loadAppeals" style="min-width:0;width:auto">
           <option value="pending">Pending</option>
           <option value="all">All</option>
           <option value="accepted">Accepted</option>
@@ -2033,12 +2021,12 @@
   </div>
   <div style="margin-top:12px;max-width:520px">
     <label style="font-size:12px;color:var(--text-muted)">Subject type</label>
-    <select id="sar-type" style="width:100%;margin:4px 0 10px;padding:9px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary)">
+    <select id="sar-type" class="select" style="margin:4px 0 10px">
       <option value="student">Student</option>
       <option value="teacher">Teacher</option>
     </select>
     <label style="font-size:12px;color:var(--text-muted)">Email or account id</label>
-    <input type="text" id="sar-subject" placeholder="student@example.com" style="width:100%;margin:4px 0 10px;padding:9px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary)">
+    <input type="text" id="sar-subject" class="input" placeholder="student@example.com" style="margin:4px 0 10px">
     <button class="btn btn-primary btn-sm" type="button" data-action="sarExport">Export data</button>
     <div id="sar-result" style="margin-top:10px;font-size:12px"></div>
   </div>
@@ -2113,9 +2101,9 @@
 <!-- INVITE TEACHER MODAL -->
 <div class="modal-overlay" id="invite-modal" style="display:none" data-action="hideInviteTeacherModal" data-guard-self>
   <div class="modal" style="max-width:420px">
-    <h3 style="margin:0 0 16px;color:var(--text-primary)">Invite Teacher</h3>
-    <input type="email" id="invite-email" placeholder="teacher@institution.edu" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;margin-bottom:12px;outline:none;box-sizing:border-box">
-    <input type="text" id="invite-name" placeholder="Full Name (optional)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;margin-bottom:16px;outline:none;box-sizing:border-box">
+    <h3 style="margin-top:0">Invite Teacher</h3>
+    <input type="email" id="invite-email" class="input" placeholder="teacher@institution.edu" style="margin-bottom:12px">
+    <input type="text" id="invite-name" class="input" placeholder="Full Name (optional)" style="margin-bottom:16px">
     <div id="teacher-invite-result" style="font-size:13px;margin-bottom:12px"></div>
     <div style="display:flex;gap:10px">
       <button class="btn btn-secondary btn-sm" data-action="hideInviteTeacherModal" style="flex:1">Cancel</button>
@@ -2232,8 +2220,7 @@
         </article>
       </div>
       <div class="coupon-row" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input type="text" id="coupon-input" placeholder="Have a coupon? Enter code"
-               style="flex:1;min-width:140px;padding:6px 10px;font-size:12px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--surface-1);color:var(--text-high)">
+        <input type="text" id="coupon-input" class="input" placeholder="Have a coupon? Enter code" style="flex:1;min-width:140px;padding:6px 10px;font-size:12px">
         <button class="btn btn-secondary btn-sm" type="button" data-action="applyCouponBilling">Apply</button>
         <span id="coupon-status" style="font-size:11px;color:var(--text-muted)"></span>
       </div>
@@ -2296,8 +2283,7 @@
       <div class="tool-card-body">
         <h3>Account</h3>
         <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:14px 0 4px">Display name</label>
-        <input id="profile-name" type="text" maxlength="120" autocomplete="name"
-               style="width:100%;max-width:380px;background:var(--surface-1,#161a22);border:1px solid var(--border-subtle,rgba(255,255,255,.12));border-radius:8px;padding:9px 12px;color:var(--text-high,#fff);font-size:14px;outline:none"/>
+        <input id="profile-name" class="input" type="text" maxlength="120" autocomplete="name" style="max-width:380px"/>
         <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:16px 0 4px">Email</label>
         <div id="profile-email" style="font-size:14px;color:var(--text-high,#e6edf3)">—</div>
         <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:16px 0 4px">Role</label>
@@ -2428,7 +2414,7 @@
       <div class="stat-tile"><div class="stat-tile-label">Organizations</div><div class="stat-tile-value accent" id="all-orgs-count">--</div></div>
     </div>
     <div class="table-toolbar">
-      <span style="font-size:var(--text-lg,16px);font-weight:600;letter-spacing:-0.01em;color:var(--text-primary)">All Organizations</span>
+      <span style="font-size:var(--text-lg,16px);font-weight:600;letter-spacing:-0.01em;color:var(--text-high)">All Organizations</span>
     </div>
     <div class="table-wrap" style="border:none;border-radius:0">
       <table id="all-orgs-table" style="width:100%;border-collapse:collapse;font-size:var(--text-sm,13px)">

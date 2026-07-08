@@ -362,6 +362,24 @@ const PIP_PACKAGES = [
   'insightface>=0.7.3,<0.8', 'websocket-client', 'psutil',
 ];
 
+// ── Runtime assets (weights/ + base Python interpreter) ────────────
+// Decoupled from the diffed NSIS/DMG installer payload (2026-07 installer
+// hardening) so an app-code-only update doesn't re-download 64MB+ of
+// binary model weights that didn't change. Bump RUNTIME_ASSET_VERSION
+// only when weights/ or the bundled interpreter actually change — NOT on
+// every app release. RUNTIME_ASSET_CHECKSUM is the SHA-256 of the
+// uploaded tarball, checked before extraction (same pin-and-verify
+// pattern already used for PIP_PACKAGES' exact version pins above).
+const RUNTIME_ASSET_VERSION = '1';
+// PLACEHOLDER — MUST be replaced with the real SHA-256 of the uploaded
+// tarball before this ships. Left as an obviously-fake string on purpose
+// so a real download would always fail the integrity check rather than
+// silently accept a mismatched or tampered archive.
+const RUNTIME_ASSET_CHECKSUM_WIN = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
+const RUNTIME_ASSET_CHECKSUM_MAC = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
+const RUNTIME_ASSET_BASE_URL =
+  'https://github.com/ArihantK15/proctor-browser/releases/download/runtime-assets-v';
+
 // ── Polling ───────────────────────────────────────────────────────
 const POLL_INTERVAL_MS = 2000;
 const IGNORED_EVENT_TYPES = new Set([
@@ -400,4 +418,6 @@ module.exports = {
   LOBBY_WIDTH, LOBBY_HEIGHT, LOBBY_MIN_W, LOBBY_MIN_H,
   EXAM_WIDTH, EXAM_HEIGHT,
   SETUP_WIDTH, SETUP_HEIGHT,
+  RUNTIME_ASSET_VERSION, RUNTIME_ASSET_CHECKSUM_WIN, RUNTIME_ASSET_CHECKSUM_MAC,
+  RUNTIME_ASSET_BASE_URL,
 };

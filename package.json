@@ -90,20 +90,8 @@
         "to": "frame_buffer.py"
       },
       {
-        "from": "weights",
-        "to": "weights"
-      },
-      {
         "from": "scripts/download_audio_models.py",
         "to": "scripts/download_audio_models.py"
-      },
-      {
-        "from": "python-runtime",
-        "to": "python-runtime"
-      },
-      {
-        "from": "resources/python",
-        "to": "python"
       }
     ],
     "publish": {

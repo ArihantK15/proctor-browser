@@ -20,7 +20,7 @@ from tests.conftest import make_admin_token, shared_supabase_mock  # noqa: E402
 
 # ─── Helpers ─────────────────────────────────────────────────────────
 
-TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T"}
+TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T", "org_id": "org-1"}
 SRC_EXAM = {
     "exam_id": "exam-1", "exam_title": "Midterm",
     "duration_minutes": 60, "shuffle_questions": False,
@@ -105,7 +105,7 @@ class TestDeleteExam:
         # exam_config found, >=2 exams, but exam_sessions has active ones.
         from unittest.mock import patch as _mpatch
         async def _fake_admin(req):
-            return {"id": "teacher-1"}
+            return {"id": "teacher-1", "org_id": "org-1"}
         with _mpatch("app.auth.admin_auth.require_reauth_or_403"), \
              _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
              _mpatch("app.routers.admin_exams._cache"), \
@@ -121,7 +121,7 @@ class TestDeleteExam:
     def test_happy_path_deletes_exam(self, client):
         from unittest.mock import patch as _mpatch
         async def _fake_admin(req):
-            return {"id": "teacher-1"}
+            return {"id": "teacher-1", "org_id": "org-1"}
         with _mpatch("app.auth.admin_auth.require_reauth_or_403"), \
              _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
              _mpatch("app.routers.admin_exams._cache"), \
@@ -167,7 +167,7 @@ class TestDeleteExam:
             return chain
 
         async def _fake_admin(req):
-            return {"id": "teacher-1"}
+            return {"id": "teacher-1", "org_id": "org-1"}
         with _mpatch("app.auth.admin_auth.require_reauth_or_403"), \
              _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
              _mpatch("app.routers.admin_exams._cache"), \
@@ -197,7 +197,7 @@ class TestSetPassMark:
             return MagicMock()
         m.execute = _fake_execute
         async def _fake_admin(req):
-            return {"id": "teacher-1"}
+            return {"id": "teacher-1", "org_id": "org-1"}
         with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
              _mpatch("app.routers.admin_exams._atable", return_value=m):
             resp = client.post("/api/v1/admin/exams/pass-mark",
@@ -209,7 +209,7 @@ class TestSetPassMark:
     def test_rejects_invalid_range(self, client):
         from unittest.mock import patch as _mpatch
         async def _fake_admin(req):
-            return {"id": "teacher-1"}
+            return {"id": "teacher-1", "org_id": "org-1"}
         with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin):
             resp = client.post("/api/v1/admin/exams/pass-mark",
                                json={"exam_id": "exam-1", "pass_mark": 150},
@@ -312,7 +312,7 @@ class TestDuplicateExam:
             return chain
 
         async def _fake_admin(req):
-            return {"id": "teacher-1"}
+            return {"id": "teacher-1", "org_id": "org-1"}
         with _mpatch("app.routers.admin_exams.require_admin", side_effect=_fake_admin), \
              _mpatch("app.routers.admin_exams._cache"), \
              _mpatch("app.routers.admin_exams._atable", side_effect=_atable):
@@ -369,7 +369,7 @@ class TestCreateExamIdempotency:
         mock_cache.set.side_effect = _cached_set
 
         async def _fake_admin(req):
-            return {"id": "teacher-1"}
+            return {"id": "teacher-1", "org_id": "org-1"}
 
         m = MagicMock()
         for attr in ("select", "eq", "neq", "is_", "in_", "order",
@@ -401,7 +401,7 @@ class TestCreateExamIdempotency:
         call_count = 0
 
         async def _fake_admin(req):
-            return {"id": "teacher-1"}
+            return {"id": "teacher-1", "org_id": "org-1"}
 
         m = MagicMock()
         for attr in ("select", "eq", "neq", "is_", "in_", "order",

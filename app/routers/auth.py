@@ -887,6 +887,8 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
     # just need to surface the resolved values to the client. Without these
     # fields, the React dashboard (App.jsx) defaults role to 'teacher' and
     # admins/superadmins see the wrong tab matrix.
+    from ..services.sessions import get_subscription_lock_status
+    _billing_locked, _billing_locked_reason = await get_subscription_lock_status(teacher)
     response = JSONResponse({
         "access_token": access_token,
         "refresh_token": refresh_tok,
@@ -899,6 +901,8 @@ async def teacher_login(body: TeacherLoginIn, request: Request):
             "is_solo": await org_is_solo(teacher),
             "is_billing_owner": await is_billing_owner(teacher),
             "email_verified_at": teacher.get("email_verified_at"),
+            "billing_locked": _billing_locked,
+            "billing_locked_reason": _billing_locked_reason,
         },
     })
     _set_teacher_cookies(response, access_token, refresh_tok, request=request)
@@ -921,6 +925,8 @@ async def teacher_me(request: Request, response: Response):
     # _tryAutoLogin / student-dashboard.js checkAuthAndLoad).
     response.headers["Cache-Control"] = "no-store"
     teacher = await require_admin(request)
+    from ..services.sessions import get_subscription_lock_status
+    billing_locked, billing_locked_reason = await get_subscription_lock_status(teacher)
     return {
         "id": teacher["id"],
         "email": teacher["email"],
@@ -930,6 +936,12 @@ async def teacher_me(request: Request, response: Response):
         "is_solo": await org_is_solo(teacher),
         "is_billing_owner": await is_billing_owner(teacher),
         "email_verified_at": teacher.get("email_verified_at"),
+        # Drives the dashboard's blur-lock overlay on exam-authoring tools
+        # (Live Sessions/Questions/Tools/+New Exam) when the org's
+        # subscription has lapsed. Analytics/results/downloads and billing
+        # itself must stay usable regardless — see require_active_subscription.
+        "billing_locked": billing_locked,
+        "billing_locked_reason": billing_locked_reason,
     }
 
 

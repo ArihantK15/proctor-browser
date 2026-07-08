@@ -1408,20 +1408,10 @@
         <div class="tool-card-result" id="roster-remove-status" style="font-size:12px"></div>
       </div>
 
-      <!-- DPDP/GDPR self-service: the Privacy Center (/privacy) lets the logged-in
-           user export their data (right of access/portability) or delete their
-           account (right of erasure). Cookie auth is shared with the dashboard, so
-           the user lands already authenticated. This is the discoverable in-app
-           door to a capability that previously only had a public /trust-center link. -->
-      <div class="tool-card" data-section="danger">
-        <div class="tool-card-body">
-          <h3>Privacy &amp; Your Data</h3>
-          <p>Export a copy of your personal data, manage consent, or permanently delete your account — your rights under the DPDP Act / GDPR. Opens the Privacy Center.</p>
-        </div>
-        <div class="tool-card-actions">
-          <a class="btn btn-secondary btn-sm" href="/privacy" target="_blank" rel="noopener">Open Privacy Center</a>
-        </div>
-      </div>
+      <!-- Privacy & Your Data (export/delete) moved to the Profile tab
+           2026-07-08 — Tools is hidden for org-admin accounts
+           (data-hide-for-admin), which left billing-owner admins with no
+           in-app way to reach it. Profile is visible to every role. -->
 
       <div class="tool-card" data-section="exam">
         <div class="tool-card-body">
@@ -2340,6 +2330,22 @@
           <button class="btn btn-ghost btn-sm" data-action="doLogout" style="color:var(--red)">Log out</button>
         </div>
       </div>
+    </div>
+    <!-- DPDP/GDPR self-service: lives in Profile (not Tools) because Profile
+         is the one panel every role sees — Tools is hidden for org-admin
+         accounts (data-hide-for-admin), which would otherwise leave a
+         billing-owner admin with no in-app way to reach their own
+         export/delete rights. Cookie auth is shared with /privacy, so the
+         user lands already authenticated. -->
+    <div class="tool-card" style="margin-top:20px" data-section="danger">
+      <div class="tool-card-body">
+        <h3>Privacy &amp; Your Data</h3>
+        <p>Export a copy of your personal data, manage consent, or permanently delete your account — your rights under the DPDP Act / GDPR. Opens the Privacy Center.</p>
+      </div>
+      <div class="tool-card-actions">
+        <a class="btn btn-secondary btn-sm" href="/privacy" target="_blank" rel="noopener">Open Privacy Center</a>
+      </div>
+    </div>
     </div>
   </div>
 </div>

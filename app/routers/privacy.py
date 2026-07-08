@@ -545,6 +545,37 @@ async def _cleanup_screenshots(user_type: str, user_id: str) -> None:
         _log.warning("[privacy.delete] screenshot cleanup failed: %s", e)
 
 
+@router.post("/delete-request")
+@limiter.limit("3/hour")
+async def delete_account_request(request: Request):
+    """Email a 6-digit OTP to the caller before account deletion.
+
+    Deleting an account is irreversible (anonymisation, not a soft-delete),
+    so it's gated by BOTH the existing password reauth AND this OTP —
+    proving the caller both knows the password and controls the registered
+    email inbox. Mirrors the same account_delete purpose already used by
+    the student-side flow (auth.py's student_account_delete_request); this
+    is the shared-endpoint equivalent, since /delete itself serves either
+    caller type via _resolve_caller.
+    """
+    from ..services import email_otp
+    from ..services.email_otp import OtpRateLimitError
+    from ..emailer import send_2fa_otp_email
+
+    user_type, user_id, profile = await _resolve_caller(request)
+    email = (profile.get("email") or "").strip().lower()
+    try:
+        code = await email_otp.issue(user_type, user_id, "account_delete")
+    except OtpRateLimitError:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many delete codes requested. Please wait before trying again.",
+        )
+    await asyncio.to_thread(
+        send_2fa_otp_email, email, profile.get("full_name") or "", code, purpose="delete")
+    return {"sent": True, "expires_in": 600}
+
+
 @router.post("/delete")
 @limiter.limit("2/hour")
 async def delete_account(request: Request,     body: dict[str, Any] = Body(default_factory=dict)):
@@ -572,6 +603,15 @@ async def delete_account(request: Request,     body: dict[str, Any] = Body(defau
     # Reauth gate — same protection the admin auth deep endpoints use.
     from ..auth.admin_auth import clear_teacher_cache, require_reauth_or_403
     require_reauth_or_403(body, user_id, request=request)
+
+    # OTP gate — proves the caller controls the registered email inbox, not
+    # just their password (which a session hijack could already reuse via
+    # the reauth token above). Get a fresh code via /delete-request first.
+    import re as _re
+    from ..services import email_otp
+    otp_code = _re.sub(r"\D", "", str((body or {}).get("otp_code") or ""))
+    if len(otp_code) != 6 or not await email_otp.verify(user_type, user_id, "account_delete", otp_code):
+        raise HTTPException(status_code=403, detail="Invalid or expired confirmation code")
 
     errors: list[str] = []
     anon_local = f"deleted_user_{user_id[:8]}"

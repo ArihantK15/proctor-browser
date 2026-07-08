@@ -286,6 +286,6 @@ def test_create_exam_403_for_admin_token(monkeypatch):
 
     # teacher → NOT 403 (guard passes)
     _ROLE["teacher"] = {"id": "teacher-1", "email": "prof@test.com",
-                        "org_role": "teacher"}
+                        "org_id": "org-1", "org_role": "teacher"}
     r_teacher = client.post("/api/v1/admin/exams", json=body, headers=headers)
     assert r_teacher.status_code != 403

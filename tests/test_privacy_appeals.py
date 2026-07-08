@@ -68,18 +68,62 @@ class TestPrivacyDelete:
         assert r.status_code == 401
 
     def test_delete_teacher(self, admin_headers, mock_teacher):
-        r = client.post("/api/v1/privacy/delete", headers=admin_headers,
-                        json={"reauth_token": issue_reauth_token("teacher-1")})
+        with patch("app.services.email_otp.verify", new_callable=AsyncMock) as mv:
+            mv.return_value = True
+            r = client.post("/api/v1/privacy/delete", headers=admin_headers,
+                            json={"reauth_token": issue_reauth_token("teacher-1"), "otp_code": "123456"})
         assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
         d = r.json()
         assert d.get("status") in ("deleted", "partial")
 
     def test_delete_student(self, student_headers, mock_student_account):
-        r = client.post("/api/v1/privacy/delete", headers=student_headers,
-                        json={"reauth_token": issue_reauth_token("student-1")})
+        with patch("app.services.email_otp.verify", new_callable=AsyncMock) as mv:
+            mv.return_value = True
+            r = client.post("/api/v1/privacy/delete", headers=student_headers,
+                            json={"reauth_token": issue_reauth_token("student-1"), "otp_code": "123456"})
         assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
         d = r.json()
         assert d.get("status") in ("deleted", "partial")
+
+    def test_delete_teacher_missing_otp_rejected(self, admin_headers, mock_teacher):
+        # Password reauth alone is no longer sufficient — a stolen session
+        # (which already has a valid reauth path) must not be enough to
+        # delete the account without the out-of-band email code too.
+        r = client.post("/api/v1/privacy/delete", headers=admin_headers,
+                        json={"reauth_token": issue_reauth_token("teacher-1")})
+        assert r.status_code == 403
+        assert "code" in r.text.lower()
+
+    def test_delete_teacher_wrong_otp_rejected(self, admin_headers, mock_teacher):
+        with patch("app.services.email_otp.verify", new_callable=AsyncMock) as mv:
+            mv.return_value = False
+            r = client.post("/api/v1/privacy/delete", headers=admin_headers,
+                            json={"reauth_token": issue_reauth_token("teacher-1"), "otp_code": "000000"})
+        assert r.status_code == 403
+
+
+class TestPrivacyDeleteRequest:
+    def test_requires_auth(self):
+        r = client.post("/api/v1/privacy/delete-request")
+        assert r.status_code == 401
+
+    def test_teacher_gets_otp_emailed(self, admin_headers, mock_teacher):
+        with patch("app.services.email_otp.issue", new_callable=AsyncMock) as mi, \
+             patch("app.emailer.send_2fa_otp_email") as mail:
+            mi.return_value = "654321"
+            r = client.post("/api/v1/privacy/delete-request", headers=admin_headers)
+        assert r.status_code == 200, f"Expected 200 got {r.status_code}: {r.text[:200]}"
+        assert r.json().get("sent") is True
+        mi.assert_awaited_once_with("teacher", "teacher-1", "account_delete")
+        mail.assert_called_once()
+        assert mail.call_args[0][2] == "654321"  # the code param
+
+    def test_rate_limited_returns_429(self, admin_headers, mock_teacher):
+        from app.services.email_otp import OtpRateLimitError
+        with patch("app.services.email_otp.issue", new_callable=AsyncMock) as mi:
+            mi.side_effect = OtpRateLimitError("too many")
+            r = client.post("/api/v1/privacy/delete-request", headers=admin_headers)
+        assert r.status_code == 429
 
 
 class TestPrivacyConsent:

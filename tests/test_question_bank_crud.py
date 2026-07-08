@@ -26,7 +26,7 @@ os.environ.setdefault("SUPABASE_JWT_SECRET", "test-secret-key-at-least-32-chars-
 from tests.conftest import make_admin_token, shared_supabase_mock
 
 
-TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T"}
+TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T", "org_id": "org-1"}
 
 
 def _admin_headers():

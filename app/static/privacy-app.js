@@ -143,9 +143,22 @@ async function confirmDelete(){
   try{
     const reauth_token = await _getPrivacyReauthToken();
     if(!reauth_token) throw new Error('Password verification is required.');
+
+    // Second factor: an email OTP, proving the caller controls the
+    // registered inbox (not just a password a session hijack could also
+    // replay via reauth). /delete-request works for either account type —
+    // the server resolves teacher vs student from the session itself.
+    const reqResp = await authFetch('/api/v1/privacy/delete-request', {method:'POST'});
+    if(!reqResp.ok){
+      const rd = await reqResp.json().catch(()=>({}));
+      throw new Error(_detailText(rd, 'Could not send the confirmation code.'));
+    }
+    const otp_code = window.prompt('We emailed a 6-digit code to confirm account deletion. Enter it here:');
+    if(!otp_code) throw new Error('A confirmation code is required.');
+
     const r = await authFetch('/api/v1/privacy/delete', {
       method:'POST',
-      body:JSON.stringify({reauth_token}),
+      body:JSON.stringify({reauth_token, otp_code}),
     });
     const d = await r.json();
     if(r.ok){

@@ -18,6 +18,7 @@ from ..models import (
     GroupMembersIn, ExamGroupAssignIn, DuplicateExamIn, PassMarkIn,
 )
 from ..services.false_positive import normalize_sensitivity
+from ..services.sessions import require_active_subscription
 
 _admin_log = logging.getLogger("admin")
 logger = logging.getLogger(__name__)
@@ -130,6 +131,7 @@ async def list_exams(request: Request):
 async def create_exam(request: Request, body: CreateExamIn = Body(...)):
     teacher = await require_admin(request)
     assert_can_author(teacher)  # manager-only admins can't author exams
+    await require_active_subscription(teacher)  # cancelled/expired orgs can't create new exams
     tid = str(teacher["id"])
     # Idempotency: if the caller sends an Idempotency-Key header, check
     # whether we've already processed this request. The key is scoped to
@@ -331,6 +333,7 @@ async def unarchive_exam(exam_id: str, request: Request):
 async def duplicate_exam(exam_id: str, request: Request, body: DuplicateExamIn):
     teacher = await require_admin(request)
     assert_can_author(teacher)  # manager-only admins can't author exams
+    await require_active_subscription(teacher)  # duplicating still creates a new exam
     tid = str(teacher["id"])
 
     src_q = (await _atable("exam_config").select("*")

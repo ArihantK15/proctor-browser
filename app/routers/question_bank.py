@@ -26,6 +26,7 @@ from ..constants import QUESTION_IMG_DIR
 from ..utils import _safe_path_component
 from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config
 from ..repositories.sessions import assert_session_owned as _assert_session_owned
+from ..services.sessions import require_active_subscription
 from ..parsers.document import extract_document, ScannedPdfError, UnreadableDocError
 from ..parsers.question_parser import parse_questions, BLOCKING_FLAGS
 from ..parsers.region_render import render_region_png
@@ -167,6 +168,7 @@ async def list_bank_questions(request: Request):
 async def add_bank_questions(request: Request, body: BankQuestionIn = Body(...)):
     """Add one or more questions to the bank."""
     teacher = await require_admin(request)
+    await require_active_subscription(teacher)
     tid = str(teacher["id"])
     questions = body.questions or ([body.model_dump()] if "question" in body.model_dump() else [])
     if not questions:
@@ -330,6 +332,7 @@ async def import_bank_questions(request: Request, body: ImportQuestionsIn = Body
     question, type, option_A, option_B, option_C, option_D, correct, image_url, tags
     """
     teacher = await require_admin(request)
+    await require_active_subscription(teacher)
     tid = str(teacher["id"])
     items = body.questions
     if not items:
@@ -487,6 +490,7 @@ async def confirm_extracted(request: Request, body: ExtractConfirmIn = Body(...)
     """Persist reviewed questions into the bank. Re-validates blocking flags
     server-side (defense in depth — never trusts the client's 'this is clean')."""
     teacher = await require_admin(request)
+    await require_active_subscription(teacher)
     tid = str(teacher["id"])
     items = body.questions or []
     if not items:
@@ -784,6 +788,7 @@ async def generate_rubric_endpoint(request: Request, body: GenerateRubricIn = Bo
 async def bank_to_exam(request: Request, body: BankToExamIn = Body(...)):
     """Copy bank questions into an exam's question list."""
     teacher = await require_admin(request)
+    await require_active_subscription(teacher)
     tid = str(teacher["id"])
     question_ids = body.question_ids
     exam_id = body.exam_id
@@ -982,6 +987,7 @@ async def update_questions(request: Request, body: UpdateQuestionsIn = Body(...)
     """Update questions in Supabase."""
     teacher = await require_admin(request)
     assert_can_author(teacher)  # manager-only admins can't author questions
+    await require_active_subscription(teacher)
     tid = teacher["id"]
     questions = body.questions
     if not isinstance(questions, list) or len(questions) == 0:

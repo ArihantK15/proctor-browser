@@ -59,6 +59,56 @@ function _syncExamBar(tab){
   if(currentOrgRole === 'admin'){ bar.style.display = 'none'; return; }
   bar.style.display = (_examsLoaded && !_NON_EXAM_TABS.has(tab)) ? 'flex' : 'none';
 }
+
+// Panels that are exam-AUTHORING tools, not existing-data views. A lapsed
+// subscription blur-locks these (backend gate: require_active_subscription
+// in admin_exams.py/question_bank.py). Results/Analytics/History/Billing/
+// Profile stay fully usable regardless of billing state — viewing what
+// already exists and downloading reports must never be blocked.
+const _BILLING_LOCKED_PANEL_IDS = ['panel-live', 'panel-questions', 'panel-tools'];
+
+function _billingLockOverlayHTML(){
+  const reason = currentBillingLockedReason || 'Your subscription needs attention to keep creating content.';
+  return `
+    <div class="billing-lock-overlay">
+      <div class="billing-lock-icon">🔒</div>
+      <div class="billing-lock-msg">${_escapeHtml(reason)}</div>
+      <div class="billing-lock-sub">Existing analytics, results, and downloads still work.</div>
+      <button class="btn btn-primary btn-sm" data-action="switchTab" data-args='["billing"]'>Go to Billing</button>
+    </div>`;
+}
+
+// Apply/remove the blur-lock treatment. Called once after auth resolves
+// (currentBillingLocked is set from /auth/me's billing_locked field) —
+// panels are static DOM (switchTab only toggles .active, never re-renders
+// their innerHTML), so this only needs to run once per session, not on
+// every tab switch.
+function _applyBillingLockUI(){
+  _BILLING_LOCKED_PANEL_IDS.forEach(id => {
+    const panel = document.getElementById(id);
+    if(!panel) return;
+    panel.classList.toggle('billing-blur-lock', currentBillingLocked);
+    let overlay = panel.querySelector(':scope > .billing-lock-overlay');
+    if(currentBillingLocked){
+      if(!overlay){
+        panel.insertAdjacentHTML('beforeend', _billingLockOverlayHTML());
+      }
+    } else if(overlay){
+      overlay.remove();
+    }
+  });
+  // "+ New Exam" / "Duplicate" create new exams outright — lock them too,
+  // with disabled+tooltip rather than a full blur (too small to blur usefully).
+  ['[data-action="showCreateExamModal"]', '#duplicate-exam-btn'].forEach(sel => {
+    const btn = document.querySelector(sel);
+    if(!btn) return;
+    btn.classList.toggle('billing-locked-btn', currentBillingLocked);
+    btn.disabled = currentBillingLocked;
+    btn.title = currentBillingLocked
+      ? (currentBillingLockedReason || 'Subscription needs attention — see Billing.')
+      : '';
+  });
+}
 let _refreshGen = 0; // incremented on exam switch to discard stale responses
 let _liveViewSid = null;
 let _liveViewLastFrameAt = 0;
@@ -117,6 +167,9 @@ async function _onAuthed(teacher){
   // Billing visibility now keys off honest ownership, not role: a solo teacher
   // (org_role='teacher') owns their subscription; an invited teacher doesn't.
   currentIsBillingOwner = !!(teacher && teacher.is_billing_owner);
+  currentBillingLocked = !!(teacher && teacher.billing_locked);
+  currentBillingLockedReason = (teacher && teacher.billing_locked_reason) || '';
+  _applyBillingLockUI();
   _onAuthDone();
   if(teacher && teacher.full_name){
     document.getElementById('teacher-name').textContent = teacher.full_name;
@@ -1141,6 +1194,8 @@ function _dispatchTabLoad(tab){
 let currentOrgRole = 'teacher';
 let currentIsSolo = false;  // solo account → force pure-teacher view (spec §B)
 let currentIsBillingOwner = false;  // owns the org subscription (gates Billing)
+let currentBillingLocked = false;   // subscription lapsed → blur-lock exam-authoring tools
+let currentBillingLockedReason = '';
 
 function decodeJWT(token){
   try{ return JSON.parse(atob(token.split('.')[1])); }catch(e){ return null; }

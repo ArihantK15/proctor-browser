@@ -139,6 +139,26 @@ async def require_active_subscription(teacher: dict[str, Any]) -> None:
     await _check_subscription_active(str(org_id))
 
 
+async def get_subscription_lock_status(teacher: dict[str, Any]) -> tuple[bool, str]:
+    """Non-raising status check for UI gating (dashboard blur-lock overlays).
+
+    Returns (locked, reason) — reason is "" when not locked. Deliberately
+    reuses _check_subscription_active by catching the HTTPException it
+    raises rather than re-implementing the status branching, so the API
+    gate and the UI's own idea of "are we locked" can never drift apart.
+    """
+    if teacher.get("org_role") == "superadmin":
+        return False, ""
+    org_id = teacher.get("org_id")
+    if not org_id:
+        return False, ""
+    try:
+        await _check_subscription_active(str(org_id))
+        return False, ""
+    except HTTPException as e:
+        return True, str(e.detail)
+
+
 async def _check_subscription_active(org_id: str) -> None:
     """Raise 403 if the org's subscription has expired, been cancelled, or
     their trial period has ended.  Superadmin orgs bypass this check.

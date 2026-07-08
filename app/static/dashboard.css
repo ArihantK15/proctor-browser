@@ -309,6 +309,30 @@ body.auth-active > :not(#auth-checking):not(script):not(style){display:none !imp
 .container{padding:24px;max-width:1400px;margin:0 auto;width:100%;min-width:0}
 .panel{display:none}
 .panel.active{display:block}
+
+/* Billing blur-lock — exam-authoring tools (Live/Questions/Tools) get a
+   newsletter-paywall-style treatment when the org's subscription has
+   lapsed: content blurred + inert, with a centered upgrade CTA on top.
+   Analytics/Results/downloads/Billing itself are never given this class. */
+.panel.billing-blur-lock{position:relative;min-height:240px}
+.panel.billing-blur-lock > *:not(.billing-lock-overlay){
+  filter:blur(5px);pointer-events:none;user-select:none}
+.billing-lock-overlay{
+  position:absolute;inset:0;z-index:20;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:14px;text-align:center;
+  padding:32px;background:var(--surface-1,rgba(10,10,14,.55));
+  backdrop-filter:blur(1px)}
+.billing-lock-overlay .billing-lock-icon{font-size:28px;line-height:1}
+.billing-lock-overlay .billing-lock-msg{max-width:360px;font-size:14px;
+  color:var(--text,#eaeaea);font-weight:600}
+.billing-lock-overlay .billing-lock-sub{max-width:360px;font-size:12px;
+  color:var(--muted,#9a9a9a)}
+.billing-lock-overlay .btn{pointer-events:auto}
+
+/* + New Exam / Duplicate — same lock story, smaller footprint: disabled
+   + a lock glyph + tooltip rather than a full blur panel for a toolbar button. */
+.exam-bar button.billing-locked-btn{opacity:.5;cursor:not-allowed;
+  pointer-events:auto}
 /* Only 4 of the ~18 tabs (Live/Results/History/Questions) actually live
    inside .container in the markup — the rest (Profile, Tools, Billing,
    Chat, etc.) are separate top-level .panel siblings. When one of those

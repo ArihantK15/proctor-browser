@@ -65,6 +65,22 @@ after(() => {
   fs.rmSync(fixtureRoot, { recursive: true, force: true });
 });
 
+// lib/runtime-assets.js's _archiveNameAndChecksum() only knows about win32 and
+// darwin (this app only ships Windows and Mac builds) — it throws on any
+// other process.platform. CI's ubuntu-latest runner reports 'linux', so
+// without stubbing, every test here would fail on that platform guard rather
+// than exercising the download/checksum/extract logic it's meant to cover.
+// Stub process.platform to 'darwin' for the duration of each test (restored
+// in `finally`) so the real win32/darwin code path runs regardless of the
+// host OS running `node --test`.
+const REAL_PLATFORM = process.platform;
+function stubPlatform(value) {
+  Object.defineProperty(process, 'platform', { value, configurable: true });
+}
+function restorePlatform() {
+  Object.defineProperty(process, 'platform', { value: REAL_PLATFORM, configurable: true });
+}
+
 // lib/runtime-assets.js destructures RUNTIME_ASSET_VERSION etc. from
 // '../config' at module-load time, so each test needs a FRESH require (the
 // require cache would otherwise pin the first test's config forever).
@@ -96,6 +112,7 @@ function startServer(buf) {
 
 test('ensureRuntimeAssets: happy path downloads, verifies checksum, extracts, and writes the version marker', async () => {
   const { server, port, getCount } = await startServer(goodBuf);
+  stubPlatform('darwin');
   try {
     newSandboxUserData();
     currentConfig = {
@@ -122,12 +139,14 @@ test('ensureRuntimeAssets: happy path downloads, verifies checksum, extracts, an
     const siblings = fs.readdirSync(path.dirname(dir));
     assert.ok(!siblings.some(n => n.includes('extract')), 'extraction tmp dir was cleaned up');
   } finally {
+    restorePlatform();
     server.close();
   }
 });
 
 test('ensureRuntimeAssets: second call is idempotent — cache already current, no re-download', async () => {
   const { server, port, getCount } = await startServer(goodBuf);
+  stubPlatform('darwin');
   try {
     newSandboxUserData();
     currentConfig = {
@@ -147,12 +166,14 @@ test('ensureRuntimeAssets: second call is idempotent — cache already current, 
     assert.equal(fs.readFileSync(path.join(second.cacheDir(), '.version'), 'utf8'), '9');
     assert.equal(result.pythonRuntimeDir, path.join(second.cacheDir(), 'python-runtime'));
   } finally {
+    restorePlatform();
     server.close();
   }
 });
 
 test('ensureRuntimeAssets: checksum mismatch throws, writes no marker, leaves no half-extracted cache', async () => {
   const { server, port } = await startServer(badBuf);
+  stubPlatform('darwin');
   try {
     newSandboxUserData();
     currentConfig = {
@@ -173,6 +194,7 @@ test('ensureRuntimeAssets: checksum mismatch throws, writes no marker, leaves no
     assert.equal(fs.existsSync(path.join(dir, 'python-runtime')), false, 'no half-extracted python-runtime');
     assert.equal(fs.existsSync(path.join(dir, 'weights')), false, 'no half-extracted weights');
   } finally {
+    restorePlatform();
     server.close();
   }
 });

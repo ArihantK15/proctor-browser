@@ -143,13 +143,21 @@
                border-top:1px solid var(--border-subtle);max-height:60vh}
   }
     .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:100000;padding:20px}
-    .modal-box{background:var(--surface-1,#1a1f2e);border:1px solid var(--border-subtle,rgba(255,255,255,.08));border-radius:14px;padding:28px 32px;max-width:440px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.5);max-height:calc(100dvh - 40px);overflow-y:auto;-webkit-overflow-scrolling:touch}
-    .modal-title{color:#fff;font-size:16px;font-weight:600;margin:0 0 8px}
-    .modal-body{color:var(--text-secondary,#94a3b8);font-size:13px;line-height:1.6;margin:0 0 20px;word-break:break-word}
+    .modal-box{background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:28px 32px;max-width:440px;width:100%;box-shadow:0 24px 80px rgba(0,0,0,0.5);max-height:calc(100dvh - 40px);overflow-y:auto;-webkit-overflow-scrolling:touch;position:relative}
+    .modal-box::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;
+      background:linear-gradient(90deg,transparent,var(--accent),transparent);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
+    .modal-title{color:var(--text-high);font-size:16px;font-weight:600;margin:0 0 8px;font-family:var(--font-display);letter-spacing:-0.01em}
+    .modal-body{color:var(--text-mid);font-size:13px;line-height:1.6;margin:0 0 20px;word-break:break-word}
     .modal-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
-    .modal-btn{background:var(--accent,#3b82f6);color:#fff;border:none;border-radius:8px;padding:10px 18px;font-size:13px;font-weight:500;cursor:pointer;min-height:40px}
-    .modal-btn:hover{filter:brightness(1.1)}
-    .modal-btn-secondary{background:var(--surface-2,#262c3d);color:var(--text-high,#e2e8f0);border:1px solid var(--border,rgba(255,255,255,0.12))}
+    .modal-btn{background:var(--accent);color:var(--btn-primary-text);border:1px solid var(--accent);border-radius:var(--radius-md);padding:10px 18px;font-size:13px;font-weight:500;cursor:pointer;min-height:40px;
+      transition:background var(--duration-fast) var(--ease-standard),box-shadow var(--duration-fast) var(--ease-standard),transform var(--duration-fast) var(--ease-standard);
+      box-shadow:0 6px 18px -8px rgba(91,138,240,0.45)}
+    .modal-btn:hover{background:var(--accent-hover);border-color:var(--accent-hover);
+      box-shadow:0 0 0 3px rgba(91,138,240,0.18),0 10px 28px -6px rgba(91,138,240,0.55);transform:translateY(-1px)}
+    .modal-btn:active{background:var(--accent-active);border-color:var(--accent-active);transform:translateY(0)}
+    .modal-btn-secondary{background:rgba(255,255,255,0.03);color:var(--text-high);border:1px solid rgba(255,255,255,0.08);box-shadow:none}
+    .modal-btn-secondary:hover{background:rgba(255,255,255,0.06);border-color:rgba(255,255,255,0.14)}
+    .modal-btn-secondary:active{background:rgba(255,255,255,0.08)}
     /* Phone-specific tightening for ALL dynamic modals (appConfirm,
        appPrompt, intervention chip picker, etc.). Reduces wasted padding
        on a 375px viewport so the actual content gets room, taps target
@@ -225,7 +233,7 @@
   .cwiz-review .r{display:flex;gap:10px} .cwiz-review .r b{min-width:120px;color:var(--text-muted);font-weight:500}
   .tc-row-remove{background:none;border:none;color:var(--sev-error-fg);cursor:pointer;
                  font-size:16px;padding:2px 6px;border-radius:4px}
-  .tc-row-remove:hover{background:var(--sev-error-subtle)}
+  .tc-row-remove:hover{background:var(--sev-error-bg)}
   .tc-add-btn{font-size:11px;color:var(--accent);cursor:pointer;background:none;
               border:1px dashed var(--accent-subtle);border-radius:var(--radius-md);
               padding:6px 12px;margin-top:6px;display:inline-flex;align-items:center;gap:6px}
@@ -668,7 +676,7 @@
       </table>
     </div>
     <div class="mcard-list" id="results-cards"></div>
-    <div id="post-exam-cta" style="display:none;margin-top:14px;padding:14px 18px;background:var(--accent-bg);border:1px solid var(--accent);border-radius:var(--radius-md);font-size:13px;color:var(--accent-fg);text-align:center">
+    <div id="post-exam-cta" style="display:none;margin-top:14px;padding:14px 18px;background:var(--accent-subtle);border:1px solid var(--accent);border-radius:var(--radius-md);font-size:13px;color:var(--text-high);text-align:center">
       🎉 First exam results ready! <a href="#" data-action="showUpgradeModal" data-args='["You’ve outgrown the Starter plan. Unlock more students and features."]' style="color:var(--accent-light);font-weight:600">Upgrade your plan</a> to register more students and unlock higher limits.
     </div>
    </div>
@@ -1956,7 +1964,7 @@
         <span style="font-weight:600;font-size:14px">Activity Summary</span>
         <span class="badge" id="tl-summary-severity"></span>
       </div>
-      <div id="tl-summary-text" style="font-size:13px;line-height:1.7;color:var(--text-secondary);white-space:pre-line"></div>
+      <div id="tl-summary-text" style="font-size:13px;line-height:1.7;color:var(--text-mid);white-space:pre-line"></div>
       <div id="tl-summary-highlights" style="margin-top:10px"></div>
     </div>
     <!-- Severity filter -->
@@ -2033,7 +2041,7 @@
       <option value="teacher">Teacher</option>
     </select>
     <label style="font-size:12px;color:var(--text-muted)">Email or account id</label>
-    <input type="text" id="sar-subject" placeholder="student@example.com" style="width:100%;margin:4px 0 10px;padding:9px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary)">
+    <input type="text" id="sar-subject" class="input" placeholder="student@example.com" style="margin:4px 0 10px">
     <button class="btn btn-primary btn-sm" type="button" data-action="sarExport">Export data</button>
     <div id="sar-result" style="margin-top:10px;font-size:12px"></div>
   </div>
@@ -2108,9 +2116,9 @@
 <!-- INVITE TEACHER MODAL -->
 <div class="modal-overlay" id="invite-modal" style="display:none" data-action="hideInviteTeacherModal" data-guard-self>
   <div class="modal" style="max-width:420px">
-    <h3 style="margin:0 0 16px;color:var(--text-primary)">Invite Teacher</h3>
-    <input type="email" id="invite-email" placeholder="teacher@institution.edu" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;margin-bottom:12px;outline:none;box-sizing:border-box">
-    <input type="text" id="invite-name" placeholder="Full Name (optional)" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-secondary);color:var(--text-primary);font-size:14px;margin-bottom:16px;outline:none;box-sizing:border-box">
+    <h3 style="margin-top:0">Invite Teacher</h3>
+    <input type="email" id="invite-email" class="input" placeholder="teacher@institution.edu" style="margin-bottom:12px">
+    <input type="text" id="invite-name" class="input" placeholder="Full Name (optional)" style="margin-bottom:16px">
     <div id="teacher-invite-result" style="font-size:13px;margin-bottom:12px"></div>
     <div style="display:flex;gap:10px">
       <button class="btn btn-secondary btn-sm" data-action="hideInviteTeacherModal" style="flex:1">Cancel</button>
@@ -2423,7 +2431,7 @@
       <div class="stat-tile"><div class="stat-tile-label">Organizations</div><div class="stat-tile-value accent" id="all-orgs-count">--</div></div>
     </div>
     <div class="table-toolbar">
-      <span style="font-size:var(--text-lg,16px);font-weight:600;letter-spacing:-0.01em;color:var(--text-primary)">All Organizations</span>
+      <span style="font-size:var(--text-lg,16px);font-weight:600;letter-spacing:-0.01em;color:var(--text-high)">All Organizations</span>
     </div>
     <div class="table-wrap" style="border:none;border-radius:0">
       <table id="all-orgs-table" style="width:100%;border-collapse:collapse;font-size:var(--text-sm,13px)">

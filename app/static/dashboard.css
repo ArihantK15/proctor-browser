@@ -2071,6 +2071,7 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
   font-family:var(--font-body); font-weight:500;
 }
 .more-sheet-item svg{ width:18px; height:18px; flex-shrink:0; opacity:.85; }
+.more-sheet-item .tab-badge{ margin-left:auto; }
 .more-sheet-item:hover, .more-sheet-item:active{ background:rgba(255,255,255,.05); }
 .more-sheet-item.active{ color:var(--accent); }
 body:has(.more-sheet.open) .flag-fab{ display:none; }

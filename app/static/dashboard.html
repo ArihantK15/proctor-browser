@@ -253,8 +253,8 @@
 <!-- COOKIE NOTICE — essential-cookies disclosure, no accept/reject -->
 <div id="cookie-notice" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:#0f172a;color:#e2e8f0;padding:12px 20px;font-size:13px;line-height:1.5;text-align:center;border-top:1px solid #1e293b;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)">
   <span>Procta uses essential cookies to keep you signed in and protect your account.</span>
-  <a href="/cookie-policy" style="color:#60a5fa;text-decoration:underline;margin:0 6px">Learn more</a>
-  <button id="cookie-notice-dismiss" style="background:#3b82f6;color:#fff;border:none;border-radius:6px;padding:6px 16px;font-size:12px;cursor:pointer;font-weight:500">Got it</button>
+  <a href="/cookie-policy" style="color:var(--accent);text-decoration:underline;margin:0 6px">Learn more</a>
+  <button id="cookie-notice-dismiss" class="btn btn-primary btn-sm">Got it</button>
 </div>
 
 <!-- AUTH GATE — the embedded login form that used to live here was retired
@@ -877,8 +877,7 @@
                 </div>
                 <div>
                   <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Difficulty</div>
-                  <select id="gen-difficulty"
-                    style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+                  <select id="gen-difficulty" class="select">
                     <option value="easy">Easy</option>
                     <option value="medium">Medium</option>
                     <option value="hard">Hard</option>
@@ -1254,8 +1253,7 @@
                   <input type="file" id="invite-csv" accept=".csv,.txt" style="display:none" data-change-action="_importInviteCsvWrap">
                   Import CSV
                 </label>
-                <select id="invite-from-group"
-                  style="background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-size:12px">
+                <select id="invite-from-group" class="select" style="min-width:0;width:auto">
                   <option value="">— or pull from a group —</option>
                 </select>
                 <button class="btn btn-secondary btn-sm" data-action="pullGroupIntoInvites" style="padding:6px 12px;font-size:12px">Load Group</button>
@@ -1433,7 +1431,7 @@
           <div id="google-courses" style="display:none;margin-bottom:8px">
             <div style="margin-bottom:6px;max-height:200px;overflow-y:auto" id="google-course-list"></div>
             <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Link to exam:</label>
-            <select id="google-exam-select" style="width:100%;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface-1);color:var(--text);font-size:12px;margin-bottom:8px"></select>
+            <select id="google-exam-select" class="select" style="margin-bottom:8px"></select>
             <button class="btn btn-primary btn-sm" data-action="syncGoogleRoster" style="margin-right:6px">Sync roster</button>
             <button class="btn btn-secondary btn-sm" data-action="disconnectGoogle">Disconnect</button>
           </div>
@@ -1518,7 +1516,7 @@
           <h3>Proctoring Sensitivity</h3>
           <p>How strict AI flagging is for this exam. Stricter settings raise more violations.</p>
           <div class="tool-card-field">
-            <select id="sensitivity-select" style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
+            <select id="sensitivity-select" class="select">
               <option value="lenient">Lenient</option>
               <option value="balanced">Balanced</option>
               <option value="strict">Strict</option>
@@ -1610,8 +1608,7 @@
             <div id="exam-groups-list" style="margin-bottom:8px"></div>
             <div id="exam-groups-none" style="color:var(--muted);font-size:12px;margin-bottom:8px">All students can access this exam (no group restriction).</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <select id="assign-group-select"
-                style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <select id="assign-group-select" class="select" style="flex:1;min-width:140px">
                 <option value="">Select a group to restrict access...</option>
               </select>
               <button class="btn btn-primary btn-sm" data-action="assignGroupToExam" style="white-space:nowrap">Assign</button>
@@ -1624,8 +1621,7 @@
             <div id="exam-batches-list" style="margin-bottom:8px"></div>
             <div id="exam-batches-none" style="color:var(--muted);font-size:12px;margin-bottom:8px">No batch restriction on this exam.</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <select id="assign-batch-select"
-                style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <select id="assign-batch-select" class="select" style="flex:1;min-width:140px">
                 <option value="">Select a batch to restrict access...</option>
               </select>
               <button class="btn btn-primary btn-sm" data-action="assignBatchToExam" style="white-space:nowrap">Assign</button>
@@ -1638,8 +1634,7 @@
             <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px">Cohort Enrollment Link</div>
             <div style="font-size:12px;color:var(--muted);margin-bottom:8px">Share a link that enrolls students straight into a batch (no exam needed). They're then eligible for every exam you assign to that batch.</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <select id="cohort-link-batch-select"
-                style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <select id="cohort-link-batch-select" class="select" style="flex:1;min-width:140px">
                 <option value="">Select a batch…</option>
               </select>
               <button class="btn btn-secondary btn-sm" data-action="copyCohortLink" style="white-space:nowrap">Copy link</button>
@@ -1657,10 +1652,10 @@
           <p>Save exam configurations as reusable templates. Clone a template to instantly create a new exam with the same settings and questions — perfect for running the same exam across multiple batches.</p>
           <div style="margin-top:14px">
             <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-              <select id="template-source-exam" style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <select id="template-source-exam" class="select" style="flex:1;min-width:140px">
                 <option value="">Select exam to save as template…</option>
               </select>
-              <input type="text" id="template-name-input" placeholder="Template name (e.g. Math Midterm v2)" style="flex:1;min-width:140px;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <input type="text" id="template-name-input" class="input" placeholder="Template name (e.g. Math Midterm v2)" style="flex:1;min-width:140px">
               <button class="btn btn-primary btn-sm" data-action="saveTemplate" style="white-space:nowrap">Save Template</button>
             </div>
             <div id="templates-list" style="border-top:1px solid var(--border);padding-top:12px"></div>
@@ -2000,7 +1995,7 @@
         <div style="font-size:12px;color:var(--text-muted)">Disputes raised by students. Open the flag to see the lead-up context before deciding.</div>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
-        <select id="appeals-filter" data-change-action="loadAppeals" style="font-size:12px;padding:6px 10px;border-radius:8px;border:1px solid var(--border);background:var(--surface-2,transparent);color:inherit">
+        <select id="appeals-filter" class="select" data-change-action="loadAppeals" style="min-width:0;width:auto">
           <option value="pending">Pending</option>
           <option value="all">All</option>
           <option value="accepted">Accepted</option>
@@ -2033,7 +2028,7 @@
   </div>
   <div style="margin-top:12px;max-width:520px">
     <label style="font-size:12px;color:var(--text-muted)">Subject type</label>
-    <select id="sar-type" style="width:100%;margin:4px 0 10px;padding:9px;border:1px solid var(--border-subtle);border-radius:8px;background:var(--bg-subtle);color:var(--text-primary)">
+    <select id="sar-type" class="select" style="margin:4px 0 10px">
       <option value="student">Student</option>
       <option value="teacher">Teacher</option>
     </select>

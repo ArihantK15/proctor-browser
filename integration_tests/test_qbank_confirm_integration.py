@@ -27,7 +27,7 @@ async def _confirm(questions: list[dict]):
     prev = limiter.enabled
     limiter.enabled = False
     try:
-        with patch.object(qb, "require_admin", AsyncMock(return_value={"id": TID})):
+        with patch.object(qb, "require_admin", AsyncMock(return_value={"id": TID, "org_id": "org-confirm-1"})):
             return await confirm_extracted(MagicMock(), body)
     finally:
         limiter.enabled = prev

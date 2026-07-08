@@ -33,7 +33,7 @@ async def _save(qids: list[str]) -> None:
     prev = limiter.enabled
     limiter.enabled = False  # bypass slowapi for the direct call
     try:
-        with patch.object(qb, "require_admin", AsyncMock(return_value={"id": TID})):
+        with patch.object(qb, "require_admin", AsyncMock(return_value={"id": TID, "org_id": "org-resave-1"})):
             await update_questions(MagicMock(), body)
     finally:
         limiter.enabled = prev
@@ -74,7 +74,7 @@ async def test_resave_updates_existing_row_content():
     prev = limiter.enabled
     limiter.enabled = False
     try:
-        with patch.object(qb, "require_admin", AsyncMock(return_value={"id": TID})):
+        with patch.object(qb, "require_admin", AsyncMock(return_value={"id": TID, "org_id": "org-resave-1"})):
             await update_questions(MagicMock(), body)
     finally:
         limiter.enabled = prev

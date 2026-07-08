@@ -1299,6 +1299,18 @@ function applyOrgRole(org_role){
       }
     }
   }
+  // Hide a sidebar section header when every item inside it just got
+  // role-gated to display:none (data-roles/data-hide-for-admin/
+  // data-billing-owner passes above already ran) — otherwise a plain
+  // org-teacher sees an empty "Organization" header with nothing under it.
+  document.querySelectorAll('.nav-group').forEach(group => {
+    const items = Array.from(group.querySelectorAll('.tab'));
+    const displays = items.map(el => el.style.display);
+    const visible = typeof _groupShouldBeVisible === 'function'
+      ? _groupShouldBeVisible(displays)
+      : displays.some(d => d !== 'none');
+    group.classList.toggle('nav-group-empty', !visible);
+  });
 }
 
 function _onAuthDone(){

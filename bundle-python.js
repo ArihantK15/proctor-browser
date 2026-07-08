@@ -21,7 +21,6 @@
  * falls back to system python3 — see python-manager.getBundledPython().
  */
 
-const https   = require('https');
 const fs      = require('fs');
 const path    = require('path');
 const os      = require('os');
@@ -35,6 +34,7 @@ const { execSync, spawnSync } = require('child_process');
 // into a nondeterministic first-launch pip). config.js requires electron only
 // lazily, so this require is safe in a plain-Node build script.
 const { PIP_PACKAGES } = require('./config');
+const { download } = require('./lib/http-download.js');
 
 const PYTHON_VERSION = '3.11.9';
 const PYTHON_ZIP_URL =
@@ -270,54 +270,10 @@ async function runMac() {
   console.log('   first-launch pip (venv path remains a dev fallback).\n');
 }
 
-// Retry wrapper. CI runners intermittently drop the connection mid-stream
-// ("Error: socket hang up" / ECONNRESET) on the larger CDN/GitHub-release
-// downloads — that took out two macOS bakes in a row AFTER pip had already
-// succeeded. Retry with backoff + a fresh dest file so a flaky network drop
-// no longer fails the whole build.
-async function download(url, dest, attempts = 4) {
-  for (let i = 1; i <= attempts; i++) {
-    try {
-      return await downloadOnce(url, dest);
-    } catch (e) {
-      const last = i >= attempts;
-      console.warn(`[dl] attempt ${i}/${attempts} failed for ${url}: ${e.message}` +
-        (last ? '' : ` — retrying in ${i * 2}s`));
-      try { fs.rmSync(dest, { force: true }); } catch { /* nothing to clean */ }
-      if (last) throw e;
-      await new Promise(r => setTimeout(r, i * 2000));
-    }
-  }
-}
-
-function downloadOnce(url, dest) {
-  // Only opens the destination stream on the final 200 — GitHub release
-  // URLs redirect (302 → objects.githubusercontent.com), so opening the
-  // file up front and closing it on the first redirect (the old bug)
-  // left an empty file. Handles the full redirect set + a depth cap.
-  return new Promise((resolve, reject) => {
-    const follow = (u, depth = 0) => {
-      if (depth > 8) { reject(new Error(`Too many redirects — ${url}`)); return; }
-      https.get(u, (res) => {
-        if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
-          res.resume(); // drain so the socket frees
-          follow(res.headers.location, depth + 1);
-          return;
-        }
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(new Error(`HTTP ${res.statusCode} — ${u}`));
-          return;
-        }
-        const file = fs.createWriteStream(dest);
-        res.pipe(file);
-        file.on('finish', () => file.close(resolve));
-        file.on('error', reject);
-      }).on('error', reject);
-    };
-    follow(url);
-  });
-}
+// download() (retry-with-backoff + redirect-following) now lives in
+// lib/http-download.js — shared with the runtime-asset fetch path so this
+// logic exists in exactly one place. See lib/http-download.js for the
+// implementation and rationale.
 
 // Fetch CPython dev headers + import libs (matching PYTHON_VERSION) from the
 // python-build-standalone Windows tarball and install them into the embeddable

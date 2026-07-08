@@ -8978,9 +8978,25 @@ async function removeOrgMember(memberId){
   try { reauth_token = await _getReauthToken('remove this member'); }
   catch(e){ alert(e.message || 'Re-authentication failed'); return; }
   if(!reauth_token) return;
+
+  // Second factor: an email OTP, same bar as account deletion — proves the
+  // admin controls their registered inbox, not just a password a briefly
+  // hijacked session could also satisfy via reauth above.
+  const reqResp = await authFetch(`${BASE}/api/v1/org/members/${encodeURIComponent(memberId)}/remove-request`,
+    {method:'POST'});
+  if(!reqResp.ok){
+    const rd = await reqResp.json().catch(()=>({}));
+    showModal(_detailText(rd, 'Could not send the confirmation code.'));
+    return;
+  }
+  const otp_code = await appPrompt('We emailed a 6-digit code to confirm this removal. Enter it here:', '',
+    {title:'Confirm removal', okText:'Confirm'});
+  if(!otp_code) return;
+
   const r = await authFetch(`${BASE}/api/v1/org/members/${encodeURIComponent(memberId)}`, {
     method:'DELETE',
-    headers:{'X-Reauth-Token': reauth_token}
+    headers:{'X-Reauth-Token': reauth_token},
+    body: JSON.stringify({otp_code})
   });
   if(!r.ok){
     const d = await r.json().catch(()=>({}));

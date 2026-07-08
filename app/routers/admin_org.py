@@ -1,10 +1,12 @@
 """Org management router — admin-only org/billing/member routes."""
 
+import asyncio
 import hashlib
 import logging
+import re
 import uuid as _uuid
 from datetime import datetime, timezone, timedelta
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Body
 
 from typing import Any
 from ..auth import require_admin
@@ -157,27 +159,78 @@ async def invite_member(body: OrgInviteIn, request: Request):
     return {"ok": True, "message": f"Invitation sent to {email}"}
 
 
-@router.delete("/api/v1/org/members/{teacher_id}")
+@router.post("/api/v1/org/members/{teacher_id}/remove-request")
 @limiter.limit("10/hour")
-async def remove_member(teacher_id: str, request: Request):
-    """Remove a teacher from the org.
+async def remove_member_request(teacher_id: str, request: Request):
+    """Email the calling admin a 6-digit OTP before removing a member.
 
-    Requires a fresh reauth_token (P1.2 — X-Reauth-Token header) on top
-    of the admin/superadmin org_role check. Kicking a colleague out is
-    a high-blast-radius action; locking it behind a fresh password
-    prompt closes the stolen-session impersonation path.
+    Removing a colleague is a high-blast-radius, irreversible-in-effect
+    action (revokes their sessions immediately) — gated by BOTH a fresh
+    password reauth AND this OTP, same bar as account deletion, so a
+    briefly-hijacked admin session can't kick someone out unilaterally.
     """
-    from ..auth.admin_auth import clear_teacher_cache, require_reauth_or_403
+    from ..services import email_otp
+    from ..services.email_otp import OtpRateLimitError
+    from ..emailer import send_2fa_otp_email
+
     admin = await require_admin(request)
     if admin.get("org_role") not in ("admin", "superadmin"):
         raise HTTPException(status_code=403, detail="Only admins can remove members")
-    require_reauth_or_403(None, str(admin["id"]), request=request)
+    try:
+        code = await email_otp.issue("teacher", str(admin["id"]), "remove_member")
+    except OtpRateLimitError:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many codes requested. Please wait before trying again.",
+        )
+    await asyncio.to_thread(
+        send_2fa_otp_email, admin.get("email") or "", admin.get("full_name") or "", code, purpose="delete")
+    return {"sent": True, "expires_in": 600}
+
+
+@router.delete("/api/v1/org/members/{teacher_id}")
+@limiter.limit("10/hour")
+async def remove_member(teacher_id: str, request: Request, body: dict[str, Any] = Body(default_factory=dict)):
+    """Remove a teacher from the org.
+
+    Requires a fresh reauth_token (P1.2 — X-Reauth-Token header) AND a
+    fresh email OTP (otp_code in the body — see remove-request above) on
+    top of the admin/superadmin org_role check. Kicking a colleague out is
+    a high-blast-radius action; locking it behind both closes the
+    stolen-session impersonation path more thoroughly than password alone.
+
+    The org's billing owner (organizations.owner_teacher_id) can NEVER be
+    removed this way — doing so would orphan the org's billing forever
+    (nobody would match owner_teacher_id again, so is_billing_owner()
+    returns False for every remaining member and the Billing tab vanishes
+    for good, forensic audit 2026-07-08). There is no ownership-transfer
+    flow yet, so this is a hard block, not a re-assign-then-remove flow.
+    """
+    from ..auth.admin_auth import clear_teacher_cache, require_reauth_or_403
+    from ..services import email_otp
+    admin = await require_admin(request)
+    if admin.get("org_role") not in ("admin", "superadmin"):
+        raise HTTPException(status_code=403, detail="Only admins can remove members")
+    require_reauth_or_403(body, str(admin["id"]), request=request)
     org_id = admin.get("org_id")
     if not org_id:
         raise HTTPException(status_code=403, detail="No organization associated")
 
     if str(admin["id"]) == teacher_id:
         raise HTTPException(status_code=400, detail="Cannot remove yourself")
+
+    otp_code = re.sub(r"\D", "", str((body or {}).get("otp_code") or ""))
+    if len(otp_code) != 6 or not await email_otp.verify("teacher", str(admin["id"]), "remove_member", otp_code):
+        raise HTTPException(status_code=403, detail="Invalid or expired confirmation code")
+
+    org_row = await _atable("organizations").select("owner_teacher_id").eq("id", str(org_id)).limit(1).execute()
+    owner_id = (org_row.data or [{}])[0].get("owner_teacher_id") if org_row.data else None
+    if owner_id and str(owner_id) == teacher_id:
+        raise HTTPException(
+            status_code=409,
+            detail="This member owns the organization's billing and can't be removed. "
+                   "Transfer billing ownership first (contact support).",
+        )
 
     target = await _atable("teachers").select("id,org_id,org_role").eq("id", teacher_id).eq("org_id", str(org_id)).limit(1).execute()
     if not target.data:

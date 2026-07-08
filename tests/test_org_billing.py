@@ -220,39 +220,102 @@ class TestRemoveMember:
         return h
 
     def test_happy_path(self, client):
-        data_map = {"teachers": [{"id": "teacher-2", "org_id": "org-1", "org_role": "teacher"}]}
+        data_map = {"teachers": [{"id": "teacher-2", "org_id": "org-1", "org_role": "teacher"}],
+                   "organizations": [{"owner_teacher_id": "teacher-1"}]}
         with _admin_patch(), contextlib.ExitStack() as es:
             for p in _apply_atable_patches(data_map):
                 es.enter_context(p)
-            resp = client.delete("/api/v1/org/members/teacher-2", headers=self._headers())
+            es.enter_context(patch("app.services.email_otp.verify",
+                                   new_callable=AsyncMock, return_value=True))
+            resp = client.request("DELETE", "/api/v1/org/members/teacher-2", headers=self._headers(),
+                                json={"otp_code": "123456"})
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
 
     def test_remove_self_400(self, client):
         with _admin_patch():
-            resp = client.delete("/api/v1/org/members/teacher-1", headers=self._headers())
+            resp = client.request("DELETE", "/api/v1/org/members/teacher-1", headers=self._headers())
         assert resp.status_code == 400
 
     def test_not_found_404(self, client):
+        data_map = {"teachers": [], "organizations": [{"owner_teacher_id": "teacher-1"}]}
         with _admin_patch(), contextlib.ExitStack() as es:
-            for p in _apply_atable_patches({"teachers": []}):
+            for p in _apply_atable_patches(data_map):
                 es.enter_context(p)
-            resp = client.delete("/api/v1/org/members/unknown", headers=self._headers())
+            es.enter_context(patch("app.services.email_otp.verify",
+                                   new_callable=AsyncMock, return_value=True))
+            resp = client.request("DELETE", "/api/v1/org/members/unknown", headers=self._headers(),
+                                json={"otp_code": "123456"})
         assert resp.status_code == 404
 
     def test_non_admin_403(self, client):
         with _admin_patch(NON_ADMIN):
             # Non-admin org_role is checked BEFORE the reauth gate, so
             # the missing reauth header doesn't matter here.
-            resp = client.delete("/api/v1/org/members/teacher-2", headers=admin_headers())
+            resp = client.request("DELETE", "/api/v1/org/members/teacher-2", headers=admin_headers())
         assert resp.status_code == 403
 
     def test_missing_reauth_403(self, client):
         # New: without a fresh reauth token, even an admin gets rejected.
         with _admin_patch():
-            resp = client.delete("/api/v1/org/members/teacher-2", headers=admin_headers())
+            resp = client.request("DELETE", "/api/v1/org/members/teacher-2", headers=admin_headers())
         assert resp.status_code == 403
         assert "re-auth" in resp.json()["detail"].lower() or "Re-auth" in resp.json()["detail"]
+
+    def test_missing_otp_403(self, client):
+        # Reauth alone is no longer sufficient — the email OTP is a second,
+        # separate factor (proves inbox control, not just password/session).
+        with _admin_patch():
+            resp = client.request("DELETE", "/api/v1/org/members/teacher-2", headers=self._headers())
+        assert resp.status_code == 403
+        assert "code" in resp.json()["detail"].lower()
+
+    def test_wrong_otp_403(self, client):
+        with _admin_patch(), \
+             patch("app.services.email_otp.verify", new_callable=AsyncMock, return_value=False):
+            resp = client.request("DELETE", "/api/v1/org/members/teacher-2", headers=self._headers(),
+                                json={"otp_code": "000000"})
+        assert resp.status_code == 403
+
+    def test_cannot_remove_billing_owner_409(self, client):
+        # teacher-2 owns the org's billing — removing them would orphan it
+        # (nobody would ever match owner_teacher_id again).
+        data_map = {"teachers": [{"id": "teacher-2", "org_id": "org-1", "org_role": "teacher"}],
+                   "organizations": [{"owner_teacher_id": "teacher-2"}]}
+        with _admin_patch(), contextlib.ExitStack() as es:
+            for p in _apply_atable_patches(data_map):
+                es.enter_context(p)
+            es.enter_context(patch("app.services.email_otp.verify",
+                                   new_callable=AsyncMock, return_value=True))
+            resp = client.request("DELETE", "/api/v1/org/members/teacher-2", headers=self._headers(),
+                                json={"otp_code": "123456"})
+        assert resp.status_code == 409
+        assert "owns" in resp.json()["detail"].lower() or "billing" in resp.json()["detail"].lower()
+
+
+class TestRemoveMemberRequest:
+    def test_requires_admin(self, client):
+        with _admin_patch(NON_ADMIN):
+            resp = client.post("/api/v1/org/members/teacher-2/remove-request", headers=admin_headers())
+        assert resp.status_code == 403
+
+    def test_sends_otp(self, client):
+        with _admin_patch(), \
+             patch("app.services.email_otp.issue", new_callable=AsyncMock, return_value="654321") as mi, \
+             patch("app.emailer.send_2fa_otp_email") as mail:
+            resp = client.post("/api/v1/org/members/teacher-2/remove-request", headers=admin_headers())
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["sent"] is True
+        mi.assert_awaited_once_with("teacher", "teacher-1", "remove_member")
+        mail.assert_called_once()
+
+    def test_rate_limited_429(self, client):
+        from app.services.email_otp import OtpRateLimitError
+        with _admin_patch(), \
+             patch("app.services.email_otp.issue", new_callable=AsyncMock,
+                   side_effect=OtpRateLimitError("too many")):
+            resp = client.post("/api/v1/org/members/teacher-2/remove-request", headers=admin_headers())
+        assert resp.status_code == 429
 
 
 # ═══════════════════════════════════════════════════════════════════

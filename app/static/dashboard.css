@@ -1986,6 +1986,20 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
   .tab svg{ width:16px; height:16px; flex-shrink:0; opacity:.85; }
   .tab.active svg{ opacity:1; }
 }
+/* ── Below the sidebar breakpoint (≤1024px: tablet's horizontal bar AND
+   the phone bottom-nav layer beneath it), the .nav-group/.nav-group-label
+   markup added for the sidebar (above) must not affect layout — that
+   markup only makes sense once .tabs becomes a vertical rail at ≥1025px.
+   `display:contents` unwraps .nav-group so its .tab children become direct
+   flex items of .tabs again (identical to pre-grouping markup); the label
+   is simply hidden since this layout never had section headers. Each
+   .tab's own role-gating already sets display:none individually via JS, so
+   an "empty" group has no visible children left regardless — no extra
+   .nav-group-empty rule is needed at this breakpoint. */
+@media (max-width: 1024px){
+  .nav-group{ display:contents; }
+  .nav-group-label{ display:none; }
+}
 /* ── Tablet: pin tabs + exam-bar below the sticky topbar ───────────
    At 769–1024px the tabs are still horizontal (not a left sidebar), so
    we make them sticky so only the content panel scrolls. */

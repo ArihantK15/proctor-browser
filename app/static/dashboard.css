@@ -310,6 +310,7 @@ body.auth-active > :not(#auth-checking):not(script):not(style){display:none !imp
 .tab:focus-visible{outline:2px solid var(--accent);outline-offset:-4px;border-radius:4px}
 .tab.active{color:var(--accent);border-bottom-color:var(--accent);
   text-shadow:0 0 12px var(--accent-glow)}
+.tab svg{width:16px;height:16px;flex-shrink:0}
 .container{padding:24px;max-width:1400px;margin:0 auto;width:100%;min-width:0}
 .panel{display:none}
 .panel.active{display:block}
@@ -1983,7 +1984,7 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
     color:var(--text-muted); padding:6px 14px 4px;
   }
   .nav-group.nav-group-empty{ display:none; }
-  .tab svg{ width:16px; height:16px; flex-shrink:0; opacity:.85; }
+  .tab svg{opacity:.85}
   .tab.active svg{ opacity:1; }
 }
 /* ── Below the sidebar breakpoint (≤1024px: tablet's horizontal bar AND

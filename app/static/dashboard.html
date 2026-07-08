@@ -874,14 +874,12 @@
             <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px">
               <div>
                 <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Topic</div>
-                <input type="text" id="gen-topic" placeholder="e.g. Photosynthesis, light vs dark reactions"
-                  style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+                <input type="text" id="gen-topic" class="input" placeholder="e.g. Photosynthesis, light vs dark reactions">
               </div>
               <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
                 <div>
                   <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Count</div>
-                  <input type="number" id="gen-count" value="10" min="1" max="25" title="Max 25 per call"
-                    style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+                  <input type="number" id="gen-count" class="input" value="10" min="1" max="25" title="Max 25 per call">
                 </div>
                 <div>
                   <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Difficulty</div>
@@ -895,14 +893,13 @@
               </div>
               <div>
                 <div style="font-size:10px;font-weight:600;color:var(--text-muted);letter-spacing:.05em;text-transform:uppercase;margin-bottom:4px">Grade (optional)</div>
-                <input type="text" id="gen-grade" placeholder="e.g. Grade 9 or undergrad"
-                  style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font-size:13px;font-family:inherit">
+                <input type="text" id="gen-grade" class="input" placeholder="e.g. Grade 9 or undergrad">
               </div>
             </div>
             <details style="margin-bottom:10px">
               <summary style="font-size:11px;color:var(--text-muted);cursor:pointer">Optional: paste source material</summary>
-              <textarea id="gen-source" rows="4" placeholder="Paste a chapter, lecture notes, or article — generated questions will be based on this text."
-                style="width:100%;margin-top:6px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:8px 10px;color:var(--text-high);font:12px monospace;resize:none;box-sizing:border-box"></textarea>
+              <textarea id="gen-source" class="textarea" rows="4" placeholder="Paste a chapter, lecture notes, or article — generated questions will be based on this text."
+                style="margin-top:6px;font:12px monospace;resize:none"></textarea>
             </details>
             <button class="btn btn-primary btn-sm" data-action="doGenerateQuestions" id="gen-btn" style="width:100%;justify-content:center">Generate</button>
 
@@ -926,8 +923,7 @@
                default; setAITab('bank') reveals it. -->
           <div data-aipane="bank" style="display:none">
             <div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;flex-wrap:wrap">
-              <input type="text" id="bank-search" placeholder="Search bank or filter by tag…" data-input-action="filterBank"
-                style="flex:1;min-width:120px;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:6px 10px;color:var(--text-high);font-size:12px;font-family:inherit">
+              <input type="text" id="bank-search" class="input" placeholder="Search bank or filter by tag…" data-input-action="filterBank" style="flex:1;min-width:120px;padding:6px 10px;font-size:12px">
               <button class="btn btn-secondary btn-sm" data-action="exportBank" title="Download bank as JSON">Export</button>
             </div>
             <div id="bank-list" style="max-height:50vh;overflow-y:auto"></div>
@@ -942,8 +938,8 @@
               Wrap commas in <code style="color:var(--accent)">"double quotes"</code>; separate tags with <code style="color:var(--accent)">|</code>.
               <a href="#" data-action="downloadBankCSVTemplate" style="color:var(--accent);text-decoration:underline">Template</a>
             </p>
-            <textarea id="bank-import-text" rows="6" placeholder='[{"question":"...","option_A":"...","option_B":"...","correct":"A"}]'
-              style="width:100%;background:var(--surface-1);border:1px solid var(--border-subtle);border-radius:var(--radius-md);padding:10px;color:var(--text-high);font:12px monospace;resize:vertical;box-sizing:border-box"></textarea>
+            <textarea id="bank-import-text" class="textarea" rows="6" placeholder='[{"question":"...","option_A":"...","option_B":"...","correct":"A"}]'
+              style="padding:10px;font:12px monospace;resize:vertical"></textarea>
             <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <input type="file" id="bank-import-file" accept=".csv,.json" data-change-action="_loadBankFileWrap" style="font-size:11px;color:var(--text-muted);flex:1;min-width:120px">
               <button class="btn btn-primary btn-sm" data-action="doBankImport">Import</button>
@@ -1221,8 +1217,7 @@
             <div>
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Registration Link</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <input type="text" id="share-register-link" readonly
-                  style="flex:1;min-width:160px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
+                <input type="text" id="share-register-link" class="input" readonly style="flex:1;min-width:160px;font-family:monospace">
                 <button class="btn btn-primary btn-sm" data-action="copyLink" data-args='["share-register-link"]' style="white-space:nowrap;padding:10px 16px">Copy</button>
                 <button class="btn btn-secondary btn-sm" data-action="toggleRegQR" style="white-space:nowrap;padding:10px 16px">QR</button>
               </div>
@@ -1237,8 +1232,7 @@
             <div>
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Download Link</label>
               <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-                <input type="text" id="share-download-link" readonly
-                  style="flex:1;min-width:160px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace">
+                <input type="text" id="share-download-link" class="input" readonly style="flex:1;min-width:160px;font-family:monospace">
                 <button class="btn btn-primary btn-sm" data-action="copyLink" data-args='["share-download-link"]' style="white-space:nowrap;padding:10px 16px">Copy</button>
               </div>
             </div>
@@ -1254,8 +1248,8 @@
           <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:14px">
             <div style="flex:1;min-width:280px">
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Recipients — one per line: <code>name, email, roll</code></label>
-              <textarea id="invite-recipients" rows="6" placeholder="Alice Smith, alice@school.edu, R001&#10;Bob Jones, bob@school.edu, R002"
-                style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:monospace;resize:vertical"></textarea>
+              <textarea id="invite-recipients" class="textarea" rows="6" placeholder="Alice Smith, alice@school.edu, R001&#10;Bob Jones, bob@school.edu, R002"
+                style="font-family:monospace;resize:vertical"></textarea>
               <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap">
                 <label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">
                   <input type="file" id="invite-csv" accept=".csv,.txt" style="display:none" data-change-action="_importInviteCsvWrap">
@@ -1272,15 +1266,14 @@
 
             <div style="flex:1;min-width:240px">
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px">Custom Message (optional)</label>
-              <textarea id="invite-message" rows="3" maxlength="500" placeholder="Hi! This exam opens at 10am sharp. Make sure your webcam works."
-                style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;resize:vertical"></textarea>
+              <textarea id="invite-message" class="textarea" rows="3" maxlength="500" placeholder="Hi! This exam opens at 10am sharp. Make sure your webcam works."
+                style="resize:vertical"></textarea>
               <label class="shuffle-toggle" style="margin-top:8px">
                 <input type="checkbox" id="invite-per-code" checked>
                 <span>Generate a one-time access code per student</span>
               </label>
               <label style="display:block;font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:10px;margin-bottom:6px">Expires At (optional)</label>
-              <input type="datetime-local" id="invite-expires"
-                style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <input type="datetime-local" id="invite-expires" class="input">
             </div>
           </div>
         </div>
@@ -1312,10 +1305,8 @@
           <h3>Time Extensions</h3>
           <p>Grant extra minutes to a specific student for the selected exam (accommodations, makeup-time, tech-issue). The student's on-screen timer and the server's time-exceeded enforcement both reflect the extension. Set to 0 to remove.</p>
           <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-            <input type="text" id="ext-roll" placeholder="Roll number"
-              style="width:140px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;text-transform:uppercase">
-            <input type="number" id="ext-minutes" placeholder="Extra minutes" min="0" max="600"
-              style="width:130px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+            <input type="text" id="ext-roll" class="input" placeholder="Roll number" style="width:140px;text-transform:uppercase">
+            <input type="number" id="ext-minutes" class="input" placeholder="Extra minutes" min="0" max="600" style="width:130px">
             <button class="btn btn-primary btn-sm" data-action="setTimeExtension">Set</button>
           </div>
           <div id="ext-status" style="font-size:12px;min-height:18px;margin-top:8px"></div>
@@ -1355,7 +1346,7 @@
           <h3>Bulk Student Import</h3>
           <p>Add many students at once for this exam. One per line as <code>roll, name, email</code> (phone and batch optional), or upload a CSV with roll_number, full_name, email columns. Preview first, then confirm.</p>
           <div class="tool-card-field">
-            <textarea id="bulk-import-text" rows="5" placeholder="R001, Alice Johnson, alice@example.com&#10;R002, Bob Smith, bob@example.com" style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;font-family:inherit;resize:vertical"></textarea>
+            <textarea id="bulk-import-text" class="textarea" rows="5" placeholder="R001, Alice Johnson, alice@example.com&#10;R002, Bob Smith, bob@example.com" style="resize:vertical"></textarea>
           </div>
           <div class="tool-card-field" style="margin-top:8px">
             <input type="file" id="bulk-import-file" accept=".csv">
@@ -1381,8 +1372,7 @@
              analytics pass rate. Applies to this exam only — each exam has its own
              mark (default 40%).</p>
           <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
-            <input type="number" id="pass-mark-input" min="0" max="100" step="1" inputmode="numeric"
-              style="width:110px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
+            <input type="number" id="pass-mark-input" class="input" min="0" max="100" step="1" inputmode="numeric" style="width:110px">
             <span style="color:var(--muted);font-size:13px">%</span>
           </div>
         </div>
@@ -1402,10 +1392,8 @@
           <h3>Remove Student From Roster</h3>
           <p>Removes a student's enrollment under your account so they can re-register cleanly. Their login account is kept; only the roster row is deleted. A roster entry spans all your exams, so removal applies to all of them.</p>
           <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">
-            <input type="email" id="roster-remove-email" placeholder="student@school.edu"
-              style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
-            <input type="text" id="roster-remove-roll" placeholder="OR roll number (e.g. R001)"
-              style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px;text-transform:uppercase">
+            <input type="email" id="roster-remove-email" class="input" placeholder="student@school.edu">
+            <input type="text" id="roster-remove-roll" class="input" placeholder="OR roll number (e.g. R001)" style="text-transform:uppercase">
           </div>
         </div>
         <div class="tool-card-actions">
@@ -1542,7 +1530,7 @@
           <h3>Audio Keywords</h3>
           <p>Spoken words flagged during this exam (comma-separated). Detected on the student device.</p>
           <div class="tool-card-field">
-            <input type="text" id="audio-keywords-input" placeholder="e.g. answer, help, google" style="width:100%;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-size:13px">
+            <input type="text" id="audio-keywords-input" class="input" placeholder="e.g. answer, help, google">
           </div>
           <div style="font-size:11px;color:var(--text-muted);line-height:1.6;margin-top:8px;padding:8px 10px;background:rgba(255,255,255,.02);border-radius:6px">
             <strong>Voice signals</strong><br>
@@ -1589,8 +1577,7 @@
           <div id="groups-list" style="margin-top:12px"></div>
            <div id="groups-empty" style="color:var(--muted);font-size:13px;margin-top:8px">No groups yet — enter a name above and click Create Group.</div>
           <div style="margin-top:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-            <input type="text" id="new-group-name" placeholder="New group name"
-              style="flex:1;min-width:140px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+            <input type="text" id="new-group-name" class="input" placeholder="New group name" style="flex:1;min-width:140px">
             <button class="btn btn-primary btn-sm" data-action="createGroup" style="white-space:nowrap">Create Group</button>
           </div>
           <div id="group-status" style="font-size:12px;min-height:18px;margin-top:8px;color:var(--emerald)"></div>
@@ -1604,8 +1591,7 @@
             <div id="group-members-list" style="margin-bottom:12px"></div>
             <div id="group-members-empty" style="color:var(--muted);font-size:12px;margin-bottom:10px">No members yet — enter roll numbers above and click Add.</div>
             <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-              <input type="text" id="add-member-rolls" placeholder="Roll numbers (comma-separated)"
-                style="flex:1;min-width:140px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+              <input type="text" id="add-member-rolls" class="input" placeholder="Roll numbers (comma-separated)" style="flex:1;min-width:140px">
               <button class="btn btn-primary btn-sm" data-action="addGroupMembers" style="white-space:nowrap">Add</button>
             </div>
           </div>
@@ -1939,8 +1925,7 @@
       </div>
     </div>
     <div class="coupon-row" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <input type="text" id="upgrade-coupon-input" placeholder="Have a coupon? Enter code"
-             style="flex:1;min-width:120px;padding:6px 10px;font-size:12px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--surface-1);color:var(--text-high)">
+      <input type="text" id="upgrade-coupon-input" class="input" placeholder="Have a coupon? Enter code" style="flex:1;min-width:120px;padding:6px 10px;font-size:12px">
       <button class="btn btn-secondary btn-sm" type="button" data-action="applyCoupon">Apply</button>
       <span id="upgrade-coupon-status" style="font-size:11px;color:var(--text-muted)"></span>
     </div>
@@ -2235,8 +2220,7 @@
         </article>
       </div>
       <div class="coupon-row" style="margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <input type="text" id="coupon-input" placeholder="Have a coupon? Enter code"
-               style="flex:1;min-width:140px;padding:6px 10px;font-size:12px;border:1px solid var(--border-subtle);border-radius:6px;background:var(--surface-1);color:var(--text-high)">
+        <input type="text" id="coupon-input" class="input" placeholder="Have a coupon? Enter code" style="flex:1;min-width:140px;padding:6px 10px;font-size:12px">
         <button class="btn btn-secondary btn-sm" type="button" data-action="applyCouponBilling">Apply</button>
         <span id="coupon-status" style="font-size:11px;color:var(--text-muted)"></span>
       </div>
@@ -2299,8 +2283,7 @@
       <div class="tool-card-body">
         <h3>Account</h3>
         <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:14px 0 4px">Display name</label>
-        <input id="profile-name" type="text" maxlength="120" autocomplete="name"
-               style="width:100%;max-width:380px;background:var(--surface-1,#161a22);border:1px solid var(--border-subtle,rgba(255,255,255,.12));border-radius:8px;padding:9px 12px;color:var(--text-high,#fff);font-size:14px;outline:none"/>
+        <input id="profile-name" class="input" type="text" maxlength="120" autocomplete="name" style="max-width:380px"/>
         <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:16px 0 4px">Email</label>
         <div id="profile-email" style="font-size:14px;color:var(--text-high,#e6edf3)">—</div>
         <label style="display:block;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:16px 0 4px">Role</label>

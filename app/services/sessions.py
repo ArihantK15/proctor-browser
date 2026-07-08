@@ -119,6 +119,26 @@ async def check_org_limits(teacher: dict[str, Any], delta: int = 0) -> dict[str,
     return org
 
 
+async def require_active_subscription(teacher: dict[str, Any]) -> None:
+    """Public entry point for endpoints that create content (exams,
+    questions) rather than students — those don't need the student-count/
+    seat-cap machinery in check_org_limits, just the billing gate itself.
+
+    A cancelled/expired/halted/paused org can otherwise author unlimited new
+    exams and questions forever — check_org_limits only ever gated the
+    student roster, never the authoring surface. Existing content (viewing
+    analytics, downloading reports, running an exam already in progress)
+    must stay reachable regardless of billing state; only NEW-content
+    creation calls this.
+    """
+    if teacher.get("org_role") == "superadmin":
+        return
+    org_id = teacher.get("org_id")
+    if not org_id:
+        raise HTTPException(status_code=403, detail="No organization associated with this account")
+    await _check_subscription_active(str(org_id))
+
+
 async def _check_subscription_active(org_id: str) -> None:
     """Raise 403 if the org's subscription has expired, been cancelled, or
     their trial period has ended.  Superadmin orgs bypass this check.

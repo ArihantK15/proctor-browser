@@ -28,7 +28,7 @@ from tests.conftest import make_admin_token, make_student_token, shared_supabase
 from app.auth.tokens import issue_reauth_token
 
 
-TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T"}
+TEACHER = {"id": "teacher-1", "email": "prof@test.com", "full_name": "Prof T", "org_id": "org-1"}
 
 
 def _admin_headers():

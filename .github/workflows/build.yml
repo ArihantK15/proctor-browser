@@ -24,8 +24,22 @@ on:
   push:
     tags:
       - 'v*'
-  # Manual trigger for debugging without creating a new tag
+  # Manual trigger for debugging without creating a new tag. Also doubles as
+  # the trigger for the separate cut-runtime-assets job below (set
+  # cut_runtime_assets: true) — that job packs python-runtime/ + weights/
+  # into a runtime-assets-v<N> GitHub Release, distinct from the app's own
+  # vX.Y.Z tag releases, so it only needs to run when the bundled Python
+  # interpreter or model weights actually change, not on every app release.
   workflow_dispatch:
+    inputs:
+      cut_runtime_assets:
+        description: 'Cut a new runtime-assets release (weights/ + Python interpreter) instead of a normal app build'
+        type: boolean
+        default: false
+      runtime_asset_version:
+        description: 'Version number to tag this runtime-assets release as (must match config.js RUNTIME_ASSET_VERSION after this run)'
+        type: string
+        default: ''
 
 permissions:
   contents: write  # needed so electron-builder can create/update the Release
@@ -553,3 +567,41 @@ jobs:
             exit 1
           fi
           echo "Release $TAG verified: manifest versions match the tag and all referenced assets exist."
+
+  # ── Manual runtime-assets cutter ───────────────────────────────────────────
+  # Packs python-runtime/ + weights/ into the tar.gz archives Task 3's
+  # lib/runtime-assets.js downloads on first launch, and uploads them to a
+  # DEDICATED runtime-assets-v<N> release — never the app's own vX.Y.Z tag
+  # release. Gated on workflow_dispatch + cut_runtime_assets=true so this
+  # never fires on a normal `git tag vX.Y.Z && git push --tags` release; it
+  # only needs to run when the bundled Python interpreter or model weights
+  # actually change (which is rare and deliberate), not on every app build.
+  cut-runtime-assets:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.cut_runtime_assets == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            archive: procta-runtime-win.tar.gz
+          - os: macos-14
+            archive: procta-runtime-mac-arm64.tar.gz
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node bundle-python.js --${{ runner.os == 'Windows' && 'win' || 'mac' }}
+      - name: Verify archive was produced
+        shell: bash
+        run: |
+          if [ ! -f "${{ matrix.archive }}" ]; then echo "✗ ${{ matrix.archive }} not produced"; exit 1; fi
+          echo "✓ $(sha256sum "${{ matrix.archive }}" 2>/dev/null || shasum -a 256 "${{ matrix.archive }}")"
+      - name: Upload to the runtime-assets release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="runtime-assets-v${{ github.event.inputs.runtime_asset_version }}"
+          gh release create "$TAG" --title "$TAG" --notes "Procta runtime assets v${{ github.event.inputs.runtime_asset_version }}" 2>/dev/null || true
+          gh release upload "$TAG" "${{ matrix.archive }}" --clobber

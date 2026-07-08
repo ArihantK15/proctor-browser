@@ -24,7 +24,7 @@
 const fs      = require('fs');
 const path    = require('path');
 const os      = require('os');
-const { execSync, spawnSync } = require('child_process');
+const { execSync, spawnSync, execFileSync } = require('child_process');
 
 // Single source of truth for the proctor package set. config.js#PIP_PACKAGES
 // is the canonical list (asserted ⊇ requirements-proctor.txt by
@@ -211,6 +211,36 @@ function normalizeForReproducibility(rootDir, pyExe) {
   console.log('[repro] done.');
 }
 
+// ── Runtime-assets archive (manual "cut-runtime-assets" CI job only) ──────
+// Packs the fully-baked python-runtime/ + weights/ into the exact archive
+// name lib/runtime-assets.js's ensureRuntimeAssets() downloads and extracts
+// (Task 3). NOT part of the normal build/release flow — electron-builder
+// still ships nothing itself; the archive is uploaded to a separate
+// `runtime-assets-v<N>` GitHub Release and fetched lazily on first launch.
+//
+// Windows still bakes its embeddable interpreter into the legacy
+// resources/python/ location (OUT_DIR below), NOT python-runtime/ — but
+// lib/runtime-assets.js unconditionally extracts a top-level `python-runtime/`
+// directory on every platform (see its `for (const sub of ['python-runtime',
+// 'weights'])` loop) and lib/python-manager.js's getBundledPython() looks for
+// cacheDir()/python-runtime/python.exe on win32. So the Windows archive step
+// renames resources/python/ -> python-runtime/ INSIDE the archive via tar's
+// -s transform, rather than requiring a python-runtime/ directory to exist on
+// disk. macOS already writes to python-runtime/ directly, so no rename is
+// needed there.
+function archiveRuntimeAssets(platformArchiveName, pythonSourceDir = 'python-runtime') {
+  console.log(`\n[archive] Packing ${pythonSourceDir}/ (as python-runtime/) + weights/ into ${platformArchiveName}...`);
+  const args = ['-czf', platformArchiveName];
+  if (pythonSourceDir !== 'python-runtime') {
+    args.push('-s', `,^${pythonSourceDir},python-runtime,`);
+  }
+  args.push(pythonSourceDir, 'weights');
+  execFileSync('tar', args, { stdio: 'inherit', cwd: __dirname });
+  console.log(`[archive] Wrote ${platformArchiveName}`);
+}
+
+module.exports.archiveRuntimeAssets = archiveRuntimeAssets;
+
 async function runMac() {
   console.log('\n=== Procta — macOS Python runtime bundler ===\n');
   fs.mkdirSync(MAC_RUNTIME_DIR, { recursive: true });
@@ -268,6 +298,13 @@ async function runMac() {
   console.log('   afterPack.js code-signs the interpreter AND the baked');
   console.log('   site-packages native libs; the app uses them with no');
   console.log('   first-launch pip (venv path remains a dev fallback).\n');
+
+  // Only meaningful when this build is being run by the manual
+  // "cut-runtime-assets" GitHub Actions job (see .github/workflows/build.yml)
+  // — normal app releases produce this tarball too but nothing consumes or
+  // uploads it, so it's inert.
+  const macArchiveArch = bakeTarget === 'aarch64-apple-darwin' ? 'arm64' : 'x64';
+  archiveRuntimeAssets(`procta-runtime-mac-${macArchiveArch}.tar.gz`);
 }
 
 // download() (retry-with-backoff + redirect-following) now lives in
@@ -426,4 +463,12 @@ async function fetchWindowsBuildHeaders(outDir) {
 
   console.log(`\n✅ Done — ${OUT_DIR}`);
   console.log('   Now run: npm run build:win\n');
+
+  // Only meaningful when this build is being run by the manual
+  // "cut-runtime-assets" GitHub Actions job (see .github/workflows/build.yml)
+  // — normal app releases produce this tarball too but nothing consumes or
+  // uploads it, so it's inert. resources/python is the legacy bake location
+  // (OUT_DIR above); it gets renamed to python-runtime/ inside the archive —
+  // see the comment on archiveRuntimeAssets() for why.
+  archiveRuntimeAssets('procta-runtime-win.tar.gz', 'resources/python');
 })();

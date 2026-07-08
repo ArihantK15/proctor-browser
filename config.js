@@ -371,6 +371,12 @@ const PIP_PACKAGES = [
 // uploaded tarball, checked before extraction (same pin-and-verify
 // pattern already used for PIP_PACKAGES' exact version pins above).
 const RUNTIME_ASSET_VERSION = '1';
+// After running the "cut-runtime-assets" GitHub Actions workflow, download
+// the produced archives and update these two constants with their real
+// `shasum -a 256 <file>` output before the app can verify them. A stale
+// or placeholder checksum here means EVERY first-run fetch fails the
+// integrity check (see lib/runtime-assets.js) — this is a hard release
+// gate, not optional.
 // PLACEHOLDER — MUST be replaced with the real SHA-256 of the uploaded
 // tarball before this ships. Left as an obviously-fake string on purpose
 // so a real download would always fail the integrity check rather than

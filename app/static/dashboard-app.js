@@ -69,12 +69,21 @@ const _BILLING_LOCKED_PANEL_IDS = ['panel-live', 'panel-questions', 'panel-tools
 
 function _billingLockOverlayHTML(){
   const reason = currentBillingLockedReason || 'Your subscription needs attention to keep creating content.';
+  // The Billing tab only ever renders for the actual billing owner
+  // (data-billing-owner in dashboard.html, keyed off is_billing_owner — an
+  // admin isn't automatically the owner, and an invited org-teacher never
+  // is). A "Go to Billing" CTA for anyone else is a dead end: the tab is
+  // hidden and the underlying endpoints 403 them anyway. Point them at the
+  // person who can actually act instead.
+  const cta = currentIsBillingOwner
+    ? `<button class="btn btn-primary btn-sm" data-action="switchTab" data-args='["billing"]'>Go to Billing</button>`
+    : `<div class="billing-lock-sub">Ask your organization admin to update billing.</div>`;
   return `
     <div class="billing-lock-overlay">
       <div class="billing-lock-icon">🔒</div>
       <div class="billing-lock-msg">${_escapeHtml(reason)}</div>
       <div class="billing-lock-sub">Existing analytics, results, and downloads still work.</div>
-      <button class="btn btn-primary btn-sm" data-action="switchTab" data-args='["billing"]'>Go to Billing</button>
+      ${cta}
     </div>`;
 }
 

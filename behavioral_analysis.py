@@ -96,6 +96,7 @@ def match_note_reading(buffer: SignalBuffer, lookback_secs: float = 10.0, fps: f
         return None
 
     consecutive_offtask = 0
+    streak_start_t = None
     for entry in entries:
         gaze_away = entry.get("gaze_away", False)
         head_turned = entry.get("head_turned", False)
@@ -103,11 +104,19 @@ def match_note_reading(buffer: SignalBuffer, lookback_secs: float = 10.0, fps: f
 
         if gaze_away and head_turned and not voice:
             consecutive_offtask += 1
+            if streak_start_t is None:
+                streak_start_t = entry["t"]
         else:
             consecutive_offtask = 0
+            streak_start_t = None
 
         if consecutive_offtask >= 15:
-            dur = consecutive_offtask / fps
+            # Timestamp span, not consecutive_offtask / fps — see
+            # match_sustained_offtask's comment above: the capture rate is
+            # throttled dynamically by the hardware governor (proctor.py), so a
+            # fixed fps under-counts duration at throttled rates. Same bug,
+            # same fix, applied here too.
+            dur = entry["t"] - streak_start_t
             conf = min(1.0, 0.6 + dur * 0.05)
             return {
                 "pattern": "note_reading",

@@ -241,6 +241,22 @@ class TestNoteReading:
         # Only 10 consecutive, need 15
         assert match_note_reading(buf) is None
 
+    def test_duration_uses_real_timestamps_not_frame_count(self):
+        """Regression: duration must come from real timestamps, not
+        consecutive_offtask/fps (same bug class already fixed in
+        match_sustained_offtask — see its test_matches_at_throttled_capture_rate).
+        At a throttled ~3.3fps capture rate, 15 consecutive off-task frames span
+        ~4.2s of real time; the old frame_count/15 math reported a flat 1.0s
+        regardless of actual spacing."""
+        buf = SignalBuffer(window_secs=15)
+        now = time.time()
+        for i in range(20):
+            buf.push({"gaze_away": True, "head_turned": True,
+                       "voice_active": False, "t": now - (20 - i) * 0.3})
+        result = match_note_reading(buf)
+        assert result is not None
+        assert "4s" in result["detail"]  # ~4.2s real elapsed, not 15/15=1.0s
+
 
 # ─── Pattern: sustained_offtask ─────────────────────────────────────────────────
 

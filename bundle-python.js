@@ -223,19 +223,30 @@ function normalizeForReproducibility(rootDir, pyExe) {
 // lib/runtime-assets.js unconditionally extracts a top-level `python-runtime/`
 // directory on every platform (see its `for (const sub of ['python-runtime',
 // 'weights'])` loop) and lib/python-manager.js's getBundledPython() looks for
-// cacheDir()/python-runtime/python.exe on win32. So the Windows archive step
-// renames resources/python/ -> python-runtime/ INSIDE the archive via tar's
-// -s transform, rather than requiring a python-runtime/ directory to exist on
-// disk. macOS already writes to python-runtime/ directly, so no rename is
-// needed there.
+// cacheDir()/python-runtime/python.exe on win32. macOS already writes to
+// python-runtime/ directly, so no rename is needed there.
+//
+// The Windows leg used to rename resources/python/ -> python-runtime/ INSIDE
+// the archive via tar's `-s` transform flag — that's GNU tar syntax, and
+// Windows' bundled bsdtar rejects it outright ("tar -s is not supported by
+// this version of bsdtar"), confirmed by a real failure on an actual
+// windows-latest CI runner (this was never exercised on real Windows before).
+// Stage a real python-runtime/ directory via a plain recursive copy instead,
+// so every platform runs the exact same tar invocation with no transform
+// flags at all.
 function archiveRuntimeAssets(platformArchiveName, pythonSourceDir = 'python-runtime') {
   console.log(`\n[archive] Packing ${pythonSourceDir}/ (as python-runtime/) + weights/ into ${platformArchiveName}...`);
-  const args = ['-czf', platformArchiveName];
-  if (pythonSourceDir !== 'python-runtime') {
-    args.push('-s', `,^${pythonSourceDir},python-runtime,`);
+  if (pythonSourceDir === 'python-runtime') {
+    execFileSync('tar', ['-czf', platformArchiveName, 'python-runtime', 'weights'], { stdio: 'inherit', cwd: __dirname });
+  } else {
+    const stageDir = path.join(__dirname, '.runtime-assets-stage');
+    fs.rmSync(stageDir, { recursive: true, force: true });
+    fs.mkdirSync(stageDir, { recursive: true });
+    fs.cpSync(path.join(__dirname, pythonSourceDir), path.join(stageDir, 'python-runtime'), { recursive: true });
+    fs.cpSync(path.join(__dirname, 'weights'), path.join(stageDir, 'weights'), { recursive: true });
+    execFileSync('tar', ['-czf', path.join(__dirname, platformArchiveName), 'python-runtime', 'weights'], { stdio: 'inherit', cwd: stageDir });
+    fs.rmSync(stageDir, { recursive: true, force: true });
   }
-  args.push(pythonSourceDir, 'weights');
-  execFileSync('tar', args, { stdio: 'inherit', cwd: __dirname });
   console.log(`[archive] Wrote ${platformArchiveName}`);
 }
 
@@ -341,7 +352,11 @@ async function fetchWindowsBuildHeaders(outDir) {
   }
 }
 
-(async () => {
+// Guarded so `require('./bundle-python.js')` (e.g. from a test importing
+// archiveRuntimeAssets) doesn't trigger a real multi-minute download/bake as
+// a side effect — this file was always meant to run only via
+// `node bundle-python.js` / `npm run bundle-python`, never as a plain import.
+if (require.main === module) (async () => {
   if (process.platform === 'darwin') {
     await runMac();
     process.exit(0);

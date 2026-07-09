@@ -383,12 +383,12 @@ const RUNTIME_ASSET_VERSION = '2';
 // gate, not optional.
 // PLACEHOLDER — MUST be replaced with the real SHA-256 of the
 // runtime-assets-v2 archives after that workflow run, same as v1 was.
-const RUNTIME_ASSET_CHECKSUM_WIN = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
+const RUNTIME_ASSET_CHECKSUM_WIN = '51c8a722acd08b8f246e15a01d08548b7a94c16bdb940844f22c22ae7c855e4c';
 // arm64 and x64 archives contain different interpreter binaries — a single
 // shared MAC checksum constant would mean whichever arch's real checksum
 // ISN'T the one plugged in always fails verification. Split per-arch.
-const RUNTIME_ASSET_CHECKSUM_MAC_ARM64 = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
-const RUNTIME_ASSET_CHECKSUM_MAC_X64 = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
+const RUNTIME_ASSET_CHECKSUM_MAC_ARM64 = 'a3e999c1e684cc50783196cd93b99bbc1a04c38371d35b00c632d8552dac2978';
+const RUNTIME_ASSET_CHECKSUM_MAC_X64 = 'e8c6504880aaca037da31331c97ba797f6ad9f07daf88bb9113a6b7710df99a6';
 const RUNTIME_ASSET_BASE_URL =
   'https://github.com/ArihantK15/proctor-browser/releases/download/runtime-assets-v';
 

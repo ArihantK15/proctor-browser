@@ -370,22 +370,25 @@ const PIP_PACKAGES = [
 // every app release. RUNTIME_ASSET_CHECKSUM is the SHA-256 of the
 // uploaded tarball, checked before extraction (same pin-and-verify
 // pattern already used for PIP_PACKAGES' exact version pins above).
-const RUNTIME_ASSET_VERSION = '1';
+// v1 shipped without Vosk/Silero speech models (the cut-runtime-assets CI
+// job never ran the audio-model download step — fixed in build.yml).
+// Bumped to v2 so every install re-fetches the corrected archive rather
+// than treating the incomplete v1 cache as current.
+const RUNTIME_ASSET_VERSION = '2';
 // After running the "cut-runtime-assets" GitHub Actions workflow, download
 // the produced archives and update these two constants with their real
 // `shasum -a 256 <file>` output before the app can verify them. A stale
 // or placeholder checksum here means EVERY first-run fetch fails the
 // integrity check (see lib/runtime-assets.js) — this is a hard release
 // gate, not optional.
-// Real SHA-256 of the runtime-assets-v1 release archives — computed by
-// downloading each asset via `gh release download runtime-assets-v1` and
-// running `shasum -a 256` directly, not by trusting CI log output.
-const RUNTIME_ASSET_CHECKSUM_WIN = '6c20de5ddbdc7f73975e6a3eb146f78aedf6dd005342c46aee0357f3d44153ca';
+// PLACEHOLDER — MUST be replaced with the real SHA-256 of the
+// runtime-assets-v2 archives after that workflow run, same as v1 was.
+const RUNTIME_ASSET_CHECKSUM_WIN = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
 // arm64 and x64 archives contain different interpreter binaries — a single
 // shared MAC checksum constant would mean whichever arch's real checksum
 // ISN'T the one plugged in always fails verification. Split per-arch.
-const RUNTIME_ASSET_CHECKSUM_MAC_ARM64 = '75a03617ac17ab9d26190558adb8dba67b3c3700cac31f94692a4d0da9643db3';
-const RUNTIME_ASSET_CHECKSUM_MAC_X64 = '0ae975066cd6bd45ec6ea6a465d4d7b38d1373d1308c6535433809ab9654a5f3';
+const RUNTIME_ASSET_CHECKSUM_MAC_ARM64 = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
+const RUNTIME_ASSET_CHECKSUM_MAC_X64 = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
 const RUNTIME_ASSET_BASE_URL =
   'https://github.com/ArihantK15/proctor-browser/releases/download/runtime-assets-v';
 

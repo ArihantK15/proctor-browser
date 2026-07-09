@@ -21,11 +21,10 @@
  * falls back to system python3 — see python-manager.getBundledPython().
  */
 
-const https   = require('https');
 const fs      = require('fs');
 const path    = require('path');
 const os      = require('os');
-const { execSync, spawnSync } = require('child_process');
+const { execSync, spawnSync, execFileSync } = require('child_process');
 
 // Single source of truth for the proctor package set. config.js#PIP_PACKAGES
 // is the canonical list (asserted ⊇ requirements-proctor.txt by
@@ -35,6 +34,7 @@ const { execSync, spawnSync } = require('child_process');
 // into a nondeterministic first-launch pip). config.js requires electron only
 // lazily, so this require is safe in a plain-Node build script.
 const { PIP_PACKAGES } = require('./config');
+const { download } = require('./lib/http-download.js');
 
 const PYTHON_VERSION = '3.11.9';
 const PYTHON_ZIP_URL =
@@ -211,6 +211,47 @@ function normalizeForReproducibility(rootDir, pyExe) {
   console.log('[repro] done.');
 }
 
+// ── Runtime-assets archive (manual "cut-runtime-assets" CI job only) ──────
+// Packs the fully-baked python-runtime/ + weights/ into the exact archive
+// name lib/runtime-assets.js's ensureRuntimeAssets() downloads and extracts
+// (Task 3). NOT part of the normal build/release flow — electron-builder
+// still ships nothing itself; the archive is uploaded to a separate
+// `runtime-assets-v<N>` GitHub Release and fetched lazily on first launch.
+//
+// Windows still bakes its embeddable interpreter into the legacy
+// resources/python/ location (OUT_DIR below), NOT python-runtime/ — but
+// lib/runtime-assets.js unconditionally extracts a top-level `python-runtime/`
+// directory on every platform (see its `for (const sub of ['python-runtime',
+// 'weights'])` loop) and lib/python-manager.js's getBundledPython() looks for
+// cacheDir()/python-runtime/python.exe on win32. macOS already writes to
+// python-runtime/ directly, so no rename is needed there.
+//
+// The Windows leg used to rename resources/python/ -> python-runtime/ INSIDE
+// the archive via tar's `-s` transform flag — that's GNU tar syntax, and
+// Windows' bundled bsdtar rejects it outright ("tar -s is not supported by
+// this version of bsdtar"), confirmed by a real failure on an actual
+// windows-latest CI runner (this was never exercised on real Windows before).
+// Stage a real python-runtime/ directory via a plain recursive copy instead,
+// so every platform runs the exact same tar invocation with no transform
+// flags at all.
+function archiveRuntimeAssets(platformArchiveName, pythonSourceDir = 'python-runtime') {
+  console.log(`\n[archive] Packing ${pythonSourceDir}/ (as python-runtime/) + weights/ into ${platformArchiveName}...`);
+  if (pythonSourceDir === 'python-runtime') {
+    execFileSync('tar', ['-czf', platformArchiveName, 'python-runtime', 'weights'], { stdio: 'inherit', cwd: __dirname });
+  } else {
+    const stageDir = path.join(__dirname, '.runtime-assets-stage');
+    fs.rmSync(stageDir, { recursive: true, force: true });
+    fs.mkdirSync(stageDir, { recursive: true });
+    fs.cpSync(path.join(__dirname, pythonSourceDir), path.join(stageDir, 'python-runtime'), { recursive: true });
+    fs.cpSync(path.join(__dirname, 'weights'), path.join(stageDir, 'weights'), { recursive: true });
+    execFileSync('tar', ['-czf', path.join(__dirname, platformArchiveName), 'python-runtime', 'weights'], { stdio: 'inherit', cwd: stageDir });
+    fs.rmSync(stageDir, { recursive: true, force: true });
+  }
+  console.log(`[archive] Wrote ${platformArchiveName}`);
+}
+
+module.exports.archiveRuntimeAssets = archiveRuntimeAssets;
+
 async function runMac() {
   console.log('\n=== Procta — macOS Python runtime bundler ===\n');
   fs.mkdirSync(MAC_RUNTIME_DIR, { recursive: true });
@@ -268,56 +309,19 @@ async function runMac() {
   console.log('   afterPack.js code-signs the interpreter AND the baked');
   console.log('   site-packages native libs; the app uses them with no');
   console.log('   first-launch pip (venv path remains a dev fallback).\n');
+
+  // Only meaningful when this build is being run by the manual
+  // "cut-runtime-assets" GitHub Actions job (see .github/workflows/build.yml)
+  // — normal app releases produce this tarball too but nothing consumes or
+  // uploads it, so it's inert.
+  const macArchiveArch = bakeTarget === 'aarch64-apple-darwin' ? 'arm64' : 'x64';
+  archiveRuntimeAssets(`procta-runtime-mac-${macArchiveArch}.tar.gz`);
 }
 
-// Retry wrapper. CI runners intermittently drop the connection mid-stream
-// ("Error: socket hang up" / ECONNRESET) on the larger CDN/GitHub-release
-// downloads — that took out two macOS bakes in a row AFTER pip had already
-// succeeded. Retry with backoff + a fresh dest file so a flaky network drop
-// no longer fails the whole build.
-async function download(url, dest, attempts = 4) {
-  for (let i = 1; i <= attempts; i++) {
-    try {
-      return await downloadOnce(url, dest);
-    } catch (e) {
-      const last = i >= attempts;
-      console.warn(`[dl] attempt ${i}/${attempts} failed for ${url}: ${e.message}` +
-        (last ? '' : ` — retrying in ${i * 2}s`));
-      try { fs.rmSync(dest, { force: true }); } catch { /* nothing to clean */ }
-      if (last) throw e;
-      await new Promise(r => setTimeout(r, i * 2000));
-    }
-  }
-}
-
-function downloadOnce(url, dest) {
-  // Only opens the destination stream on the final 200 — GitHub release
-  // URLs redirect (302 → objects.githubusercontent.com), so opening the
-  // file up front and closing it on the first redirect (the old bug)
-  // left an empty file. Handles the full redirect set + a depth cap.
-  return new Promise((resolve, reject) => {
-    const follow = (u, depth = 0) => {
-      if (depth > 8) { reject(new Error(`Too many redirects — ${url}`)); return; }
-      https.get(u, (res) => {
-        if ([301, 302, 303, 307, 308].includes(res.statusCode)) {
-          res.resume(); // drain so the socket frees
-          follow(res.headers.location, depth + 1);
-          return;
-        }
-        if (res.statusCode !== 200) {
-          res.resume();
-          reject(new Error(`HTTP ${res.statusCode} — ${u}`));
-          return;
-        }
-        const file = fs.createWriteStream(dest);
-        res.pipe(file);
-        file.on('finish', () => file.close(resolve));
-        file.on('error', reject);
-      }).on('error', reject);
-    };
-    follow(url);
-  });
-}
+// download() (retry-with-backoff + redirect-following) now lives in
+// lib/http-download.js — shared with the runtime-asset fetch path so this
+// logic exists in exactly one place. See lib/http-download.js for the
+// implementation and rationale.
 
 // Fetch CPython dev headers + import libs (matching PYTHON_VERSION) from the
 // python-build-standalone Windows tarball and install them into the embeddable
@@ -348,7 +352,11 @@ async function fetchWindowsBuildHeaders(outDir) {
   }
 }
 
-(async () => {
+// Guarded so `require('./bundle-python.js')` (e.g. from a test importing
+// archiveRuntimeAssets) doesn't trigger a real multi-minute download/bake as
+// a side effect — this file was always meant to run only via
+// `node bundle-python.js` / `npm run bundle-python`, never as a plain import.
+if (require.main === module) (async () => {
   if (process.platform === 'darwin') {
     await runMac();
     process.exit(0);
@@ -470,4 +478,12 @@ async function fetchWindowsBuildHeaders(outDir) {
 
   console.log(`\n✅ Done — ${OUT_DIR}`);
   console.log('   Now run: npm run build:win\n');
+
+  // Only meaningful when this build is being run by the manual
+  // "cut-runtime-assets" GitHub Actions job (see .github/workflows/build.yml)
+  // — normal app releases produce this tarball too but nothing consumes or
+  // uploads it, so it's inert. resources/python is the legacy bake location
+  // (OUT_DIR above); it gets renamed to python-runtime/ inside the archive —
+  // see the comment on archiveRuntimeAssets() for why.
+  archiveRuntimeAssets('procta-runtime-win.tar.gz', 'resources/python');
 })();

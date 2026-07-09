@@ -89,9 +89,14 @@
 ;
 ; vc_redist is idempotent: it no-ops (returns 1638 / 3010) when an
 ; equal-or-newer runtime is already present, so running it on every
-; install is safe. We deliberately do NOT gate the app install on its
-; exit code — a student who already has the runtime, or whose machine
-; blocks the redist, must still get Procta.
+; install is safe.
+;
+; This install IS gated on the exit code (compulsory, not best-effort):
+; a student who declines the UAC prompt would otherwise get a Procta
+; install that fails on exam day with a confusing, unrelated-looking
+; onnxruntime DLL error instead of a clear message now. So we explain
+; why the UAC prompt is coming, then retry until a real success code
+; (0/3010/1638) or the student explicitly cancels the whole install.
 ;
 ; CI (.github/workflows/build.yml) downloads vc_redist.x64.exe into the
 ; build/ resources dir before electron-builder packages. The /FileExists
@@ -102,9 +107,40 @@
   !if /FileExists "${BUILD_RESOURCES_DIR}\vc_redist.x64.exe"
     SetOutPath "$PLUGINSDIR"
     File "${BUILD_RESOURCES_DIR}\vc_redist.x64.exe"
+
+    ; Prime the student BEFORE Windows shows its own UAC prompt, so the
+    ; "Do you want to allow this app to make changes?" dialog isn't a
+    ; confusing surprise with no context.
+    MessageBox MB_OK|MB_ICONINFORMATION \
+      "Procta requires a Microsoft system component (Visual C++ Runtime) to run AI-based exam proctoring — without it, camera, gaze, and object detection cannot work.$\r$\n$\r$\nWindows will now ask for your permission to install this component. Please select 'Yes'."
+
+    vcredist_retry:
     DetailPrint "Installing Microsoft Visual C++ runtime (required for AI proctoring)…"
     ExecWait '"$PLUGINSDIR\vc_redist.x64.exe" /quiet /norestart' $0
     DetailPrint "Visual C++ runtime installer exit code: $0"
+
+    ; Documented vc_redist exit codes that count as success:
+    ;   0    = installed
+    ;   3010 = installed, reboot recommended (not required to proceed now)
+    ;   1638 = a newer version is already present
+    ; Anything else (including a UAC decline, which surfaces as a non-zero
+    ; failure from ExecWait) does NOT count as success and must retry.
+    StrCmp $0 "0" vcredist_done 0
+    StrCmp $0 "3010" vcredist_done 0
+    StrCmp $0 "1638" vcredist_done 0
+
+    MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
+      "Procta cannot verify exams without this Windows component.$\r$\n$\r$\nClick Retry and select 'Yes' when Windows asks for permission, or Cancel to stop installing Procta." \
+      IDRETRY vcredist_retry
+
+    ; Cancel was chosen: abort the WHOLE Procta installation, honestly —
+    ; a Procta install that silently lacks this component would fail
+    ; later with a confusing, unrelated-looking error on exam day instead
+    ; of a clear message now.
+    DetailPrint "Visual C++ runtime install was declined — aborting Procta installation."
+    Abort "Procta installation was cancelled: the required Visual C++ runtime was not installed."
+
+    vcredist_done:
     SetOutPath "$INSTDIR"
   !else
     DetailPrint "vc_redist.x64.exe not bundled — skipping VC++ runtime install"

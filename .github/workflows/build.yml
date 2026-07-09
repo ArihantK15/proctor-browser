@@ -24,14 +24,35 @@ on:
   push:
     tags:
       - 'v*'
-  # Manual trigger for debugging without creating a new tag
+  # Manual trigger for debugging without creating a new tag. Also doubles as
+  # the trigger for the separate cut-runtime-assets job below (set
+  # cut_runtime_assets: true) — that job packs python-runtime/ + weights/
+  # into a runtime-assets-v<N> GitHub Release, distinct from the app's own
+  # vX.Y.Z tag releases, so it only needs to run when the bundled Python
+  # interpreter or model weights actually change, not on every app release.
   workflow_dispatch:
+    inputs:
+      cut_runtime_assets:
+        description: 'Cut a new runtime-assets release (weights/ + Python interpreter) instead of a normal app build'
+        type: boolean
+        default: false
+      runtime_asset_version:
+        description: 'Version number to tag this runtime-assets release as (must match config.js RUNTIME_ASSET_VERSION after this run)'
+        type: string
+        default: ''
 
 permissions:
   contents: write  # needed so electron-builder can create/update the Release
 
 jobs:
   build:
+    # Skip the full app build when this dispatch is only asking for a
+    # runtime-assets cut (cut_runtime_assets=true) — otherwise every manual
+    # "cut new runtime assets" run would also kick off a wasted 3-way app
+    # build in parallel with cut-runtime-assets below. Tag pushes have no
+    # workflow_dispatch inputs, so `github.event.inputs.cut_runtime_assets`
+    # is empty there and this always evaluates true for normal releases.
+    if: github.event.inputs.cut_runtime_assets != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -285,6 +306,30 @@ jobs:
         if: matrix.target == 'mac'
         run: node scripts/verify-macos-build.mjs
 
+      # Windows already gates on blockmap PRESENCE specifically (see the
+      # Windows "Verify Windows artifacts exist" step below) — this mac
+      # equivalent was missing before: the combined glob further down
+      # (dist/*.dmg dist/*.zip dist/*.blockmap) only fails if ALL THREE are
+      # absent, so a build that produces a dmg+zip but no blockmap passes
+      # that check silently. Verified directly in electron-updater's
+      # MacUpdater.js/AppUpdater.js source that macOS uses the SAME
+      # blockmap-diffing mechanism as Windows (fetches old+new .blockmap,
+      # range-requests the delta) — a missing mac blockmap silently
+      # regresses every Mac student's update back to a full download.
+      - name: Verify macOS artifacts exist (blocks publish on failure)
+        if: matrix.target == 'mac'
+        shell: bash
+        run: |
+          set -e
+          shopt -s nullglob
+          dmg=(dist/*.dmg); zip=(dist/*.zip); bmap=(dist/*.zip.blockmap)
+          if [ ${#dmg[@]} -eq 0 ]; then echo "✗ no .dmg produced"; exit 1; fi
+          if [ ${#zip[@]} -eq 0 ]; then echo "✗ no .zip produced"; exit 1; fi
+          if [ ${#bmap[@]} -eq 0 ]; then echo "✗ no .zip.blockmap produced (differential updates broken)"; exit 1; fi
+          sz=$(stat -f%z "${zip[0]}" 2>/dev/null || stat -c%s "${zip[0]}")
+          if [ "$sz" -lt 10000000 ]; then echo "✗ zip suspiciously small ($sz bytes)"; exit 1; fi
+          echo "✓ macOS artifacts present (${zip[0]}, $sz bytes, blockmap ${bmap[0]})"
+
       # Refuses to let an ad-hoc-signed build reach a real tagged release.
       # Ad-hoc signing (no CSC_LINK) has no Developer ID identity, and
       # Squirrel.Mac/electron-updater REQUIRES real code signing for
@@ -405,6 +450,21 @@ jobs:
       - name: Verify Windows build (blocks publish on failure)
         if: matrix.target == 'win'
         run: node scripts/verify-windows-build.mjs
+
+      # Lets a workflow_dispatch (no tag, publish never below) still hand
+      # back a downloadable installer — otherwise a non-tag build's dist/
+      # is just discarded when the runner is torn down, with no way to
+      # retrieve it for manual testing before a real tagged release.
+      - name: Upload Windows installer as a workflow artifact
+        if: matrix.target == 'win'
+        uses: actions/upload-artifact@v7
+        with:
+          name: procta-windows-installer
+          path: |
+            dist/*.exe
+            dist/*.blockmap
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Publish Windows release (only after verification)
         if: matrix.target == 'win' && startsWith(github.ref, 'refs/tags/')
@@ -553,3 +613,56 @@ jobs:
             exit 1
           fi
           echo "Release $TAG verified: manifest versions match the tag and all referenced assets exist."
+
+  # ── Manual runtime-assets cutter ───────────────────────────────────────────
+  # Packs python-runtime/ + weights/ into the tar.gz archives Task 3's
+  # lib/runtime-assets.js downloads on first launch, and uploads them to a
+  # DEDICATED runtime-assets-v<N> release — never the app's own vX.Y.Z tag
+  # release. Gated on workflow_dispatch + cut_runtime_assets=true so this
+  # never fires on a normal `git tag vX.Y.Z && git push --tags` release; it
+  # only needs to run when the bundled Python interpreter or model weights
+  # actually change (which is rare and deliberate), not on every app build.
+  cut-runtime-assets:
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.cut_runtime_assets == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            archive: procta-runtime-win.tar.gz
+          # arm64 bakes natively on Apple Silicon.
+          - os: macos-14
+            archive: procta-runtime-mac-arm64.tar.gz
+            arch: arm64
+          # x64 is cross-built on the same arm64 runner via Rosetta 2 —
+          # mirrors the `build` job's mac x64 leg above (PROCTA_BAKE_ARCH +
+          # Install Rosetta 2 step). Without this leg, Intel Macs 404
+          # forever on first run since lib/runtime-assets.js explicitly
+          # requests procta-runtime-mac-x64.tar.gz.
+          - os: macos-14
+            archive: procta-runtime-mac-x64.tar.gz
+            arch: x64
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Install Rosetta 2 (mac x64 cross-build)
+        if: matrix.arch == 'x64'
+        run: softwareupdate --install-rosetta --agree-to-license
+      - run: node bundle-python.js
+        env:
+          PROCTA_BAKE_ARCH: ${{ matrix.arch }}
+      - name: Verify archive was produced
+        shell: bash
+        run: |
+          if [ ! -f "${{ matrix.archive }}" ]; then echo "✗ ${{ matrix.archive }} not produced"; exit 1; fi
+          echo "✓ $(sha256sum "${{ matrix.archive }}" 2>/dev/null || shasum -a 256 "${{ matrix.archive }}")"
+      - name: Upload to the runtime-assets release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="runtime-assets-v${{ github.event.inputs.runtime_asset_version }}"
+          gh release create "$TAG" --title "$TAG" --notes "Procta runtime assets v${{ github.event.inputs.runtime_asset_version }}" 2>/dev/null || true
+          gh release upload "$TAG" "${{ matrix.archive }}" --clobber

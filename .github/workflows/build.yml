@@ -657,6 +657,27 @@ jobs:
       - name: Install Rosetta 2 (mac x64 cross-build)
         if: matrix.arch == 'x64'
         run: softwareupdate --install-rosetta --agree-to-license
+      # MUST run before `node bundle-python.js` below — that call bakes
+      # AND archives weights/ in one shot (archiveRuntimeAssets() is its
+      # last action), so anything not in weights/ by this point never
+      # makes it into the uploaded tarball. Vosk/Silero aren't checked
+      # into git (only the 7 face/gaze/object-detection .onnx files are)
+      # — missing this step was a real gap: runtime-assets-v1 shipped
+      # with full face/object/gaze detection but no speech models at all,
+      # confirmed on a real Windows install (System Check: "All models
+      # loaded" but "Speech models absent"). The first-launch fallback
+      # download (lib/python-manager.js's downloadAudioModels(), which
+      # exists for the dev/un-baked case) should have caught this but
+      # evidently didn't complete either — baking it here removes the
+      # dependency on that fallback for a fresh install entirely, same as
+      # the main `build` job already does.
+      - name: Bundle on-device audio models into weights/ (best-effort)
+        shell: bash
+        run: |
+          PY=$(command -v python3 || command -v python)
+          echo "Using Python: $PY"
+          "$PY" scripts/download_audio_models.py \
+            || echo "::warning::audio model bundling failed — app will fetch them at first launch (RMS-only fallback meanwhile)"
       - run: node bundle-python.js
         env:
           PROCTA_BAKE_ARCH: ${{ matrix.arch }}

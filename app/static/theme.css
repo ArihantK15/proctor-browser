@@ -85,12 +85,31 @@
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Defensive fallback: paint the root element too, not just body. A
+     student on a real Windows/Mac install reported the page background
+     staying dark after switching to light theme (topbar/cards correctly
+     flip to white; the surrounding page area and any text sitting
+     directly on it — headings, button labels — did not), while a local
+     reproduction with the exact same stylesheet order could not
+     reproduce it, and DevTools are disabled in a packaged build
+     (devTools: !app.isPackaged in kiosk-manager.js) so it can't be
+     inspected directly on the real machine. Whatever the precise cascade
+     mechanism, if body's own background ever fails to paint for any
+     reason, this ensures the dark Electron BrowserWindow backgroundColor
+     ('#06080d', see kiosk-manager.js's createLobbyWindow) can never show
+     through underneath — html's background is the true fallback layer. */
+  background: var(--bg-base);
 }
 
 body {
   font-family: var(--font-body);
-  background: var(--bg);
-  color: var(--text);
+  /* Reference --bg-base / --text-high directly instead of through the
+     --bg / --text legacy-bridge aliases (still defined above for the
+     ~4700 lines of dashboard.html etc. that reference them) — one fewer
+     indirection layer in the one page-baseline rule that, if it silently
+     failed, would make the entire page unreadable. */
+  background: var(--bg-base);
+  color: var(--text-high);
   min-height: 100vh;
   line-height: 1.6;
 }

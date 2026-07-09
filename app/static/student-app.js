@@ -737,6 +737,15 @@ function clearStudentSession() {
   document.getElementById('dashboard').style.display = 'none';
   document.getElementById('auth-view').style.display = '';
   document.getElementById('web-landing').style.display = 'none';
+  // Logout is an in-page transition too (no reload), so _safe.js's
+  // force-boot-light logic never gets a chance to re-run — data-theme
+  // just stays whatever the dashboard was last set to. Real report:
+  // toggle dark on the dashboard, log out (login screen correctly shows
+  // dark, since nothing reset it), log back in — the exact same broken
+  // mixed-render transition as before, because the login screen booted
+  // dark again. Reset to light here too, matching the boot-time default,
+  // so every fresh login attempt starts from the same known-good state.
+  if (typeof setTheme === 'function') setTheme('light');
   const err = document.getElementById('auth-err');
   if (err) err.textContent = '';
   const exams = document.getElementById('exams-container');
@@ -838,6 +847,14 @@ async function showDashboard(account) {
   document.getElementById('dashboard').style.display = 'block';
   document.getElementById('me-name').textContent = account.full_name || account.email;
   renderReminderPreference(account.email_reminders_enabled);
+  // Login is an in-page transition (auth-view hides, #dashboard shows;
+  // no reload), and can happen well after _safe.js's initial page-load
+  // reassertion passes finish — a real report: dashboard showed a
+  // dark/light color mismatch right after logging in (fine on the login
+  // screen itself), fixed instantly by toggling theme again. The MutationObserver
+  // in _safe.js should already catch this reactively, but this transition
+  // is a deterministic, known trigger point — call it directly too.
+  try { if (typeof window._enforceThemeColors === 'function') window._enforceThemeColors(); } catch(_){}
   _initSetupBanner();
   await loadExams();
   Promise.allSettled([loadHistory(), loadAppeals(), loadReminderPreference()])
@@ -2018,6 +2035,11 @@ function setTheme(name){
       window.procta_native.setNativeThemeSource(name === 'light' ? 'light' : 'dark');
     }
   } catch(_){}
+  // Re-run the inline !important color enforcement (_safe.js) with the
+  // NEW theme's resolved colors — a live toggle needs this exactly as
+  // much as initial boot does, since whatever injects the dark override
+  // doesn't care whether the page just loaded or the user just clicked.
+  try { if (typeof window._enforceThemeColors === 'function') window._enforceThemeColors(); } catch(_){}
   _syncThemeSwitch();
 }
 function _syncThemeSwitch(){

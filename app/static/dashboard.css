@@ -1567,11 +1567,16 @@ body{
   border-radius:10px;
 }
 
-.container{max-width:1480px;padding-top:30px}
+/* padding-top was 30px (+ panel-header's own 34px below = 64px of dead
+   space between the exam-bar and the first line of content on every tab
+   that uses .panel-header — History/Analytics/Results/Tools/Chat/
+   Questions/Live Sessions). Reported as an unexplained gap; tightened to
+   a normal breathing-room amount. */
+.container{max-width:1480px;padding-top:14px}
 .panel-header{
-  margin-bottom:22px;
-  padding-top:34px;
-  padding-bottom:24px;
+  margin-bottom:18px;
+  padding-top:16px;
+  padding-bottom:20px;
 }
 .panel-title{font-size:32px}
 .panel-lede{font-size:15px;max-width:740px}
@@ -1770,13 +1775,13 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
    layout intact while making Analytics and Tools feel intentional in light mode. */
 #panel-analytics.active,
 #panel-tools.active{
-  padding-top:18px;
+  padding-top:8px;
 }
 
 #panel-analytics .panel-header,
 #panel-tools .panel-header{
-  padding-top:30px;
-  margin-bottom:24px;
+  padding-top:14px;
+  margin-bottom:18px;
 }
 
 #panel-analytics .panel-title,
@@ -1834,14 +1839,21 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
   padding:11px 14px;
 }
 
+/* align-items:start + min-height:0 here silently undid the base
+   .tools-grid/.tool-card design (align-items:stretch + min-height:100%,
+   deliberately added to fix "asymmetric short-card-next-to-tall-card"
+   layout — see the comment above the base rule) and dropped the 460px
+   floor that caps pairing at 2 columns, letting cards sprawl to 3 ragged
+   columns on wide screens. Reported as boxes of different/displaced
+   sizes. Keep only the cosmetic (radius/padding/font) changes here. */
 #panel-tools .tools-grid{
-  grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
-  align-items:start;
+  grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));
+  align-items:stretch;
   gap:20px;
 }
 
 #panel-tools .tool-card{
-  min-height:0;
+  min-height:100%;
   border-radius:18px;
   padding:24px 26px;
 }

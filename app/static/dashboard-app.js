@@ -6455,7 +6455,15 @@ function renderQEditor(){
   const el = document.getElementById('q-editor');
   el.style.display='block';
   if(!qData.length){
-    el.innerHTML='<div class="loading-msg">No questions yet. Click "+ Add Question" to start.</div>';
+    // Coding questions are tracked in _codingQuestions, not qData, and are
+    // edited via the modal wizard (showCodingWizard/editCodingQuestion),
+    // never inline here — so a coding-only exam has real questions (visible
+    // in the sidebar count/list) despite qData being empty. Saying "No
+    // questions yet" in that case is false and leaves this whole column
+    // looking broken/empty next to a sidebar that clearly lists a question.
+    el.innerHTML = _codingQuestions.length
+      ? `<div class="loading-msg">This exam has ${_codingQuestions.length} coding question${_codingQuestions.length===1?'':'s'} — select one from the list on the left to edit it.</div>`
+      : '<div class="loading-msg">No questions yet. Click "+ Add Question" to start.</div>';
     return;
   }
   el.innerHTML = qData.map((q,i)=>{

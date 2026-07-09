@@ -34,6 +34,8 @@ import os
 import sys
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("SUPABASE_URL", "https://fake.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "fake-key")
@@ -147,7 +149,8 @@ def test_load_questions_decrypt_failure_falls_back_to_raw_value():
 def test_load_questions_select_star_fails_falls_back_to_narrow_select():
     rows = [_base_row()]
     chain = _SelectChain(rows, raise_on_select=("*",))
-    with patch.object(Q, "_atable", lambda t: chain), patch.object(Q, "_cache", None):
+    with patch.object(Q, "_atable", lambda t: chain), patch.object(Q, "_cache", None), \
+         patch.object(Q, "_QUESTIONS_FETCH_BACKOFF", (0, 0)):
         out = _run(Q.load_questions())
     assert len(out) == 1
     assert out[0]["id"] == "1"
@@ -155,14 +158,41 @@ def test_load_questions_select_star_fails_falls_back_to_narrow_select():
     assert chain.selected_cols == "question_id,question,options,correct"
 
 
-def test_load_questions_both_queries_fail_returns_empty_list():
+def test_load_questions_both_queries_fail_raises_after_retries():
+    """Regression: a real DB outage must NOT look like "this exam has zero
+    questions" (the old behavior — silently returning []). See
+    QuestionsFetchError's docstring and app/routers/exam.py's get_questions
+    handler, which maps this to a 503 instead of the misleading 404 an
+    empty list produced."""
     chain = _SelectChain(
         [_base_row()],
         raise_on_select=("*", "question_id,question,options,correct"),
     )
-    with patch.object(Q, "_atable", lambda t: chain), patch.object(Q, "_cache", None):
+    with patch.object(Q, "_atable", lambda t: chain), patch.object(Q, "_cache", None), \
+         patch.object(Q, "_QUESTIONS_FETCH_BACKOFF", (0, 0)):
+        with pytest.raises(Q.QuestionsFetchError):
+            _run(Q.load_questions())
+
+
+def test_load_questions_transient_failure_recovers_on_retry():
+    """A select() that fails once then succeeds must be recovered by the
+    retry, not immediately fall through to the narrow-column fallback."""
+    calls = {"n": 0}
+    chain = _SelectChain([_base_row()])
+    real_select = chain.select
+
+    def flaky_select(cols):
+        calls["n"] += 1
+        if cols == "*" and calls["n"] == 1:
+            raise RuntimeError("transient")
+        return real_select(cols)
+
+    chain.select = flaky_select
+    with patch.object(Q, "_atable", lambda t: chain), patch.object(Q, "_cache", None), \
+         patch.object(Q, "_QUESTIONS_FETCH_BACKOFF", (0, 0)):
         out = _run(Q.load_questions())
-    assert out == []
+    assert len(out) == 1
+    assert chain.selected_cols == "*"  # recovered on the primary select, no fallback needed
 
 
 def test_load_questions_empty_result_set():

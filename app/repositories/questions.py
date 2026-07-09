@@ -3,15 +3,52 @@
 Extracted from app/dependencies.py.
 """
 
+import asyncio
 import logging
 import os
 import secrets
 import string
 
 from ..database import async_table as _atable
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
+
+# Sub-second retry for the request-path questions fetch — a student is
+# waiting live for their exam to load, unlike the RQ background-job retry
+# policy (10s/60s/300s, see app/jobs/helpers.py) which can afford to wait.
+_QUESTIONS_FETCH_RETRIES = 2  # extra attempts beyond the first
+_QUESTIONS_FETCH_BACKOFF = (0.3, 0.8)  # seconds, between attempts
+
+
+class QuestionsFetchError(Exception):
+    """Questions could not be loaded from the DB after retries.
+
+    Distinct from a genuinely empty result set (an exam with zero
+    questions) — callers that currently do `if not questions: 404` must
+    catch this separately, or a transient DB outage looks identical to
+    "this exam has no questions" to the student.
+    """
+
+
+async def _select_questions(select_cols: str, teacher_id, exam_id) -> list[dict[str, Any]]:
+    """Run one questions SELECT with a short retry for transient DB errors."""
+    last_exc: Exception | None = None
+    for attempt in range(_QUESTIONS_FETCH_RETRIES + 1):
+        try:
+            query = _atable("questions").select(select_cols)
+            if teacher_id:
+                query = query.eq("teacher_id", teacher_id)
+            if exam_id:
+                query = query.eq("exam_id", exam_id)
+            result = await query.execute()
+            return result.data or []
+        except Exception as e:
+            last_exc = e
+            if attempt < _QUESTIONS_FETCH_RETRIES:
+                await asyncio.sleep(_QUESTIONS_FETCH_BACKOFF[min(attempt, len(_QUESTIONS_FETCH_BACKOFF) - 1)])
+    assert last_exc is not None
+    raise last_exc
 
 _EXAM_CONFIG_COLUMNS = (
     "id,exam_id,teacher_id,exam_title,duration_minutes,access_code,"
@@ -52,29 +89,30 @@ async def load_questions(teacher_id: Optional[str] = None, exam_id: Optional[str
         cached = _cache.get(cache_key)
         if cached is not None:
             return cast("list[dict[str, Any]]", cached)
+    # Ordering is applied in Python (_qid_sort_key) after fetch — a DB-level
+    # ORDER BY question_id now collates the text column lexically (1, 10,
+    # 2…), scrambling exams with ≥10 questions.
     try:
-        query = _atable("questions").select("*")
-        if teacher_id:
-            query = query.eq("teacher_id", teacher_id)
-        if exam_id:
-            query = query.eq("exam_id", exam_id)
-        # Ordering is applied in Python (_qid_sort_key) after build — a
-        # DB-level ORDER BY question_id now collates the text column
-        # lexically (1, 10, 2…), scrambling exams with ≥10 questions.
-        result = await query.execute()
-        rows = result.data or []
+        rows = await _select_questions("*", teacher_id, exam_id)
     except Exception as e:
-        logger.warning("[Questions] select(*) failed, falling back: %s", e)
+        logger.warning("[Questions] select(*) failed after retries, falling back: %s", e)
         try:
-            query = _atable("questions").select("question_id,question,options,correct")
-            if teacher_id:
-                query = query.eq("teacher_id", teacher_id)
-            if exam_id:
-                query = query.eq("exam_id", exam_id)
-            rows = (await query.execute()).data or []
+            rows = await _select_questions("question_id,question,options,correct", teacher_id, exam_id)
         except Exception as e2:
-            logger.warning("[Questions] fallback also failed: %s", e2)
-            rows = []
+            # Both the primary and fallback selects failed after retries —
+            # this is a real DB outage, not "this exam has no questions".
+            # The old code returned [] here, which looked identical to a
+            # genuinely empty exam to every caller: the student saw a
+            # misleading "Questions not found" 404, and nobody was alerted.
+            logger.error("[Questions] fallback also failed after retries — raising: %s", e2)
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_exception(e2)
+            except Exception:
+                pass
+            raise QuestionsFetchError(
+                f"Could not load questions (teacher_id={teacher_id!r}, exam_id={exam_id!r}) after retries"
+            ) from e2
     out = []
     for q in rows:
         # Preserve every valid type. A too-narrow allowlist here silently

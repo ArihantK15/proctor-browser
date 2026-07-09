@@ -24,7 +24,7 @@ from ..auth import require_auth, require_teacher_auth, create_token, _check_sess
 from ..utils import fmt_ist, now_ist, ts_to_id
 from ..services.practice import is_practice, _practice_validate_response, PRACTICE_QUESTIONS
 from ..services.time_extension import get_time_extension
-from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config, get_access_code as _get_access_code
+from ..repositories.questions import load_questions as _load_questions, load_exam_config as _load_exam_config, get_access_code as _get_access_code, QuestionsFetchError as _QuestionsFetchError
 from ..repositories.sessions import check_group_access as _check_group_access, assert_session_owned as _assert_session_owned
 from ..services.scoring import build_shuffle_view as _build_shuffle_view, get_shuffle_flags as _get_shuffle_flags, recalculate_score as _recalculate_score, canonicalise_student_answer as _canonicalise_student_answer
 from ..services.autosave import (
@@ -753,7 +753,18 @@ async def get_questions(request: Request):
     eid = claims.get("eid")
     session_id = (request.query_params.get("session_id") or "").strip()
     await _require_attested(session_id, tid)
-    questions = await _load_questions(tid, exam_id=eid)
+    try:
+        questions = await _load_questions(tid, exam_id=eid)
+    except _QuestionsFetchError:
+        # A real DB outage after retries — NOT "this exam has no
+        # questions". The client already has a Retry button for exactly
+        # this (renderer/index.html's showModal retry path), so a clear
+        # transient-failure signal here lets it recover cleanly instead of
+        # the student reading a misleading "Questions not found".
+        raise HTTPException(
+            status_code=503,
+            detail="We're having trouble loading your exam right now. Please try again in a moment.",
+        )
     if not questions:
         raise HTTPException(status_code=404, detail="Questions not found")
     config = await _load_exam_config(tid, exam_id=eid)

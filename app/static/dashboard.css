@@ -240,6 +240,19 @@ body.auth-active > :not(#auth-checking):not(script):not(style){display:none !imp
   background:#fff;
   border-color:var(--border-strong);
 }
+/* The dark-theme rgba(255,255,255,.03) group pills (exam-bar-manage-group /
+   topbar-group-system) are invisible against this light theme's pale
+   surfaces — without an override they read as unexplained extra
+   whitespace around the buttons instead of a defined group. */
+[data-theme="light"] .exam-bar-manage-group,
+[data-theme="light"] .topbar-group-system{
+  background:rgba(15,23,42,0.035);
+  border-color:rgba(148,163,184,0.35);
+}
+[data-theme="light"] .exam-bar-manage-group #delete-exam-btn,
+[data-theme="light"] .topbar-group-account{
+  border-left-color:rgba(148,163,184,0.35);
+}
 [data-theme="light"] .btn-secondary,
 [data-theme="light"] .modal-btn-secondary{
   background:rgba(255,255,255,0.74);

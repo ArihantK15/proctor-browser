@@ -46,6 +46,13 @@ permissions:
 
 jobs:
   build:
+    # Skip the full app build when this dispatch is only asking for a
+    # runtime-assets cut (cut_runtime_assets=true) — otherwise every manual
+    # "cut new runtime assets" run would also kick off a wasted 3-way app
+    # build in parallel with cut-runtime-assets below. Tag pushes have no
+    # workflow_dispatch inputs, so `github.event.inputs.cut_runtime_assets`
+    # is empty there and this always evaluates true for normal releases.
+    if: github.event.inputs.cut_runtime_assets != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -584,15 +591,30 @@ jobs:
         include:
           - os: windows-latest
             archive: procta-runtime-win.tar.gz
+          # arm64 bakes natively on Apple Silicon.
           - os: macos-14
             archive: procta-runtime-mac-arm64.tar.gz
+            arch: arm64
+          # x64 is cross-built on the same arm64 runner via Rosetta 2 —
+          # mirrors the `build` job's mac x64 leg above (PROCTA_BAKE_ARCH +
+          # Install Rosetta 2 step). Without this leg, Intel Macs 404
+          # forever on first run since lib/runtime-assets.js explicitly
+          # requests procta-runtime-mac-x64.tar.gz.
+          - os: macos-14
+            archive: procta-runtime-mac-x64.tar.gz
+            arch: x64
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: 22
       - run: npm ci
-      - run: node bundle-python.js --${{ runner.os == 'Windows' && 'win' || 'mac' }}
+      - name: Install Rosetta 2 (mac x64 cross-build)
+        if: matrix.arch == 'x64'
+        run: softwareupdate --install-rosetta --agree-to-license
+      - run: node bundle-python.js
+        env:
+          PROCTA_BAKE_ARCH: ${{ matrix.arch }}
       - name: Verify archive was produced
         shell: bash
         run: |

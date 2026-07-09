@@ -22,13 +22,26 @@
  * dashboard's dark default, which shares this same file). */
 (function () {
   var fallback = (window.__PROCTA_DEFAULT_THEME__ === 'light') ? 'light' : 'dark';
+  var resolved = fallback;
   try {
     var t = localStorage.getItem('procta_theme');
     var ok = { 'dark': 1, 'dark-oled': 1, 'light': 1 };
-    document.documentElement.setAttribute('data-theme', ok[t] ? t : fallback);
-  } catch (_) {
-    document.documentElement.setAttribute('data-theme', fallback);
-  }
+    resolved = ok[t] ? t : fallback;
+  } catch (_) { /* resolved stays fallback */ }
+  document.documentElement.setAttribute('data-theme', resolved);
+  // Electron only (window.procta_native is undefined in a plain browser —
+  // the teacher web dashboard/login pages never see this call). Tells
+  // Electron to follow OUR resolved theme for prefers-color-scheme instead
+  // of nativeTheme's OS-following 'system' default, which was fighting our
+  // own light/dark switcher on a Mac/Windows machine in OS dark mode — see
+  // the set-native-theme-source handler in main.js for the full story.
+  // As early as possible (before first paint) to minimize any mismatch
+  // window; setTheme() re-calls this on every live toggle.
+  try {
+    if (window.procta_native && typeof window.procta_native.setNativeThemeSource === 'function') {
+      window.procta_native.setNativeThemeSource(resolved === 'light' ? 'light' : 'dark');
+    }
+  } catch (_) { /* best-effort */ }
 })();
 
 function _escHtml(s) {

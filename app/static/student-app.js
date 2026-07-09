@@ -2008,6 +2008,16 @@ function setTheme(name){
   if (_STU_THEMES.indexOf(name) === -1) name = 'dark';
   document.documentElement.setAttribute('data-theme', name);
   try { localStorage.setItem('procta_theme', name); } catch(_){}
+  // Keep Electron's nativeTheme.themeSource in sync with every live toggle
+  // too, not just the initial boot value _safe.js sets — see main.js's
+  // set-native-theme-source handler for why this matters (OS dark mode
+  // otherwise fights this switcher via Chromium's own dark-content
+  // heuristics on a real Mac/Windows machine).
+  try {
+    if (window.procta_native && typeof window.procta_native.setNativeThemeSource === 'function') {
+      window.procta_native.setNativeThemeSource(name === 'light' ? 'light' : 'dark');
+    }
+  } catch(_){}
   _syncThemeSwitch();
 }
 function _syncThemeSwitch(){

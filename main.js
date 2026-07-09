@@ -365,6 +365,23 @@ app.disableHardwareAcceleration();
 // Reduce the renderer process idle time before it releases memory.
 app.commandLine.appendSwitch('js-flags', '--max-old-space-size=256');
 
+// nativeTheme.themeSource defaults to 'system' — Electron then reports
+// prefers-color-scheme (and Chromium's own auto-dark heuristics) based on
+// the OS's dark/light setting, COMPLETELY INDEPENDENT of what our own
+// student.html data-theme attribute says. On a Mac in OS dark mode, this
+// is what was making the page background/headings stay stuck dark even
+// after our own light-theme toggle correctly flipped every one of ITS OWN
+// CSS rules — confirmed via DevTools showing an unattributed "injected
+// stylesheet" forcing html/body to hardcoded dark colors with !important,
+// which a command-line --disable-features switch for Chromium's
+// "WebContentsForceDark" did NOT stop (verified on a real Mac — the
+// injected rule persisted unchanged), because the real driver is
+// nativeTheme's OS-following default, not that specific Chromium flag.
+// See ipcMain.handle('set-native-theme-source') below — the renderer's
+// setTheme() (student-app.js) calls it on every switch so Electron always
+// follows OUR theme, never the OS's.
+require('electron').nativeTheme.themeSource = 'light';
+
 // ── Custom protocol for lobby assets ──────────────────────────────
 // Why this exists: Electron's BrowserWindow.loadFile() turns a path
 // inside app.asar into a file:// URL, and Chromium's file:// handler
@@ -773,6 +790,19 @@ ipcMain.handle('start-proctor', async (event, data) => {
 ipcMain.handle('get-setup-state', (event) => {
   if (!_assertMainFrame(event, 'get-setup-state')) throw new Error('Frame not allowed');
   try { return getSetupState(); } catch { return { phase: 'idle', ready: false, label: '', pct: 0 }; }
+});
+
+// nativeTheme.themeSource defaults to 'system' — see the comment above its
+// initial 'light' assignment near the top of this file for why that made
+// Chromium's own dark-content heuristics fight our app's light/dark
+// switcher on an OS in dark mode. The renderer calls this on boot (as soon
+// as _safe.js determines the real saved theme, before first paint) and on
+// every setTheme() toggle, so Electron always follows OUR chosen theme
+// rather than the OS's — 'dark-oled' maps to 'dark' since nativeTheme only
+// has two states.
+ipcMain.handle('set-native-theme-source', (event, source) => {
+  if (!_assertMainFrame(event, 'set-native-theme-source')) throw new Error('Frame not allowed');
+  require('electron').nativeTheme.themeSource = source === 'light' ? 'light' : 'dark';
 });
 
 ipcMain.handle('start-polling', (event, data) => {

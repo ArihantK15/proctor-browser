@@ -51,6 +51,11 @@ contextBridge.exposeInMainWorld('procta_native', {
   // show "Preparing AI environment…" when a launch lands before setup has
   // finished (the lobby now opens before Python provisioning completes).
   getSetupState: () => ipcRenderer.invoke('get-setup-state'),
+  // Tells Electron to follow the app's OWN light/dark choice for
+  // prefers-color-scheme instead of nativeTheme's OS-following default —
+  // see the comment on this handler in main.js for why that matters (OS
+  // dark mode was fighting our own theme switcher on a real Mac).
+  setNativeThemeSource: (source) => ipcRenderer.invoke('set-native-theme-source', source),
   onSetupState: (cb) => {
     ipcRenderer.removeAllListeners('setup-state');
     ipcRenderer.on('setup-state', (_, st) => {

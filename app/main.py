@@ -435,17 +435,6 @@ app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=6)
 import re
 
 # ── Input sanitization ─────────────────────────────────────────────
-_XSS_PATTERNS = [
-    re.compile(r'<\s*script', re.I),
-    re.compile(r'javascript\s*:', re.I),
-    re.compile(r'on\w+\s*=', re.I),
-    re.compile(r'<\s*iframe', re.I),
-    re.compile(r'<\s*object', re.I),
-    re.compile(r'<\s*embed', re.I),
-    re.compile(r'eval\s*\(', re.I),
-    re.compile(r'expression\s*\(', re.I),
-]
-
 # Only high-confidence injection shapes. The DB layer is fully
 # parameterized (app/postgres_table.py: identifier allowlist + $N
 # params), so this middleware is defense-in-depth — and its real cost
@@ -465,17 +454,6 @@ _SQLI_PATTERNS = [
 ]
 
 _MAX_BODY_BYTES = 10 * 1024 * 1024  # 10 MB
-
-def _sanitize_value(val: str) -> str:
-    """Strip XSS patterns from a string value.
-
-    WARNING: This is a defense-in-depth measure, NOT a replacement
-    for proper output encoding in HTML templates. Use only on
-    user-supplied strings that will be rendered in the browser.
-    """
-    for pat in _XSS_PATTERNS:
-        val = pat.sub('', val)
-    return val
 
 def _looks_malicious(val: str) -> bool:
     """Check if a string contains SQL injection patterns (block, don't sanitize)."""

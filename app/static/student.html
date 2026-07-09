@@ -155,6 +155,17 @@
     font-size: 18px;
     font-weight: 700;
     margin: 28px 0 14px;
+    /* components.css's shared .section-title (loaded earlier, via <link>)
+       sets text-transform:uppercase + letter-spacing:var(--tracking-widest)
+       for its own small all-caps eyebrow style. This override only
+       redeclares color/size/weight, so those two properties silently leak
+       through per normal CSS cascade rules (a property not redeclared here
+       keeps whatever the earlier same-selector rule set) — this heading
+       was meant to read as normal-case "Upcoming exams", not "UPCOMING
+       EXAMS". Reset both explicitly instead of relying on them never being
+       set upstream. */
+    text-transform: none;
+    letter-spacing: normal;
   }
   .section-subtitle { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
 

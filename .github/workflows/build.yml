@@ -306,6 +306,30 @@ jobs:
         if: matrix.target == 'mac'
         run: node scripts/verify-macos-build.mjs
 
+      # Windows already gates on blockmap PRESENCE specifically (see the
+      # Windows "Verify Windows artifacts exist" step below) — this mac
+      # equivalent was missing before: the combined glob further down
+      # (dist/*.dmg dist/*.zip dist/*.blockmap) only fails if ALL THREE are
+      # absent, so a build that produces a dmg+zip but no blockmap passes
+      # that check silently. Verified directly in electron-updater's
+      # MacUpdater.js/AppUpdater.js source that macOS uses the SAME
+      # blockmap-diffing mechanism as Windows (fetches old+new .blockmap,
+      # range-requests the delta) — a missing mac blockmap silently
+      # regresses every Mac student's update back to a full download.
+      - name: Verify macOS artifacts exist (blocks publish on failure)
+        if: matrix.target == 'mac'
+        shell: bash
+        run: |
+          set -e
+          shopt -s nullglob
+          dmg=(dist/*.dmg); zip=(dist/*.zip); bmap=(dist/*.zip.blockmap)
+          if [ ${#dmg[@]} -eq 0 ]; then echo "✗ no .dmg produced"; exit 1; fi
+          if [ ${#zip[@]} -eq 0 ]; then echo "✗ no .zip produced"; exit 1; fi
+          if [ ${#bmap[@]} -eq 0 ]; then echo "✗ no .zip.blockmap produced (differential updates broken)"; exit 1; fi
+          sz=$(stat -f%z "${zip[0]}" 2>/dev/null || stat -c%s "${zip[0]}")
+          if [ "$sz" -lt 10000000 ]; then echo "✗ zip suspiciously small ($sz bytes)"; exit 1; fi
+          echo "✓ macOS artifacts present (${zip[0]}, $sz bytes, blockmap ${bmap[0]})"
+
       # Refuses to let an ad-hoc-signed build reach a real tagged release.
       # Ad-hoc signing (no CSC_LINK) has no Developer ID identity, and
       # Squirrel.Mac/electron-updater REQUIRES real code signing for

@@ -838,6 +838,7 @@ async function showDashboard(account) {
   document.getElementById('dashboard').style.display = 'block';
   document.getElementById('me-name').textContent = account.full_name || account.email;
   renderReminderPreference(account.email_reminders_enabled);
+  _initSetupBanner();
   await loadExams();
   Promise.allSettled([loadHistory(), loadAppeals(), loadReminderPreference()])
     .then((results) => {
@@ -1628,6 +1629,28 @@ async function launchExam(exam, accessCode) {
   }
 }
 
+// window.procta_native.onSetupState() replaces ALL previous listeners on
+// every call (see lobby_preload.js: it does removeAllListeners('setup-state')
+// before attaching its own) — it was written for a single consumer. Once the
+// proactive dashboard banner (_initSetupBanner) ALSO needed setup-state pushes
+// alongside the reactive Start-exam button handler below, registering both
+// directly would mean whichever registers second silently kills the other's
+// updates (e.g. click Start exam early -> the button's listener replaces the
+// banner's -> banner freezes on its last message and never learns setup
+// finished). Fan out through one real listener instead.
+let _setupStateListeners = [];
+function _subscribeSetupState(cb) {
+  _setupStateListeners.push(cb);
+  if (_setupStateListeners.length === 1 &&
+      window.procta_native && typeof window.procta_native.onSetupState === 'function') {
+    window.procta_native.onSetupState((st) => {
+      _setupStateListeners.forEach((fn) => {
+        try { fn(st); } catch (e) { console.error('[setup] listener failed', e); }
+      });
+    });
+  }
+}
+
 // The lobby now opens before the background AI setup finishes. If a launch
 // lands during that window the main process returns {ok:false,
 // error:'setup-not-ready'}; show a friendly one-time-setup message and
@@ -1640,7 +1663,7 @@ function _showSetupPreparing(setup, preflightErr, btn) {
   }
   if (btn) { btn.disabled = true; btn.textContent = 'Preparing…'; btn.dataset.preparing = '1'; }
   if (!window.procta_native || typeof window.procta_native.onSetupState !== 'function') return;
-  window.procta_native.onSetupState((st) => {
+  _subscribeSetupState((st) => {
     if (!st) return;
     if (st.ready) {
       if (preflightErr) preflightErr.textContent = '';
@@ -1649,6 +1672,29 @@ function _showSetupPreparing(setup, preflightErr, btn) {
       preflightErr.textContent = st.label;
     }
   });
+}
+
+// Proactive counterpart to _showSetupPreparing above: visible the moment the
+// dashboard loads if setup isn't done yet, not only after a student tries
+// Start exam too early and gets bounced. Reuses the exact same setup-state
+// source via _subscribeSetupState so both stay in sync.
+async function _initSetupBanner() {
+  if (!window.procta_native) return;
+  const banner = document.getElementById('setup-banner');
+  const labelEl = document.getElementById('setup-banner-label');
+  if (!banner || !labelEl) return;
+  const apply = (st) => {
+    if (!st || st.ready) { banner.style.display = 'none'; return; }
+    banner.style.display = 'flex';
+    labelEl.textContent = st.label || 'Preparing the AI exam environment…';
+  };
+  if (typeof window.procta_native.getSetupState === 'function') {
+    try { apply(await window.procta_native.getSetupState()); }
+    catch (e) { console.warn('[setup] getSetupState failed', e); }
+  }
+  if (typeof window.procta_native.onSetupState === 'function') {
+    _subscribeSetupState(apply);
+  }
 }
 
 // Modal dismiss: Escape key + backdrop click.

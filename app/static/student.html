@@ -607,6 +607,23 @@
     </div>
   </div>
 
+  <!-- Background AI-environment setup indicator. The lobby opens before
+       Python provisioning finishes (see main.js's boot comment) — exam
+       start was already gated on isSetupReady() via the reactive
+       "Preparing..." message _showSetupPreparing() shows when a student
+       clicks Start exam too early. This is the PROACTIVE counterpart:
+       visible the moment the dashboard loads (if setup isn't done yet),
+       not only after a failed start attempt, updated by the same
+       setup-state push. Hidden by default; _initSetupBanner() in
+       student-app.js shows/updates/hides it. -->
+  <div id="setup-banner" style="display:none;align-items:center;gap:10px;
+       background:var(--surface-1);border:1px solid var(--border-subtle);
+       border-radius:var(--radius-lg,10px);padding:10px 16px;margin-bottom:20px;
+       font-size:13px;color:var(--text-mid)">
+    <span class="spinner" aria-hidden="true"></span>
+    <span id="setup-banner-label">Preparing the AI exam environment…</span>
+  </div>
+
   <!-- Appeal modal -->
   <div class="modal-backdrop" id="appeal-modal">
     <div class="modal-card" style="max-width:440px">

@@ -60,6 +60,7 @@
       "app/static/tokens.css",
       "app/static/components.css",
       "app/static/_safe.js",
+      "app/static/_theme-default-light.js",
       "app/static/student-app.js",
       "app/static/favicon.svg",
       "app/static/favicon-16.png",

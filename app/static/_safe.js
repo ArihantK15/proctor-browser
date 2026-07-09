@@ -11,15 +11,23 @@
  * script is the flash-free, CSP-safe way). It reads the saved choice
  * from localStorage('procta_theme') and stamps data-theme so the very
  * first paint already uses it. Pages with no theme switch just inherit
- * the saved/dark theme harmlessly. The live switch (setTheme in
- * dashboard-app.js) writes the same key. */
+ * the fallback theme harmlessly. The live switch (setTheme in
+ * dashboard-app.js/student-app.js) writes the same key.
+ *
+ * Fallback (no saved choice yet) is 'dark' UNLESS a page opted into a
+ * different default by setting window.__PROCTA_DEFAULT_THEME__ via a
+ * small external script loaded before this one (see
+ * _theme-default-light.js — used by student.html so the Electron
+ * login/dashboard defaults to light without changing the teacher web
+ * dashboard's dark default, which shares this same file). */
 (function () {
+  var fallback = (window.__PROCTA_DEFAULT_THEME__ === 'light') ? 'light' : 'dark';
   try {
     var t = localStorage.getItem('procta_theme');
     var ok = { 'dark': 1, 'dark-oled': 1, 'light': 1 };
-    document.documentElement.setAttribute('data-theme', ok[t] ? t : 'dark');
+    document.documentElement.setAttribute('data-theme', ok[t] ? t : fallback);
   } catch (_) {
-    document.documentElement.setAttribute('data-theme', 'dark');
+    document.documentElement.setAttribute('data-theme', fallback);
   }
 })();
 

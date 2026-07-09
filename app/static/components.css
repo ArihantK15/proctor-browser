@@ -98,7 +98,14 @@ body {
   font-weight: 600;
   letter-spacing: var(--tracking-widest);
   text-transform: uppercase;
-  color: var(--text-muted);
+  /* Was var(--text-muted) — at 11px uppercase, --text-muted's already-subtle
+     contrast (tuned for placeholders/metadata, not section headings) reads
+     as nearly invisible, especially in light theme (54% lightness gray on a
+     near-white bg). --text-mid is the same "secondary, not primary" intent
+     but with meaningfully more contrast. Scoped to .section-title only —
+     --text-muted itself is left alone for the many places its subtlety is
+     intentional. */
+  color: var(--text-mid);
   margin-bottom: var(--space-5);
   display: flex;
   align-items: center;

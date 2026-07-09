@@ -25,6 +25,11 @@
 <link rel="stylesheet" href="/static/tokens.css">
 <link rel="stylesheet" href="/static/components.css">
 <link rel="stylesheet" href="/static/theme.css">
+<!-- Must load BEFORE _safe.js — sets window.__PROCTA_DEFAULT_THEME__ so the
+     Electron login/dashboard defaults to light instead of _safe.js's global
+     dark fallback (the teacher web dashboard, which shares _safe.js, is
+     unaffected since it doesn't load this script). -->
+<script src="/static/_theme-default-light.js"></script>
 <script src="/static/_safe.js"></script>
 <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
 <style>

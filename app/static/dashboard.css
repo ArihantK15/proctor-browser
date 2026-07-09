@@ -17,8 +17,12 @@ body.auth-active{overflow:hidden}
 body.auth-active > :not(#auth-checking):not(script):not(style){display:none !important}
 
 /* ── Exam Selector Bar ────────────────────────────────────────── */
+/* Vertical padding was 10px — barely more than the manage-group pill's own
+   7px internal padding, so the whole row read as cramped/no breathing room
+   at the top and bottom of the bar (reported after the pill itself became
+   visible enough to notice the tight margin around it). */
 .exam-bar{background:var(--card);border-bottom:1px solid var(--border);
-  padding:10px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  padding:16px 24px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .exam-bar select{background:rgba(255,255,255,0.05);border:1px solid var(--border);
   border-radius:8px;padding:7px 32px 7px 12px;color:var(--text);font-size:13px;
   font-family:var(--font-body);min-width:200px;cursor:pointer;

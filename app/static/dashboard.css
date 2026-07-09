@@ -54,11 +54,14 @@ body.auth-active > :not(#auth-checking):not(script):not(style){display:none !imp
 .exam-bar-select-group{gap:8px}
 /* padding was 4px 10px with a near-invisible rgba(255,255,255,.03) fill —
    too subtle to read as "these buttons are one group" versus each button's
-   own border, especially in light theme (see the override below). Given
-   more breathing room and a slightly stronger fill so the pill boundary is
-   unmistakable next to the individual .btn borders inside it. */
+   own border, in EITHER theme (a rgba(255,255,255,.045) dark-theme pass
+   was still too close to the surrounding dark background to read as a
+   distinct card — same complaint persisted). Switched to var(--surface-1),
+   the same real card-surface token every other grouped element in this
+   file uses (.tool-card, etc.), so it's an unmistakably distinct panel
+   against the page background rather than a barely-there tint. */
 .exam-bar-manage-group{gap:8px;padding:7px 14px;border-radius:12px;
-  background:rgba(255,255,255,0.045);border:1px solid var(--border-subtle)}
+  background:var(--surface-1);border:1px solid var(--border-subtle)}
 .exam-bar-manage-group #delete-exam-btn{margin-left:2px;padding-left:14px;
   border-left:1px solid var(--border-subtle)}
 .exam-bar-filter-group{gap:10px;margin-left:auto}
@@ -71,7 +74,7 @@ body.auth-active > :not(#auth-checking):not(script):not(style){display:none !imp
    <button> elements directly) unchanged. */
 .topbar-group{display:flex;align-items:center;gap:8px}
 .topbar-group-system{padding:7px 12px;border-radius:12px;
-  background:rgba(255,255,255,0.045);border:1px solid var(--border-subtle)}
+  background:var(--surface-1);border:1px solid var(--border-subtle)}
 .topbar-group-account{padding-left:14px;border-left:1px solid var(--border-subtle)}
 
 /* ── Create Exam Modal ───────────────────────────────────────── */

@@ -626,6 +626,12 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.cut_runtime_assets == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
+      # Without this, one leg failing (e.g. the Windows upload-step bug
+      # below, discovered on the first real run) cancels the OTHER
+      # still-running legs — a real mac-x64 build was cancelled mid-run
+      # this way, wasting a ~15min bake for no reason. Mirrors the `build`
+      # job above, which already sets this for the same reason.
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
@@ -660,6 +666,7 @@ jobs:
           if [ ! -f "${{ matrix.archive }}" ]; then echo "✗ ${{ matrix.archive }} not produced"; exit 1; fi
           echo "✓ $(sha256sum "${{ matrix.archive }}" 2>/dev/null || shasum -a 256 "${{ matrix.archive }}")"
       - name: Upload to the runtime-assets release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

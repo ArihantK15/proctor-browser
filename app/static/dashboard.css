@@ -682,16 +682,21 @@ tr:hover td{background:rgba(61,217,168,.04)}
    (kills the old asymmetric short-card-next-to-tall-card look). Cards marked
    grid-column:1/-1 still span the full row. */
 /* Balanced two-up bento. auto-fit capped at 2 columns: the minmax floor (460px)
-   against the 1040px max-width yields at most 2 tracks, so cards pair into
+   against the max-width yields at most 2 tracks, so cards pair into
    symmetric rows (align-items:stretch → a row's two cards are equal height).
    But auto-fit collapses the empty track when a category has a single card, so
    it spans full width instead of sitting lopsided at half. Never sprawls to 3
    columns (the old raggedness); auto-flow:dense backfills gaps left by
    full-width (grid-column:1/-1) cards. Collapses to one column on narrow
-   screens (media rules below). */
+   screens (media rules below).
+   max-width was 1040px, leaving a large dead gap on wider screens next to
+   the settings-nav rail — reported as "smaller coverage" of the available
+   space. Raised to 1320px (still comfortably under 3*460=1380, so the
+   2-column guarantee above holds at any width) to let cards actually use
+   the room instead of stopping well short of it. */
 .tools-grid{display:grid;
   grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));
-  grid-auto-flow:row dense;gap:var(--space-4);max-width:1040px;align-items:stretch}
+  grid-auto-flow:row dense;gap:var(--space-4);max-width:1320px;align-items:stretch}
 .tool-card{background:var(--surface-1);border:1px solid var(--border-subtle);
   border-radius:var(--radius-xl);
   padding:var(--space-5);display:flex;flex-direction:column;min-height:100%;
@@ -2024,6 +2029,13 @@ tbody tr:hover td{background:color-mix(in oklch,var(--accent) 5%, transparent)}
      underneath it, reading as "AM" with the icon eating into the text.
      Reserve enough left padding to clear the button (8px + 34px + a gap). */
   body.sidebar-collapsed .exam-bar{ padding-left:56px; }
+  /* Same collision as the exam-bar comment above, but for the panel title
+     itself: tightening .panel-header's top padding (see the "unexplained
+     gap" fix elsewhere in this file) pulled panel titles up close enough
+     to the top that the fixed hamburger now visually overlaps the first
+     letter(s) of "Student History" / "Good afternoon, ..." etc. on every
+     tab, not just ones with an exam-bar. */
+  body.sidebar-collapsed .panel-header{ padding-left:56px; }
   body.sidebar-collapsed .sidebar-expand{ display:flex; }
 }
 @media (min-width:1025px){

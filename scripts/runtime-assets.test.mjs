@@ -118,7 +118,7 @@ test('ensureRuntimeAssets: happy path downloads, verifies checksum, extracts, an
     currentConfig = {
       RUNTIME_ASSET_VERSION: '7',
       RUNTIME_ASSET_CHECKSUM_WIN: goodChecksum,
-      RUNTIME_ASSET_CHECKSUM_MAC: goodChecksum,
+      RUNTIME_ASSET_CHECKSUM_MAC_ARM64: goodChecksum, RUNTIME_ASSET_CHECKSUM_MAC_X64: goodChecksum,
       RUNTIME_ASSET_BASE_URL: `http://127.0.0.1:${port}/runtime-assets/`,
     };
     const { ensureRuntimeAssets, cacheDir } = freshRuntimeAssets();
@@ -152,7 +152,7 @@ test('ensureRuntimeAssets: second call is idempotent — cache already current, 
     currentConfig = {
       RUNTIME_ASSET_VERSION: '9',
       RUNTIME_ASSET_CHECKSUM_WIN: goodChecksum,
-      RUNTIME_ASSET_CHECKSUM_MAC: goodChecksum,
+      RUNTIME_ASSET_CHECKSUM_MAC_ARM64: goodChecksum, RUNTIME_ASSET_CHECKSUM_MAC_X64: goodChecksum,
       RUNTIME_ASSET_BASE_URL: `http://127.0.0.1:${port}/runtime-assets/`,
     };
 
@@ -179,7 +179,7 @@ test('ensureRuntimeAssets: checksum mismatch throws, writes no marker, leaves no
     currentConfig = {
       RUNTIME_ASSET_VERSION: '11',
       RUNTIME_ASSET_CHECKSUM_WIN: goodChecksum, // expects goodChecksum; server serves badBuf
-      RUNTIME_ASSET_CHECKSUM_MAC: goodChecksum,
+      RUNTIME_ASSET_CHECKSUM_MAC_ARM64: goodChecksum, RUNTIME_ASSET_CHECKSUM_MAC_X64: goodChecksum,
       RUNTIME_ASSET_BASE_URL: `http://127.0.0.1:${port}/runtime-assets/`,
     };
     const { ensureRuntimeAssets, cacheDir } = freshRuntimeAssets();

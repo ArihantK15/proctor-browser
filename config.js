@@ -382,7 +382,11 @@ const RUNTIME_ASSET_VERSION = '1';
 // so a real download would always fail the integrity check rather than
 // silently accept a mismatched or tampered archive.
 const RUNTIME_ASSET_CHECKSUM_WIN = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
-const RUNTIME_ASSET_CHECKSUM_MAC = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
+// arm64 and x64 archives contain different interpreter binaries — a single
+// shared MAC checksum constant would mean whichever arch's real checksum
+// ISN'T the one plugged in always fails verification. Split per-arch.
+const RUNTIME_ASSET_CHECKSUM_MAC_ARM64 = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
+const RUNTIME_ASSET_CHECKSUM_MAC_X64 = 'REPLACE_WITH_REAL_SHA256_AFTER_FIRST_UPLOAD';
 const RUNTIME_ASSET_BASE_URL =
   'https://github.com/ArihantK15/proctor-browser/releases/download/runtime-assets-v';
 
@@ -424,6 +428,7 @@ module.exports = {
   LOBBY_WIDTH, LOBBY_HEIGHT, LOBBY_MIN_W, LOBBY_MIN_H,
   EXAM_WIDTH, EXAM_HEIGHT,
   SETUP_WIDTH, SETUP_HEIGHT,
-  RUNTIME_ASSET_VERSION, RUNTIME_ASSET_CHECKSUM_WIN, RUNTIME_ASSET_CHECKSUM_MAC,
+  RUNTIME_ASSET_VERSION, RUNTIME_ASSET_CHECKSUM_WIN,
+  RUNTIME_ASSET_CHECKSUM_MAC_ARM64, RUNTIME_ASSET_CHECKSUM_MAC_X64,
   RUNTIME_ASSET_BASE_URL,
 };

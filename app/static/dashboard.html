@@ -319,14 +319,23 @@
     </div>
     <!-- Help — opens the getting-started tour (onboardOpen is a global, so the
          delegated data-action resolves it). Replaces the old JS-injected button
-         that landed top-left because it queried a non-existent .topbar-right. -->
-    <a class="btn btn-secondary btn-sm" href="https://status.procta.net" target="_blank" rel="noopener noreferrer" title="System status" aria-label="System status" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">
-      <span style="width:7px;height:7px;border-radius:50%;background:#10b981;flex-shrink:0" aria-hidden="true"></span>Status
-    </a>
-    <button class="btn btn-secondary btn-sm topbar-help" data-action="onboardOpen" title="Getting-started guide" aria-label="Help">?</button>
-    <button class="btn btn-secondary btn-sm" data-action="refreshAll">Refresh</button>
-    <a class="btn btn-ghost btn-sm" href="/privacy" target="_blank" rel="noopener" title="Export or delete your data — Privacy Center">Privacy</a>
-    <button class="btn btn-ghost topbar-logout btn-sm" data-action="doLogout">Logout</button>
+         that landed top-left because it queried a non-existent .topbar-right.
+         Grouped into topbar-group clusters (system vs. account) purely for
+         visual definition — display:contents at <=768px (see dashboard.css)
+         keeps every existing mobile grid rule targeting these elements by
+         class/id working unchanged, since the wrapper disappears from layout
+         at those widths. -->
+    <div class="topbar-group topbar-group-system">
+      <a class="btn btn-secondary btn-sm" href="https://status.procta.net" target="_blank" rel="noopener noreferrer" title="System status" aria-label="System status" style="display:inline-flex;align-items:center;gap:6px;text-decoration:none">
+        <span style="width:7px;height:7px;border-radius:50%;background:#10b981;flex-shrink:0" aria-hidden="true"></span>Status
+      </a>
+      <button class="btn btn-secondary btn-sm topbar-help" data-action="onboardOpen" title="Getting-started guide" aria-label="Help">?</button>
+      <button class="btn btn-secondary btn-sm" data-action="refreshAll">Refresh</button>
+    </div>
+    <div class="topbar-group topbar-group-account">
+      <a class="btn btn-ghost btn-sm" href="/privacy" target="_blank" rel="noopener" title="Export or delete your data — Privacy Center">Privacy</a>
+      <button class="btn btn-ghost topbar-logout btn-sm" data-action="doLogout">Logout</button>
+    </div>
   </div>
 </div>
 
@@ -554,20 +563,30 @@
   </div>
 </div>
 
-<!-- EXAM SELECTOR -->
+<!-- EXAM SELECTOR — grouped into exam-bar-group clusters (select / manage /
+     filter) purely for visual definition. display:contents at <=768px (see
+     dashboard.css) keeps every existing mobile grid rule targeting these
+     elements by class/id working unchanged, since the wrappers disappear
+     from layout at those widths. -->
 <div class="exam-bar" id="exam-bar" data-hide-for-admin style="display:none">
-  <span class="exam-label">Exam</span>
-  <select id="exam-select" data-change-action="_onExamSwitchWrap"></select>
-  <button class="btn btn-primary btn-sm" data-action="showCreateExamModal" style="height:32px;font-size:12px">+ New Exam</button>
-  <button class="btn btn-secondary btn-sm" data-action="duplicateCurrentExam" id="duplicate-exam-btn" style="height:32px;font-size:12px;display:none" title="Clone this exam's config + questions into a new exam">Duplicate</button>
-  <button class="btn btn-secondary btn-sm" data-action="archiveCurrentExam" id="archive-exam-btn" style="height:32px;font-size:12px;display:none">Archive</button>
-  <button class="btn btn-secondary btn-sm" data-action="unarchiveCurrentExam" id="unarchive-exam-btn" style="height:32px;font-size:12px;display:none">Unarchive</button>
-  <button class="btn btn-secondary btn-sm" data-action="confirmDeleteExam" id="delete-exam-btn" style="height:32px;font-size:12px;color:var(--red);display:none">Delete Exam</button>
-  <label class="archived-toggle" style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:11px;cursor:pointer;white-space:nowrap">
-    <input type="checkbox" id="show-archived-input" data-change-action="toggleShowArchived">
-    <span>Show archived</span>
-  </label>
-  <span class="exam-count" id="exam-count"></span>
+  <div class="exam-bar-group exam-bar-select-group">
+    <span class="exam-label">Exam</span>
+    <select id="exam-select" data-change-action="_onExamSwitchWrap"></select>
+  </div>
+  <div class="exam-bar-group exam-bar-manage-group">
+    <button class="btn btn-primary btn-sm" data-action="showCreateExamModal" style="height:32px;font-size:12px">+ New Exam</button>
+    <button class="btn btn-secondary btn-sm" data-action="duplicateCurrentExam" id="duplicate-exam-btn" style="height:32px;font-size:12px;display:none" title="Clone this exam's config + questions into a new exam">Duplicate</button>
+    <button class="btn btn-secondary btn-sm" data-action="archiveCurrentExam" id="archive-exam-btn" style="height:32px;font-size:12px;display:none">Archive</button>
+    <button class="btn btn-secondary btn-sm" data-action="unarchiveCurrentExam" id="unarchive-exam-btn" style="height:32px;font-size:12px;display:none">Unarchive</button>
+    <button class="btn btn-secondary btn-sm" data-action="confirmDeleteExam" id="delete-exam-btn" style="height:32px;font-size:12px;color:var(--red);display:none">Delete Exam</button>
+  </div>
+  <div class="exam-bar-group exam-bar-filter-group">
+    <label class="archived-toggle" style="display:inline-flex;align-items:center;gap:4px;font-size:11px;cursor:pointer;white-space:nowrap">
+      <input type="checkbox" id="show-archived-input" data-change-action="toggleShowArchived">
+      <span>Show archived</span>
+    </label>
+    <span class="exam-count" id="exam-count"></span>
+  </div>
 </div>
 
 <!-- CREATE EXAM MODAL -->

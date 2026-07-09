@@ -47,7 +47,7 @@ let _showArchived = false; // true once loadExams() has run (so the exam bar onl
 // / Delete bar is meaningless clutter on these, so it's hidden (see _syncExamBar).
 const _NON_EXAM_TABS = new Set([
   'history', 'org', 'security', 'members', 'billing', 'org-settings',
-  'all-orgs', 'issues', 'debug', 'profile', 'privacy',
+  'all-orgs', 'issues', 'debug', 'profile', 'privacy', 'overview',
 ]);
 function _syncExamBar(tab){
   const bar = document.getElementById('exam-bar');

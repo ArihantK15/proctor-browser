@@ -27,11 +27,14 @@ git history (not taken at face value from the tool):
 - `admin_coding.py` — 4 bug-fixes in 6 months; three functions
   (`upsert_coding_question`, `_clean_cases`, `_clean_options`) each flagged
   for complexity (CCN 15-17).
-- Smaller, concretely-verified issues: a bare `except:` in `coding.py:79`
-  that swallows `KeyboardInterrupt`/`SystemExit` along with real errors; two
-  silently-swallowed exceptions in `execsvc/microvm.py:135` and
-  `execsvc/runner.py:138`; an N+1 DB call inside `admin_coding.py`'s
-  question-upsert loop; ~20% code duplication in `coding.py` (a 29-line
+- Smaller, concretely-verified issues: two intentionally-swallowed
+  exceptions in `execsvc/microvm.py:135` (`proc.kill()` in a `finally`,
+  killing an already-dead process can raise) and `execsvc/runner.py:138`
+  (`os.unlink()` on a temp meta file in a `finally`) — both are
+  defensible best-effort cleanup, not bugs, but currently have zero
+  observability if they ever actually fire; an N+1 DB call inside
+  `admin_coding.py`'s question-upsert loop (one `INSERT` per test case,
+  up to 50); ~20% code duplication in `coding.py` (a 29-line
   clone).
 
 Correction to the raw tool signal: repowise flagged all four files as having
@@ -126,12 +129,11 @@ Concrete, verified failure modes and their fixes:
 
 | Failure mode | Current behavior | Fix |
 |---|---|---|
-| Bare `except:` in `coding.py:79` | Swallows everything, including `KeyboardInterrupt`/`SystemExit` | Narrow to the specific exception types actually expected there |
-| Swallowed exception in `execsvc/microvm.py:135` | Silent — no log, no signal to caller | Log with context + either re-raise or return an explicit failure result the caller can act on |
-| Swallowed exception in `execsvc/runner.py:138` | Same silent-swallow pattern | Same fix |
-| Sandbox subprocess spawn (`execsvc/runner.py:140`) | Blocking call on the request-reachable hot path | Verify a hard timeout is actually enforced end-to-end; if not, add one with a clear "execution timed out" result distinct from a crash or a hang |
+| Swallowed exception in `execsvc/microvm.py:135` (`proc.kill()` in `finally`) | Silent — correctly non-fatal (killing an already-dead process can raise) but zero observability if it ever fires | Add a debug-level log line; do NOT re-raise — re-raising from this `finally` would turn a successful run into a false failure over a harmless cleanup race |
+| Swallowed exception in `execsvc/runner.py:138` (`os.unlink()` in `finally`) | Same shape — correctly non-fatal, zero observability | Same fix: log, don't re-raise |
+| Sandbox subprocess spawn (`execsvc/runner.py:100,118,123,140`) | `isolate_cmd.py` confirms `--time`/`--wall-time` ARE passed to isolate, so the sandboxed program's timeout is genuinely enforced already (verified, not assumed) — but the outer `subprocess.run()` calls that invoke `isolate` itself have no Python-level `timeout=` | Add a defense-in-depth `timeout=` to the outer `subprocess.run` calls (wall_ms + a small buffer), guarding against `isolate` itself failing to self-terminate — narrower and lower-priority than originally framed, since the primary timeout already works |
 | N+1 DB call in `admin_coding.py`'s `upsert_coding_question` loop | One DB round-trip per test case being saved | Batch into a single query |
-| ~20% code duplication in `coding.py` (29-line clone) | Two near-identical blocks that can silently drift apart over time | Extract into a shared helper function |
+| ~20% code duplication in `coding.py` (29-line clone) | `coding_run` and `admin_coding_preview_run` independently implement the same sample-case-execution loop (fetch cases → run each → compare → build result list) | Extract a shared `_run_sample_cases(question_id, language, source, time_limit_ms)` helper; each endpoint keeps its own distinct auth/ownership check, only the execution loop is shared |
 
 Each guardrail fix gets a test exercising the specific failure mode it
 addresses (e.g., a test that a KeyboardInterrupt-shaped exception is no
@@ -161,9 +163,9 @@ files first).
   regression test.
 - `coding_judge` and `run_in_isolate` are refactored with characterization
   tests passing before and after.
-- All 6 verified guardrail gaps (bare except, 2 swallowed exceptions, sandbox
-  timeout verification, N+1 query, code duplication) are closed, each with a
-  dedicated test.
+- All 5 verified guardrail gaps (2 swallowed-exception log additions, the
+  defense-in-depth outer subprocess timeout, the N+1 query, the code
+  duplication) are closed, each with a dedicated test.
 - Full existing test suite (currently 2570+ passing) still passes with zero
   regressions throughout, checked incrementally per file, not just at the end.
 - Nothing is force-pushed, destructively reset, or left in a broken

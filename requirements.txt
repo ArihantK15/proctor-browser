@@ -33,8 +33,13 @@ python-json-logger>=4.1.0
 # Classroom endpoint (ModuleNotFoundError on the first lazy service import).
 google-auth-oauthlib>=1.4.0
 google-api-python-client>=2.100.0
+# httplib2 is a transitive dep (via google-api-python-client/google-auth-httplib2)
+# pinned here directly to clear PYSEC-2026-3444 (pip-audit) - 0.31.2 was vulnerable.
+httplib2>=0.32.0
 
-pillow>=12.2.0
+# 12.2.0 was vulnerable to 8 CVEs (PYSEC-2026-2253/2254/2255/2256/2257/3451/3452/3453),
+# all fixed in 12.3.0 - flagged by CI's pip-audit gate.
+pillow>=12.3.0
 
 # 2FA — pyotp removed 2026-05-23 (email-OTP via email_otp.py replaces TOTP).
 # bcrypt is still used to hash email-OTP codes and backup-code remnants.

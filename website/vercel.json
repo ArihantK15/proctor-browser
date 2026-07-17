@@ -1,7 +1,9 @@
 {
   "cleanUrls": true,
   "trailingSlash": false,
+  "buildCommand": "mkdir -p paused_output && cp public/paused.html paused_output/index.html",
+  "outputDirectory": "paused_output",
   "rewrites": [
-    { "source": "/(.*)", "destination": "/paused.html" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

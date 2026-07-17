@@ -61,9 +61,15 @@ python-pptx>=1.0.2      # MIT — PPTX text extraction (AI-questions-from-notes)
 boto3>=1.35.0
 starlette>=1.1.0  # CVE-2026-48817/48818 — pinned floor; pip-compile validates vs fastapi
 
-# tests/test_proctor.py imports this directly (proctor.py's own pure-logic
-# tests) — requirements-proctor.txt already pins it for the Electron app's
-# runtime, but CI's requirements.lock is compiled from this file only, so it
-# needs to be declared here too or the "tests / pytest" CI leg can't even
-# collect test_proctor.py (matches the same failure mode boto3 hit, 87191531).
+# tests/test_proctor.py imports these two directly (proctor.py's own
+# pure-logic tests) — requirements-proctor.txt already pins them for the
+# Electron app's runtime, but CI's requirements.lock is compiled from this
+# file only, so they need to be declared here too or the "tests / pytest"
+# CI leg can't even collect test_proctor.py (matches the same failure mode
+# boto3 hit, 87191531). Confirmed proctor.py's only *module-level* imports
+# beyond stdlib/requests are cv2 and numpy - the heavier ML stack
+# (uniface/onnxruntime/insightface/vosk/sounddevice) is lazy-imported
+# inside functions, so none of that needs to exist in this Docker-image-
+# facing requirements file.
 numpy>=1.24.0,<3
+opencv-python>=4.13.0.92,<5

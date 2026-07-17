@@ -123,9 +123,13 @@ lxml==6.1.1
 multidict==6.7.1
     # via yarl
 numpy==2.5.1
-    # via -r requirements.txt
+    # via
+    #   -r requirements.txt
+    #   opencv-python
 oauthlib==3.3.1
     # via requests-oauthlib
+opencv-python==4.13.0.92
+    # via -r requirements.txt
 openpyxl==3.1.5
     # via -r requirements.txt
 packaging==26.2

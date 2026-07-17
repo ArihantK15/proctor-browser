@@ -1,17 +1,10 @@
-# ── Global options ──────────────────────────────────────────────
-# When Procta sits behind Cloudflare, every TCP connection lands
-# from a Cloudflare edge IP. Without this block, every request would
-# look like it came from one of ~15 IPs, breaking IP-based rate
-# limits, lockouts, and audit logs.
-#
-# `trusted_proxies` tells Caddy to trust the `CF-Connecting-IP`
-# header (which Cloudflare always sets to the real client IP) ONLY
-# when the request actually came from a Cloudflare range. Anyone
-# spoofing the header from outside is ignored.
-#
-# IP ranges are kept fresh by the `cloudflare-ips` module if you
-# build a custom Caddy image — otherwise the static list below is
-# updated by Cloudflare ~once a year (https://www.cloudflare.com/ips/).
+# ── Procta paused: maintenance-mode Caddyfile ──────────────────────
+# Replaces the full application routing (backed up alongside this file
+# as Caddyfile.pre-pause-backup-<date> on the server) with a single
+# static holding page served for every path on app.procta.net. No
+# proxying to the api/dashboard containers happens from here - they
+# keep running underneath (untouched), this just stops routing public
+# traffic to them.
 {
     servers {
         trusted_proxies static \
@@ -44,164 +37,14 @@
 app.procta.net {
     encode gzip
 
-    # ── Rate limiting ─────────────────────────────────────────────────
-    # Caddy-level rate limiting REMOVED 2026-05-14 because the
-    # `rate_limit` directive comes from the third-party caddy-ratelimit
-    # plugin (mholt/caddy-ratelimit) which the stock caddy:2-alpine
-    # image doesn't include. The Caddyfile referenced it without a
-    # matching custom image, which crash-looped Caddy.
-    #
-    # The application layer already enforces per-endpoint rate limits
-    # via slowapi — 51 `@limiter.limit(...)` decorators in auth.py
-    # alone (signup: 5/hour, login: 10/minute, password-reset:
-    # 3/minute, OTP request: 3/10min, etc). That's defence at the
-    # right layer.
-    #
-    # To re-enable Caddy-level rate limiting (useful for edge IP-ban
-    # before requests hit the app), switch docker-compose.yml to:
-    #     image: ghcr.io/mholt/caddy-ratelimit:latest
-    # or build a custom Caddy image with `caddy build` + the plugin.
-    # Until then, do NOT add `rate_limit` directives here.
-
-    # ── Global security headers ──────────────────────────────────────
     header {
-        # HSTS: force HTTPS for 1 year
         Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        # Prevent clickjacking
         X-Frame-Options "DENY"
-        # Block MIME sniffing
         X-Content-Type-Options "nosniff"
-        # Referrer policy: only send origin on cross-origin requests
         Referrer-Policy "strict-origin-when-cross-origin"
-        # Prevent other sites from embedding our resources
-        X-Permitted-Cross-Domain-Policies "none"
-        # Isolate this origin from others (mitigates Spectre-style attacks)
-        # but ALLOW popups to cross-origin destinations (Razorpay
-        # Standard Checkout, OAuth providers) to talk back via
-        # window.opener. With strict `same-origin`, Razorpay's
-        # Netbanking / 3DS popup completes auth but can't post the
-        # result back to the parent — user sees a blank tab + the
-        # payment modal hangs and eventually shows "Payment failed".
-        # `same-origin-allow-popups` is the documented Razorpay-
-        # compatible setting.
-        Cross-Origin-Opener-Policy "same-origin-allow-popups"
     }
 
-    # ── React dashboard bundle: served by FastAPI from the IMAGE ───────
-    # The dashboard-react build is gitignored and exists ONLY inside the
-    # api image (Dockerfile COPY --from=uibuilder). The /srv host
-    # bind-mount Caddy serves below does NOT contain it on a fresh
-    # checkout — and even after a manual `docker cp` the host copy drifts
-    # out of sync with the image whenever a new image is built. Because
-    # FastAPI serves the React index.html from the image (via
-    # _static_html_response), every Vite-hashed chunk that index.html
-    # imports MUST come from the SAME image, or the import 404s and the
-    # SPA renders a blank #root / "Something went wrong" ErrorBoundary.
-    #
-    # Routing these to api:8000 (FastAPI's StaticFiles mount at /static)
-    # makes index.html + all hashed chunks a single atomic source = the
-    # image. This MUST appear before @assets below, since Caddy evaluates
-    # `handle` blocks in written order and @assets (path *.js *.css) would
-    # otherwise short-circuit these to the host file_server.
-    handle /static/dashboard-react/* {
-        reverse_proxy api:8000 {
-            flush_interval -1
-            transport http {
-                keepalive 30s
-                keepalive_idle_conns 200
-                keepalive_idle_conns_per_host 200
-                dial_timeout 5s
-                response_header_timeout 30s
-            }
-        }
-    }
-
-    # ── Static CSS / JS / SVG / favicon ────────────────────────────────
-    # Serve pre-compressed .gz variants when available. Caddy falls back
-    # to on-the-fly gzip for other assets.
-    #
-    # NOTE: `.html` was dropped from this matcher 2026-05-24. With it
-    # present, Caddy was somehow matching `/dashboard` (likely via
-    # file_server's try_files behaviour appending .html). That kept the
-    # short-circuit alive even after the explicit `handle /dashboard`
-    # blocks were removed in 1e46c76. HTML pages MUST go through
-    # FastAPI so SecurityHeadersMiddleware applies CSP and
-    # _stamp_static_urls injects ?v=<build_ts> cache-busting.
-    @assets path *.css *.js *.svg *.ico
-    handle @assets {
-        root * /srv
-        file_server
-        header Cache-Control "no-cache, must-revalidate"
-    }
-    # student-dashboard.html must go through FastAPI (CSP + cache-bust) like
-    # every other HTML page. It shipped straight into /static/ on 2026-07-01
-    # and missed the 2026-05-24 fix below — the generic `handle /static/*`
-    # block was still short-circuiting it to file_server with no CSP header.
-    # Redirect the old URL to the real route; new links should use it directly.
-    # Uses an explicit `handle` (not a bare `redir`) so it's evaluated in
-    # written order alongside @assets / /static/* below — a bare `redir`
-    # gets reordered by Caddy's implicit directive order instead.
-    handle /static/student-dashboard.html {
-        # `redir /student-dashboard permanent` is AMBIGUOUS to Caddy's parser —
-        # it can't tell whether `/student-dashboard` is a path-matcher or the
-        # destination, and silently resolved to a no-op (200 + empty body,
-        # confirmed live 2026-07-01). The bare `*` matcher removes the
-        # ambiguity: 3 tokens = matcher, destination, code.
-        redir * /student-dashboard permanent
-    }
-
-    # ── Other static (images, fonts, downloads) — fine to cache hard ──
-    handle /static/* {
-        root * /srv
-        file_server
-        header Cache-Control "public, max-age=86400"
-    }
-
-    # ── HTML pages now served by FastAPI ──
-    # Previously Caddy short-circuited /dashboard, /download, etc.
-    # straight to file_server. That bypassed FastAPI's middleware chain
-    # so the Content-Security-Policy header never got applied and the
-    # `?v=<build>` cache-busting in _stamp_static_urls (public.py)
-    # never ran — confirmed by `curl -D - https://app.procta.net/dashboard`
-    # missing the CSP header that JSON endpoints carry.
-    # Removed 2026-05-24. The catch-all reverse_proxy at the bottom now
-    # routes these to FastAPI's _static_html_response which:
-    #   - adds CSP / X-Frame-Options / Permissions-Policy via
-    #     SecurityHeadersMiddleware
-    #   - injects ?v=<build_ts> into <link>/<script> src so every API
-    #     restart busts stale CSS/JS caches
-    # Cache-Control no-cache for these pages is set by FastAPI directly
-    # (see _static_html_response).
-
-    # Vite-hashed React bundle assets. `root * /srv/static` (not the
-    # subdir) means the URL path `/student-react/assets/foo.js` maps to
-    # the file `/srv/static/student-react/assets/foo.js` — Caddy's `root`
-    # does NOT strip the URL prefix, so previously this 404'd for every
-    # asset. The bare /student-react (without trailing slash) falls
-    # through to FastAPI which serves the index.html through the full
-    # middleware chain (CSP, cache-bust, etc.).
-    handle /student-react/* {
-        root * /srv/static
-        file_server
-        header Cache-Control "public, max-age=86400"
-    }
-
-    # ── Everything else: API ──
-    handle {
-        reverse_proxy api:8000 {
-            flush_interval -1
-            # Connection pool tuning for high-VU load (2026-05-22):
-            # Default Caddy upstream pool is tiny — under load it
-            # reopens TCP+keepalive to api on most requests, wasting
-            # ~5ms per. Bumping max_idle_conns_per_host to 200 lets
-            # Caddy reuse a warm pool against the api container.
-            transport http {
-                keepalive 30s
-                keepalive_idle_conns 200
-                keepalive_idle_conns_per_host 200
-                dial_timeout 5s
-                response_header_timeout 30s
-            }
-        }
-    }
+    root * /srv/static
+    rewrite * /paused.html
+    file_server
 }

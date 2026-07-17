@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Procta</title>
+<style>
+  :root {
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #05070d;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+    overflow: hidden;
+  }
+
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    filter: blur(6px) saturate(0.9);
+    opacity: 0.9;
+    pointer-events: none;
+    user-select: none;
+  }
+
+  .backdrop-inner {
+    max-width: 900px;
+    padding: 40px;
+    text-align: center;
+  }
+
+  .backdrop-badge {
+    display: inline-block;
+    padding: 8px 20px;
+    border: 1px solid rgba(129, 140, 248, 0.4);
+    border-radius: 999px;
+    color: #818cf8;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    margin-bottom: 28px;
+  }
+
+  .backdrop-eyebrow {
+    color: #818cf8;
+    font-size: 15px;
+    letter-spacing: 0.25em;
+    font-weight: 700;
+    margin-bottom: 14px;
+  }
+
+  .backdrop h1 {
+    font-size: 56px;
+    line-height: 1.15;
+    font-weight: 800;
+    color: #f5f5f7;
+    margin: 0;
+  }
+
+  .backdrop h1 span {
+    color: #818cf8;
+  }
+
+  .backdrop p {
+    margin-top: 28px;
+    color: #9ca3af;
+    font-size: 18px;
+    line-height: 1.6;
+  }
+
+  .vignette {
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at center, rgba(5,7,13,0.2) 0%, rgba(5,7,13,0.75) 65%, rgba(5,7,13,0.95) 100%);
+    pointer-events: none;
+  }
+
+  .stage {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .card {
+    position: relative;
+    max-width: 520px;
+    width: 100%;
+    background: rgba(15, 18, 28, 0.72);
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 20px;
+    padding: 44px 40px;
+    text-align: center;
+    backdrop-filter: blur(20px) saturate(1.2);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.02) inset;
+    animation: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(14px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .mark {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #818cf8, #6366f1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 20px;
+    color: #fff;
+    margin: 0 auto 24px;
+  }
+
+  .card h2 {
+    color: #f5f5f7;
+    font-size: 22px;
+    font-weight: 700;
+    margin: 0 0 16px;
+    letter-spacing: -0.01em;
+  }
+
+  .card p {
+    color: #9ca3af;
+    font-size: 15.5px;
+    line-height: 1.65;
+    margin: 0 0 8px;
+  }
+
+  .card p + p {
+    margin-top: 10px;
+  }
+
+  .contact {
+    margin-top: 26px;
+    padding-top: 22px;
+    border-top: 1px solid rgba(148, 163, 184, 0.14);
+  }
+
+  .contact a {
+    color: #a5b4fc;
+    font-size: 15px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .contact a:hover {
+    text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+
+  <div class="backdrop" aria-hidden="true">
+    <div class="backdrop-inner">
+      <div class="backdrop-badge">BUILT FOR INDIAN COLLEGES, COACHING INSTITUTES, AND EXAM CELLS</div>
+      <div class="backdrop-eyebrow">REMOTE EXAMS. REAL RESULTS.</div>
+      <h1>Run remote exams.<br>Proctor with <span>evidence.</span></h1>
+      <p>Procta Secure Browser, on-device AI proctoring, phone-camera room scan, live teacher dashboard.</p>
+    </div>
+  </div>
+
+  <div class="vignette" aria-hidden="true"></div>
+
+  <div class="stage">
+    <div class="card">
+      <div class="mark">P</div>
+      <h2>Thank you for checking us out.</h2>
+      <p>Procta development is currently paused.</p>
+      <p>We apologise for the inconvenience.</p>
+      <div class="contact">
+        <a href="mailto:arihantkaul@outlook.com">arihantkaul@outlook.com</a>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

@@ -122,6 +122,8 @@ lxml==6.1.1
     #   python-pptx
 multidict==6.7.1
     # via yarl
+numpy==2.5.1
+    # via -r requirements.txt
 oauthlib==3.3.1
     # via requests-oauthlib
 openpyxl==3.1.5

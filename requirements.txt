@@ -60,3 +60,10 @@ python-pptx>=1.0.2      # MIT — PPTX text extraction (AI-questions-from-notes)
 # AWS S3 SDK — encrypted screenshot storage (Workstream B, ap-south-1)
 boto3>=1.35.0
 starlette>=1.1.0  # CVE-2026-48817/48818 — pinned floor; pip-compile validates vs fastapi
+
+# tests/test_proctor.py imports this directly (proctor.py's own pure-logic
+# tests) — requirements-proctor.txt already pins it for the Electron app's
+# runtime, but CI's requirements.lock is compiled from this file only, so it
+# needs to be declared here too or the "tests / pytest" CI leg can't even
+# collect test_proctor.py (matches the same failure mode boto3 hit, 87191531).
+numpy>=1.24.0,<3

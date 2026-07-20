@@ -15,15 +15,15 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@sentry/react": "^10.58.0",
+    "@sentry/react": "^10.67.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
-    "@vitejs/plugin-react": "^6.0.2",
-    "eslint": "^9.0.0",
+    "@eslint/js": "^9.39.5",
+    "@vitejs/plugin-react": "^6.0.3",
+    "eslint": "^9.39.5",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "vite": "^8.0.16"
+    "vite": "^8.1.5"
   }
 }

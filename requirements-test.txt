@@ -11,7 +11,7 @@
 # numpy.random.seed(), which rejects seeds >= 2**32. The crash is
 # neutralised by the numpy-seed clamp in the repo-root conftest.py; these
 # pins stop the toolchain from drifting back into the surprise silently.
-pytest==9.1.0
+pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0
 pytest-randomly==4.1.0

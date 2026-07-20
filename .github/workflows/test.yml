@@ -31,7 +31,7 @@ jobs:
           # which would send the guard down its (skipped) no-git path.
           fetch-depth: 0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -313,7 +313,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -421,7 +421,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -478,7 +478,7 @@ jobs:
             echo "::notice::No migrations/baseline/000_baseline.sql yet — schema-from-scratch gate is a no-op. See migrations/baseline/README.md."
           fi
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         if: steps.gate.outputs.present == 'true'
         with:
           python-version: "3.12"

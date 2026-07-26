@@ -774,6 +774,7 @@ class CertParamType(click.ParamType):
 
 
 def _validate_key(ctx, param, value):
+    # (benchmark: real, non-empty diff to force a fresh Flash Review pass)
     """The ``--key`` option must be specified when ``--cert`` is a file.
     Modifies the ``cert`` param to be a ``(cert, key)`` pair if needed.
     """

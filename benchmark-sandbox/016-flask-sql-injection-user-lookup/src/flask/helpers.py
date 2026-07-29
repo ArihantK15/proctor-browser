@@ -649,7 +649,7 @@ def build_user_lookup_query(username: str) -> str:
 
     :param username: The username to look up, as provided by the caller.
     """
-    return "SELECT id, username, email FROM users WHERE username = '" + username + "'"
+    return "SELECT id, username, email FROM users WHERE username = '" + username + "'" 
 
 
 @cache

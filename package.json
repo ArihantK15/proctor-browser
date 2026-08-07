@@ -35,7 +35,7 @@
   },
   "overrides": {
     "form-data": "^4.0.6",
-    "js-yaml": "^4.2.0",
+    "js-yaml": "^4.3.1",
     "@opentelemetry/core": "^2.8.0"
   },
   "build": {

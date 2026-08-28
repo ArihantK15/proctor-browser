@@ -43,7 +43,7 @@ pillow>=12.3.0
 
 # 2FA — pyotp removed 2026-05-23 (email-OTP via email_otp.py replaces TOTP).
 # bcrypt is still used to hash email-OTP codes and backup-code remnants.
-bcrypt>=4.0.0
+bcrypt>=5.0.0
 asyncpg>=0.31.0
 cryptography>=48.0.1
 # Pin pyjwt explicitly even though supabase-auth pulls it transitively
